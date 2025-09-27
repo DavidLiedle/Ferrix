@@ -452,6 +452,214 @@ async fn handle_message(
             Ok(Some(ServerMessage::Pong))
         }
 
+        ClientMessage::CreateWindow { name } => {
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+                        match session_guard.create_window(name.clone()).await {
+                            Ok(window_id) => {
+                                Ok(Some(ServerMessage::WindowCreated {
+                                    window_id,
+                                    name: name.unwrap_or_else(|| "window".to_string()),
+                                }))
+                            }
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to create window: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::SwitchWindow { window_id } => {
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+                        match session_guard.switch_window(window_id.clone()).await {
+                            Ok(()) => {
+                                Ok(Some(ServerMessage::WindowSwitched { window_id }))
+                            }
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to switch window: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::CloseWindow { window_id } => {
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+                        match session_guard.close_window(window_id.clone()).await {
+                            Ok(()) => {
+                                Ok(Some(ServerMessage::WindowClosed { window_id }))
+                            }
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to close window: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::SplitPane { direction } => {
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+                        match session_guard.split_pane(direction).await {
+                            Ok(pane_id) => {
+                                Ok(Some(ServerMessage::PaneCreated { pane_id }))
+                            }
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to split pane: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::SwitchPane { pane_id } => {
+            Ok(Some(ServerMessage::PaneSwitched { pane_id }))
+        }
+
+        ClientMessage::NavigatePane { direction } => {
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+
+                        use crate::protocol::messages::PaneNavigationDirection;
+                        use layout::NavigationDirection;
+
+                        let nav_direction = match direction {
+                            PaneNavigationDirection::Up => NavigationDirection::Up,
+                            PaneNavigationDirection::Down => NavigationDirection::Down,
+                            PaneNavigationDirection::Left => NavigationDirection::Left,
+                            PaneNavigationDirection::Right => NavigationDirection::Right,
+                        };
+
+                        match session_guard.navigate_pane(nav_direction).await {
+                            Ok(()) => Ok(None),
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to navigate pane: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::ClosePane { pane_id } => {
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+                        match session_guard.close_pane(pane_id.clone()).await {
+                            Ok(()) => {
+                                Ok(Some(ServerMessage::PaneClosed { pane_id }))
+                            }
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to close pane: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::ResizePane { direction, amount } => {
+            Ok(Some(ServerMessage::Error {
+                message: format!("Pane resizing not yet implemented (direction: {:?}, amount: {})", direction, amount),
+            }))
+        }
+
         _ => {
             warn!("Unhandled message type: {:?}", message);
             Ok(Some(ServerMessage::Error {

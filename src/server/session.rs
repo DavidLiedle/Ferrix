@@ -3,10 +3,11 @@ use tokio::sync::RwLock;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::error::Result;
-use crate::protocol::{SessionId, WindowId, PaneId};
+use crate::error::{Result, FerrixError};
+use crate::protocol::{SessionId, WindowId, PaneId, SplitDirection};
 use super::window::Window;
 use super::snapshot::{SessionSnapshot, SnapshotMetadata, SessionState, WindowState, PaneState};
+use super::layout::NavigationDirection;
 
 pub struct Session {
     pub id: SessionId,
@@ -72,6 +73,144 @@ impl Session {
             }
         }
         Ok(None)
+    }
+
+    pub async fn create_window(&mut self, name: Option<String>) -> Result<WindowId> {
+        let window_id = WindowId(Uuid::new_v4());
+        let window_name = name.unwrap_or_else(|| format!("window-{}", self.windows.len()));
+        let new_window = Window::new(window_id.clone(), window_name);
+
+        self.windows.push(Arc::new(RwLock::new(new_window)));
+        self.current_window = Some(window_id.clone());
+
+        Ok(window_id)
+    }
+
+    pub async fn switch_window(&mut self, window_id: WindowId) -> Result<()> {
+        for window in &self.windows {
+            let window_guard = window.read().await;
+            if window_guard.id == window_id {
+                self.current_window = Some(window_id);
+                return Ok(());
+            }
+        }
+        Err(FerrixError::WindowNotFound(format!("{:?}", window_id)))
+    }
+
+    pub async fn close_window(&mut self, window_id: WindowId) -> Result<()> {
+        if self.windows.len() <= 1 {
+            return Err(FerrixError::Other("Cannot close last window".to_string()));
+        }
+
+        let mut window_index = None;
+        for (i, window) in self.windows.iter().enumerate() {
+            let window_guard = window.read().await;
+            if window_guard.id == window_id {
+                window_index = Some(i);
+                break;
+            }
+        }
+
+        if let Some(index) = window_index {
+            self.windows.remove(index);
+
+            // Update current window if needed
+            if self.current_window == Some(window_id) {
+                if let Some(first_window) = self.windows.first() {
+                    let window_guard = first_window.read().await;
+                    self.current_window = Some(window_guard.id.clone());
+                }
+            }
+            Ok(())
+        } else {
+            Err(FerrixError::WindowNotFound(format!("{:?}", window_id)))
+        }
+    }
+
+    pub async fn next_window(&mut self) -> Result<()> {
+        if self.windows.len() <= 1 {
+            return Ok(());
+        }
+
+        if let Some(current_id) = &self.current_window {
+            for (i, window) in self.windows.iter().enumerate() {
+                let window_guard = window.read().await;
+                if window_guard.id == *current_id {
+                    let next_index = (i + 1) % self.windows.len();
+                    let next_window = &self.windows[next_index];
+                    let next_guard = next_window.read().await;
+                    self.current_window = Some(next_guard.id.clone());
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn previous_window(&mut self) -> Result<()> {
+        if self.windows.len() <= 1 {
+            return Ok(());
+        }
+
+        if let Some(current_id) = &self.current_window {
+            for (i, window) in self.windows.iter().enumerate() {
+                let window_guard = window.read().await;
+                if window_guard.id == *current_id {
+                    let prev_index = if i == 0 { self.windows.len() - 1 } else { i - 1 };
+                    let prev_window = &self.windows[prev_index];
+                    let prev_guard = prev_window.read().await;
+                    self.current_window = Some(prev_guard.id.clone());
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn split_pane(&mut self, direction: SplitDirection) -> Result<PaneId> {
+        if let Some(current_window_id) = &self.current_window {
+            for window in &self.windows {
+                let window_guard = window.read().await;
+                if window_guard.id == *current_window_id {
+                    let current_pane = window_guard.current_pane.clone();
+                    drop(window_guard);
+
+                    if let Some(pane_id) = current_pane {
+                        let mut window_guard = window.write().await;
+                        return window_guard.split_pane(&pane_id, direction).await;
+                    }
+                }
+            }
+        }
+        Err(FerrixError::Other("No current window".to_string()))
+    }
+
+    pub async fn navigate_pane(&mut self, direction: NavigationDirection) -> Result<()> {
+        if let Some(current_window_id) = &self.current_window {
+            for window in &self.windows {
+                let window_guard = window.read().await;
+                if window_guard.id == *current_window_id {
+                    drop(window_guard);
+                    let mut window_guard = window.write().await;
+                    return window_guard.navigate_pane(direction).await;
+                }
+            }
+        }
+        Err(FerrixError::Other("No current window".to_string()))
+    }
+
+    pub async fn close_pane(&mut self, pane_id: PaneId) -> Result<()> {
+        if let Some(current_window_id) = &self.current_window {
+            for window in &self.windows {
+                let window_guard = window.read().await;
+                if window_guard.id == *current_window_id {
+                    drop(window_guard);
+                    let mut window_guard = window.write().await;
+                    return window_guard.close_pane(&pane_id).await;
+                }
+            }
+        }
+        Err(FerrixError::Other("No current window".to_string()))
     }
 
     pub fn create_snapshot(&self, name: Option<String>, description: Option<String>) -> SessionSnapshot {
