@@ -64,6 +64,12 @@ battery = "0.7"
 # Git integration for status bar
 git2 = "0.19"
 
+# Compression for snapshots
+flate2 = "1.0"
+
+# Checksum for snapshots
+md5 = "0.7"
+
 [dev-dependencies]
 criterion = "0.5"
 tempfile = "3.14"

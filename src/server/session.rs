@@ -4,8 +4,9 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::error::Result;
-use crate::protocol::{SessionId, WindowId};
+use crate::protocol::{SessionId, WindowId, PaneId};
 use super::window::Window;
+use super::snapshot::{SessionSnapshot, SnapshotMetadata, SessionState, WindowState, PaneState};
 
 pub struct Session {
     pub id: SessionId,
@@ -71,5 +72,49 @@ impl Session {
             }
         }
         Ok(None)
+    }
+
+    pub fn create_snapshot(&self, name: Option<String>, description: Option<String>) -> SessionSnapshot {
+        let metadata = SnapshotMetadata {
+            id: Uuid::new_v4(),
+            name: name.unwrap_or_else(|| format!("{}_snapshot", self.name)),
+            description: description.unwrap_or_else(|| format!("Snapshot of session {}", self.name)),
+            created_at: Utc::now(),
+            ferrix_version: env!("CARGO_PKG_VERSION").to_string(),
+            checksum: None,
+        };
+
+        let session_state = SessionState {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            current_window: self.current_window.clone(),
+            created_at: self.created_at,
+            environment: std::env::vars().collect(),
+        };
+
+        // TODO: Properly gather window and pane states from actual windows
+        let windows = Vec::new();
+        let panes = Vec::new();
+
+        SessionSnapshot {
+            metadata,
+            session: session_state,
+            windows,
+            panes,
+        }
+    }
+
+    pub fn from_snapshot(snapshot: SessionSnapshot) -> Self {
+        // TODO: Properly restore windows and panes from snapshot
+        let window_id = WindowId(Uuid::new_v4());
+        let default_window = Window::new(window_id.clone(), "bash".to_string());
+
+        Self {
+            id: snapshot.session.id,
+            name: snapshot.session.name,
+            windows: vec![Arc::new(RwLock::new(default_window))],
+            current_window: snapshot.session.current_window.or(Some(window_id)),
+            created_at: snapshot.session.created_at,
+        }
     }
 }

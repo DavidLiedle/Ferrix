@@ -58,6 +58,18 @@ pub enum ClientMessage {
         direction: ResizeDirection,
         amount: i16,
     },
+    SaveSnapshot {
+        session_id: SessionId,
+        name: Option<String>,
+        description: Option<String>,
+    },
+    LoadSnapshot {
+        path: std::path::PathBuf,
+    },
+    ListSnapshots,
+    DeleteSnapshot {
+        path: std::path::PathBuf,
+    },
     Ping,
 }
 
@@ -99,6 +111,18 @@ pub enum ServerMessage {
     PaneClosed {
         pane_id: PaneId,
     },
+    SnapshotSaved {
+        path: std::path::PathBuf,
+    },
+    SnapshotLoaded {
+        session_id: SessionId,
+    },
+    SnapshotList {
+        snapshots: Vec<SnapshotInfo>,
+    },
+    SnapshotDeleted {
+        path: std::path::PathBuf,
+    },
     Error {
         message: String,
     },
@@ -134,4 +158,14 @@ pub enum ResizeDirection {
     Down,
     Left,
     Right,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotInfo {
+    pub path: std::path::PathBuf,
+    pub name: String,
+    pub description: String,
+    pub session_name: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub size: u64,
 }

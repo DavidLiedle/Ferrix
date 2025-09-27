@@ -3,6 +3,7 @@ pub mod window;
 pub mod pane;
 pub mod pty;
 pub mod layout;
+pub mod snapshot;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -15,8 +16,9 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::error::{FerrixError, Result};
-use crate::protocol::{ClientMessage, FerrixCodec, ServerMessage, SessionId, ClientId, SessionInfo};
+use crate::protocol::{ClientMessage, FerrixCodec, ServerMessage, SessionId, ClientId, SessionInfo, SnapshotInfo};
 use session::Session;
+use snapshot::{SnapshotManager, SessionSnapshot};
 
 pub struct Server {
     sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
@@ -277,6 +279,135 @@ async fn handle_message(
                 }
             }
             Ok(None)
+        }
+
+        ClientMessage::SaveSnapshot { session_id, name, description } => {
+            let snapshot_manager = match SnapshotManager::new() {
+                Ok(sm) => sm,
+                Err(e) => {
+                    return Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to initialize snapshot manager: {}", e),
+                    }));
+                }
+            };
+
+            let sessions_guard = sessions.read().await;
+            if let Some(session_arc) = sessions_guard.get(&session_id) {
+                let session_guard = session_arc.read().await;
+
+                // Create snapshot from session state
+                let snapshot = session_guard.create_snapshot(name, description);
+
+                match snapshot_manager.save_snapshot(&snapshot) {
+                    Ok(path) => {
+                        info!("Saved snapshot to {:?}", path);
+                        Ok(Some(ServerMessage::SnapshotSaved { path }))
+                    }
+                    Err(e) => {
+                        error!("Failed to save snapshot: {}", e);
+                        Ok(Some(ServerMessage::Error {
+                            message: format!("Failed to save snapshot: {}", e),
+                        }))
+                    }
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: format!("Session not found: {}", session_id.0),
+                }))
+            }
+        }
+
+        ClientMessage::ListSnapshots => {
+            let snapshot_manager = match SnapshotManager::new() {
+                Ok(sm) => sm,
+                Err(e) => {
+                    return Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to initialize snapshot manager: {}", e),
+                    }));
+                }
+            };
+
+            match snapshot_manager.list_snapshots() {
+                Ok(snapshots) => {
+                    let snapshot_infos: Vec<SnapshotInfo> = snapshots
+                        .into_iter()
+                        .map(|info| {
+                            let size = std::fs::metadata(&info.path)
+                                .map(|m| m.len())
+                                .unwrap_or(0);
+
+                            SnapshotInfo {
+                                path: info.path,
+                                name: info.metadata.name,
+                                description: info.metadata.description,
+                                session_name: info.session_name,
+                                created_at: info.metadata.created_at,
+                                size,
+                            }
+                        })
+                        .collect();
+
+                    Ok(Some(ServerMessage::SnapshotList { snapshots: snapshot_infos }))
+                }
+                Err(e) => {
+                    Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to list snapshots: {}", e),
+                    }))
+                }
+            }
+        }
+
+        ClientMessage::LoadSnapshot { path } => {
+            let snapshot_manager = match SnapshotManager::new() {
+                Ok(sm) => sm,
+                Err(e) => {
+                    return Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to initialize snapshot manager: {}", e),
+                    }));
+                }
+            };
+
+            match snapshot_manager.load_snapshot(&path) {
+                Ok(snapshot) => {
+                    // Create new session from snapshot
+                    let session = Session::from_snapshot(snapshot.clone());
+                    let session_id = session.id.clone();
+
+                    let mut sessions_guard = sessions.write().await;
+                    sessions_guard.insert(session_id.clone(), Arc::new(RwLock::new(session)));
+
+                    info!("Loaded snapshot from {:?}", path);
+                    Ok(Some(ServerMessage::SnapshotLoaded { session_id }))
+                }
+                Err(e) => {
+                    Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to load snapshot: {}", e),
+                    }))
+                }
+            }
+        }
+
+        ClientMessage::DeleteSnapshot { path } => {
+            let snapshot_manager = match SnapshotManager::new() {
+                Ok(sm) => sm,
+                Err(e) => {
+                    return Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to initialize snapshot manager: {}", e),
+                    }));
+                }
+            };
+
+            match snapshot_manager.delete_snapshot(&path) {
+                Ok(()) => {
+                    info!("Deleted snapshot at {:?}", path);
+                    Ok(Some(ServerMessage::SnapshotDeleted { path }))
+                }
+                Err(e) => {
+                    Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to delete snapshot: {}", e),
+                    }))
+                }
+            }
         }
 
         ClientMessage::Ping => {

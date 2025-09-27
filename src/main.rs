@@ -140,12 +140,92 @@ async fn main() -> Result<()> {
             eprintln!("Detach must be used from within an attached session (Ctrl-b d)");
         }
 
-        Some(Commands::Send { .. }) => {
-            eprintln!("Send command not yet implemented");
+        Some(Commands::SaveSnapshot { session, name, description }) => {
+            let mut client = Client::new(socket_path);
+            client.connect().await?;
+
+            let sessions = client.list_sessions().await?;
+
+            let session_id = if let Ok(uuid) = uuid::Uuid::parse_str(session) {
+                ferrix::protocol::SessionId(uuid)
+            } else {
+                sessions
+                    .iter()
+                    .find(|s| s.name == *session)
+                    .map(|s| s.id.clone())
+                    .ok_or_else(|| ferrix::error::FerrixError::SessionNotFound(session.clone()))?
+            };
+
+            let path = client.save_snapshot(session_id, name.clone(), description.clone()).await?;
+            println!("Snapshot saved to: {:?}", path);
         }
 
-        Some(Commands::Info { .. }) => {
-            eprintln!("Info command not yet implemented");
+        Some(Commands::LoadSnapshot { path }) => {
+            let mut client = Client::new(socket_path);
+            client.connect().await?;
+
+            let session_id = client.load_snapshot(path.into()).await?;
+            println!("Snapshot loaded as session: {}", session_id.0);
+        }
+
+        Some(Commands::ListSnapshots) => {
+            let mut client = Client::new(socket_path);
+            client.connect().await?;
+
+            let snapshots = client.list_snapshots().await?;
+
+            if snapshots.is_empty() {
+                println!("No snapshots available");
+            } else {
+                println!("Available snapshots:");
+                println!("{:<20} {:<30} {:<10} {}", "Created", "Name", "Size", "Path");
+                println!("{}", "-".repeat(80));
+
+                for snapshot in snapshots {
+                    let size_mb = snapshot.size as f64 / 1024.0 / 1024.0;
+                    println!(
+                        "{:<20} {:<30} {:<10.2}MB {}",
+                        snapshot.created_at.format("%Y-%m-%d %H:%M:%S"),
+                        snapshot.name,
+                        size_mb,
+                        snapshot.path.display()
+                    );
+                }
+            }
+        }
+
+        Some(Commands::DeleteSnapshot { path }) => {
+            let mut client = Client::new(socket_path);
+            client.connect().await?;
+
+            client.delete_snapshot(path.into()).await?;
+            println!("Snapshot deleted");
+        }
+
+        Some(Commands::ExportSnapshot { snapshot, output }) => {
+            use ferrix::server::snapshot::SnapshotManager;
+
+            let manager = SnapshotManager::new()?;
+            let snapshot_data = manager.load_snapshot(&std::path::Path::new(snapshot))?;
+            manager.export_snapshot(&snapshot_data, &std::path::Path::new(output))?;
+            println!("Snapshot exported to: {}", output);
+        }
+
+        Some(Commands::ImportSnapshot { archive }) => {
+            use ferrix::server::snapshot::SnapshotManager;
+
+            let manager = SnapshotManager::new()?;
+            let snapshot = manager.import_snapshot(&std::path::Path::new(archive))?;
+            let path = manager.save_snapshot(&snapshot)?;
+            println!("Snapshot imported to: {:?}", path);
+        }
+
+        Some(Commands::SendKeys { .. }) => {
+            eprintln!("SendKeys command not yet implemented");
+        }
+
+        Some(Commands::ReloadConfig) => {
+            eprintln!("ReloadConfig command not yet implemented");
         }
 
         None => {

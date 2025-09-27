@@ -33,6 +33,9 @@ pub enum FerrixError {
     #[error("IPC error: {0}")]
     Ipc(String),
 
+    #[error("Not connected to server")]
+    NotConnected,
+
     #[error("Terminal error: {0}")]
     Terminal(String),
 

@@ -217,4 +217,84 @@ impl Client {
         stdout.flush()?;
         Ok(())
     }
+
+    pub async fn save_snapshot(&mut self, session_id: SessionId, name: Option<String>, description: Option<String>) -> Result<std::path::PathBuf> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::SaveSnapshot { session_id, name, description }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::SnapshotSaved { path } => Ok(path),
+                    ServerMessage::Error { message } => {
+                        Err(FerrixError::Other(message))
+                    }
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn load_snapshot(&mut self, path: std::path::PathBuf) -> Result<SessionId> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::LoadSnapshot { path }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::SnapshotLoaded { session_id } => Ok(session_id),
+                    ServerMessage::Error { message } => {
+                        Err(FerrixError::Other(message))
+                    }
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn list_snapshots(&mut self) -> Result<Vec<crate::protocol::SnapshotInfo>> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::ListSnapshots).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::SnapshotList { snapshots } => Ok(snapshots),
+                    ServerMessage::Error { message } => {
+                        Err(FerrixError::Other(message))
+                    }
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn delete_snapshot(&mut self, path: std::path::PathBuf) -> Result<()> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::DeleteSnapshot { path: path.clone() }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::SnapshotDeleted { .. } => Ok(()),
+                    ServerMessage::Error { message } => {
+                        Err(FerrixError::Other(message))
+                    }
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
 }
