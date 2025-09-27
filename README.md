@@ -15,7 +15,7 @@
 ╚═══════════════════════════════════════════╝
 ```
 
-**The terminal multiplexer prophecy fulfilled!**
+**The [terminal multiplexer prophecy](https://github.com/cloudstreet-dev/GNU-Screen-vs-Tmux) fulfilled!**
 
 </div>
 

@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
             println!("{}", ASCII_LOGO);
             println!("Starting Ferrix server...");
             println!("Socket: {:?}", socket_path);
-            println!("The prophecy from the GNU Screen vs Tmux book has been fulfilled!\n");
+            println!("The prophecy has been fulfilled! (https://github.com/cloudstreet-dev/GNU-Screen-vs-Tmux)\n");
 
             if !foreground {
                 println!("Running in background mode (daemon)");
