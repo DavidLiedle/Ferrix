@@ -13,7 +13,7 @@ use crossterm::{
     execute,
     cursor,
 };
-use std::io::stdout;
+use std::io::{stdout, IsTerminal};
 use tracing::{debug, error, info};
 
 use crate::error::{FerrixError, Result};
@@ -157,7 +157,7 @@ impl Client {
             }
 
             // Enter main session loop
-            self.session_loop().await
+            self.run_attached().await
         } else {
             Err(FerrixError::NotConnected)
         }
@@ -200,29 +200,97 @@ impl Client {
     }
 
     async fn run_attached(&mut self) -> Result<()> {
-        terminal::enable_raw_mode()?;
-        execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
+        // Only enable raw mode if we're in an interactive terminal
+        let is_tty = std::io::stdin().is_terminal();
 
-        let (term_width, term_height) = terminal::size()?;
-        self.terminal_size = (term_width, term_height);
-        if let Some(framed) = &mut self.framed {
-            framed.send(ClientMessage::Resize { cols: term_width, rows: term_height }).await?;
+        if is_tty {
+            terminal::enable_raw_mode()?;
+            execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
+
+            let (term_width, term_height) = terminal::size()?;
+            self.terminal_size = (term_width, term_height);
+            if let Some(framed) = &mut self.framed {
+                framed.send(ClientMessage::Resize { cols: term_width, rows: term_height }).await?;
+            }
+        } else {
+            // Use default terminal size when not in a TTY
+            self.terminal_size = (80, 24);
+            if let Some(framed) = &mut self.framed {
+                framed.send(ClientMessage::Resize { cols: 80, rows: 24 }).await?;
+            }
         }
 
         let result = self.handle_attached_session().await;
 
-        terminal::disable_raw_mode()?;
-        execute!(stdout(), LeaveAlternateScreen, cursor::Show)?;
+        if is_tty {
+            terminal::disable_raw_mode()?;
+            execute!(stdout(), LeaveAlternateScreen, cursor::Show)?;
+        }
 
         result
     }
 
     async fn handle_attached_session(&mut self) -> Result<()> {
-        let mut event_reader = event::EventStream::new();
+        let is_tty = std::io::stdin().is_terminal();
+
+        // Only create event stream if we're in a TTY
+        let mut event_reader = if is_tty {
+            Some(event::EventStream::new())
+        } else {
+            None
+        };
+
+        // For non-TTY mode, spawn a task to read from stdin
+        let (stdin_tx, mut stdin_rx) = if !is_tty {
+            let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
+            let tx_clone = tx.clone();
+            tokio::spawn(async move {
+                use tokio::io::AsyncReadExt;
+                let mut stdin = tokio::io::stdin();
+                let mut buffer = vec![0u8; 1024];
+                loop {
+                    match stdin.read(&mut buffer).await {
+                        Ok(0) => break, // EOF
+                        Ok(n) => {
+                            let data = buffer[..n].to_vec();
+                            if tx_clone.send(data).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Error reading stdin: {}", e);
+                            break;
+                        }
+                    }
+                }
+            });
+            (Some(tx), Some(rx))
+        } else {
+            (None, None)
+        };
 
         loop {
             tokio::select! {
-                Some(event_result) = event_reader.next() => {
+                // Handle stdin input in non-TTY mode
+                Some(data) = async {
+                    if let Some(rx) = &mut stdin_rx {
+                        rx.recv().await
+                    } else {
+                        None
+                    }
+                } => {
+                    if let Some(framed) = &mut self.framed {
+                        framed.send(ClientMessage::Input { data }).await?;
+                    }
+                }
+
+                Some(event_result) = async {
+                    if let Some(reader) = &mut event_reader {
+                        reader.next().await
+                    } else {
+                        None
+                    }
+                } => {
                     match event_result {
                         Ok(Event::Key(key_event)) => {
                             if self.handle_key_event(key_event).await? {
@@ -265,7 +333,9 @@ impl Client {
                         }
                         Ok(ServerMessage::LayoutUpdate { layout }) => {
                             self.current_layout = Some(layout);
-                            self.render_layout().await?;
+                            if std::io::stdin().is_terminal() {
+                                self.render_layout().await?;
+                            }
                         }
                         _ => {}
                     }
@@ -509,8 +579,14 @@ impl Client {
     }
 
     async fn handle_pane_output(&mut self, pane_id: PaneId, data: Vec<u8>) -> Result<()> {
+        use std::io::Write;
+
+        let is_tty = std::io::stdin().is_terminal();
+
         // Store the output in the pane buffer
-        self.pane_buffers.entry(pane_id.clone()).or_insert_with(Vec::new).extend(data);
+        self.pane_buffers.entry(pane_id.clone())
+            .or_insert_with(Vec::new)
+            .extend(&data);
 
         // Keep buffer size reasonable (last 1000 lines worth)
         if let Some(buffer) = self.pane_buffers.get_mut(&pane_id) {
@@ -520,7 +596,28 @@ impl Client {
             }
         }
 
-        // Re-render layout to show updated content
+        // In non-TTY mode, always write output to stdout
+        if !is_tty {
+            let mut stdout = stdout();
+            stdout.write_all(&data)?;
+            stdout.flush()?;
+            return Ok(());
+        }
+
+        // In TTY mode, handle focused pane
+        if let Some(layout) = &self.current_layout {
+            for pane_info in &layout.panes {
+                if pane_info.id == pane_id && pane_info.is_focused {
+                    // Write the data directly to stdout for immediate display
+                    let mut stdout = stdout();
+                    stdout.write_all(&data)?;
+                    stdout.flush()?;
+                    return Ok(());
+                }
+            }
+        }
+
+        // Otherwise re-render the full layout (only if in TTY)
         self.render_layout().await?;
         Ok(())
     }
@@ -733,6 +830,7 @@ impl Client {
     }
 
 
+    #[allow(dead_code)]
     async fn session_loop(&mut self) -> Result<()> {
         use crossterm::{
             event::{Event, EventStream},

@@ -37,7 +37,7 @@ impl Pty {
                 .map_err(|e| FerrixError::Pty(format!("Failed to get PTY writer: {}", e)))?
         ));
 
-        let mut reader = pty_pair.master.try_clone_reader()
+        let reader = pty_pair.master.try_clone_reader()
             .map_err(|e| FerrixError::Pty(format!("Failed to get PTY reader: {}", e)))?;
 
         let master = Arc::new(Mutex::new(pty_pair.master));
@@ -51,26 +51,48 @@ impl Pty {
         // Channel for resize requests
         let (resize_tx, mut resize_rx) = mpsc::channel::<(u16, u16)>(10);
 
-        // Reader task
-        let reader_task = tokio::task::spawn_blocking(move || {
-            let mut buffer = vec![0u8; 4096];
-            loop {
-                match reader.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        let data = buffer[..n].to_vec();
-                        let tx = output_tx.clone();
-                        tokio::runtime::Handle::current().block_on(async {
-                            let _ = tx.send(data).await;
-                        });
-                    }
-                    Err(e) => {
-                        if e.kind() != std::io::ErrorKind::WouldBlock {
+        // Reader task - Convert blocking reader to async
+        let output_tx_clone = output_tx.clone();
+        let reader_task = tokio::spawn(async move {
+            // Use a separate thread for blocking I/O but communicate asynchronously
+            let (tx, mut rx) = mpsc::channel::<Vec<u8>>(100);
+
+            std::thread::spawn(move || {
+                let mut reader = reader;
+                let mut buffer = vec![0u8; 4096];
+                tracing::debug!("PTY reader thread started");
+                loop {
+                    match reader.read(&mut buffer) {
+                        Ok(0) => {
+                            tracing::debug!("PTY reader got EOF");
+                            break; // EOF
+                        }
+                        Ok(n) => {
+                            let data = buffer[..n].to_vec();
+                            tracing::trace!("PTY read {} bytes: {:?}", n, String::from_utf8_lossy(&data[..n.min(50)]));
+                            if tx.blocking_send(data).is_err() {
+                                tracing::error!("Failed to send PTY data to channel");
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            if e.kind() == std::io::ErrorKind::WouldBlock ||
+                               e.kind() == std::io::ErrorKind::Interrupted {
+                                std::thread::sleep(std::time::Duration::from_millis(1));
+                                continue;
+                            }
                             tracing::error!("PTY read error: {}", e);
                             break;
                         }
-                        std::thread::sleep(std::time::Duration::from_millis(10));
                     }
+                }
+                tracing::debug!("PTY reader thread exiting");
+            });
+
+            // Forward data from the thread to the output channel
+            while let Some(data) = rx.recv().await {
+                if output_tx_clone.send(data).await.is_err() {
+                    break;
                 }
             }
         });
@@ -111,6 +133,7 @@ impl Pty {
     }
 
     pub async fn write(&mut self, data: Vec<u8>) -> Result<()> {
+        tracing::trace!("PTY write {} bytes: {:?}", data.len(), String::from_utf8_lossy(&data[..data.len().min(50)]));
         self.writer_tx.send(data).await
             .map_err(|e| FerrixError::Pty(format!("Failed to send to PTY writer: {}", e)))?;
         Ok(())
