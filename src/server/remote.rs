@@ -8,7 +8,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 use futures::{StreamExt, SinkExt};
 use tracing::{info, warn, error};
-use std::collections::HashMap;
 use tokio::sync::RwLock;
 use std::pin::Pin;
 
@@ -89,15 +88,9 @@ pub trait AuthenticationHandler: Send + Sync {
     async fn authorize(&self, client_id: &ClientId, action: &str) -> Result<bool>;
 }
 
-/// Simple password-based authentication
+/// Simple password-based authentication using persistent storage
 pub struct PasswordAuthHandler {
-    users: Arc<RwLock<HashMap<String, UserInfo>>>,
-}
-
-struct UserInfo {
-    password_hash: String,
-    client_id: ClientId,
-    permissions: Vec<String>,
+    user_store: Arc<crate::auth::UserStore>,
 }
 
 impl RemoteServer {
@@ -394,52 +387,54 @@ impl RemoteSession {
     }
 }
 
-// Simple password authentication implementation
+// Persistent password authentication implementation using UserStore
 #[async_trait::async_trait]
 impl AuthenticationHandler for PasswordAuthHandler {
     async fn authenticate(&self, credentials: &AuthCredentials) -> Result<ClientId> {
-        let users = self.users.read().await;
-
-        if let Some(user) = users.get(&credentials.username) {
-            if let Some(password) = &credentials.password {
-                // In production, use proper password hashing (bcrypt, argon2, etc.)
-                if user.password_hash == format!("{:x}", md5::compute(password)) {
-                    return Ok(user.client_id.clone());
-                }
+        if let Some(password) = &credentials.password {
+            match self.user_store.verify_password(&credentials.username, password).await {
+                Ok(client_id) => Ok(client_id),
+                Err(_) => Err(FerrixError::Other("Invalid credentials".to_string())),
             }
+        } else {
+            Err(FerrixError::Other("Password required".to_string()))
         }
-
-        Err(FerrixError::Other("Invalid credentials".to_string()))
     }
 
     async fn authorize(&self, client_id: &ClientId, action: &str) -> Result<bool> {
-        let users = self.users.read().await;
-
-        for user in users.values() {
-            if user.client_id == *client_id {
-                // Check if user has permission for this action
-                // For now, allow all actions for authenticated users
-                return Ok(true);
-            }
+        // Check if the user exists and has permissions for this action
+        match self.user_store.check_permission(client_id, action).await {
+            Ok(has_permission) => Ok(has_permission),
+            Err(_) => Ok(false), // If user doesn't exist, deny access
         }
-
-        Ok(false)
     }
 }
 
 impl PasswordAuthHandler {
-    pub fn new() -> Self {
+    pub async fn new() -> Result<Self> {
+        let user_store = crate::auth::UserStore::new().await?;
+        Ok(Self {
+            user_store: Arc::new(user_store),
+        })
+    }
+
+    pub async fn new_with_store(user_store: Arc<crate::auth::UserStore>) -> Self {
         Self {
-            users: Arc::new(RwLock::new(HashMap::new())),
+            user_store,
         }
     }
 
-    pub async fn add_user(&self, username: String, password: String, client_id: ClientId) {
-        let mut users = self.users.write().await;
-        users.insert(username, UserInfo {
-            password_hash: format!("{:x}", md5::compute(password)),
-            client_id,
-            permissions: vec!["all".to_string()],
-        });
+    pub async fn add_user(&self, username: String, password: String) -> Result<ClientId> {
+        self.user_store.add_user(username, password).await
+    }
+
+    pub async fn ensure_default_admin(&self) -> Result<()> {
+        // Check if any users exist
+        if self.user_store.user_count().await == 0 {
+            // Create default admin user
+            let admin_client_id = self.user_store.add_user("admin".to_string(), "password".to_string()).await?;
+            tracing::info!("Created default admin user with client ID: {}", admin_client_id.0);
+        }
+        Ok(())
     }
 }

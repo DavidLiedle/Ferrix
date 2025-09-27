@@ -55,8 +55,32 @@ async fn main() -> Result<()> {
             println!("The prophecy has been fulfilled! (https://github.com/cloudstreet-dev/GNU-Screen-vs-Tmux)\n");
 
             if !foreground {
-                println!("Running in background mode (daemon)");
-                // TODO: Implement proper daemonization
+                use daemonize::Daemonize;
+                use std::fs::File;
+
+                println!("Starting Ferrix server as daemon...");
+
+                // Create directories for daemon files if they don't exist
+                let ferrix_dir = dirs::data_local_dir()
+                    .unwrap_or_else(|| PathBuf::from("/tmp"))
+                    .join("ferrix");
+                std::fs::create_dir_all(&ferrix_dir).ok();
+
+                let daemon = Daemonize::new()
+                    .pid_file(ferrix_dir.join("ferrix.pid"))
+                    .chown_pid_file(true)
+                    .working_directory("/tmp")
+                    .stdout(File::create(ferrix_dir.join("ferrix.out")).unwrap())
+                    .stderr(File::create(ferrix_dir.join("ferrix.err")).unwrap())
+                    .privileged_action(|| "Ferrix daemon started");
+
+                match daemon.start() {
+                    Ok(_) => println!("Ferrix server daemonized successfully"),
+                    Err(e) => {
+                        eprintln!("Error daemonizing: {}", e);
+                        return Err(ferrix::error::FerrixError::Other(format!("Failed to daemonize: {}", e)));
+                    }
+                }
             }
 
             let server = Arc::new(Server::new(socket_path.clone()));
@@ -68,14 +92,14 @@ async fn main() -> Result<()> {
                     .map_err(|e| ferrix::error::FerrixError::Other(format!("Invalid bind address: {}", e)))?;
 
                 // Create authentication handler
-                let auth_handler = Arc::new(PasswordAuthHandler::new());
+                let auth_handler = Arc::new(
+                    PasswordAuthHandler::new().await
+                        .map_err(|e| ferrix::error::FerrixError::Other(format!("Failed to create auth handler: {}", e)))?
+                );
 
-                // Add a default admin user for testing
-                auth_handler.add_user(
-                    "admin".to_string(),
-                    "password".to_string(),
-                    ClientId(uuid::Uuid::new_v4())
-                ).await;
+                // Ensure default admin user exists for testing
+                auth_handler.ensure_default_admin().await
+                    .map_err(|e| ferrix::error::FerrixError::Other(format!("Failed to ensure default admin: {}", e)))?;
 
                 let mut remote_server = RemoteServer::new(bind_addr, server.clone(), auth_handler);
 
@@ -446,10 +470,14 @@ async fn main() -> Result<()> {
         }
 
         Some(Commands::UserManagement { action }) => {
+            use ferrix::auth::UserStore;
+            use std::io::{self, Write};
+
+            let user_store = UserStore::new().await
+                .map_err(|e| ferrix::error::FerrixError::Other(format!("Failed to initialize user store: {}", e)))?;
+
             match action {
                 UserAction::Add { username, password } => {
-                    use std::io::{self, Write};
-
                     let password = if let Some(pwd) = password {
                         pwd.clone()
                     } else {
@@ -459,22 +487,73 @@ async fn main() -> Result<()> {
                             .map_err(|e| ferrix::error::FerrixError::Other(format!("Failed to read password: {}", e)))?
                     };
 
-                    // TODO: Implement user storage/management
-                    println!("User management not fully implemented yet.");
-                    println!("Would add user '{}' with provided password", username);
+                    match user_store.add_user(username.clone(), password).await {
+                        Ok(client_id) => {
+                            println!("✓ User '{}' added successfully", username);
+                            println!("  Client ID: {}", client_id.0);
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to add user '{}': {}", username, e);
+                            std::process::exit(1);
+                        }
+                    }
                 }
                 UserAction::Remove { username } => {
-                    println!("User management not fully implemented yet.");
-                    println!("Would remove user '{}'", username);
+                    print!("Are you sure you want to remove user '{}'? (y/N): ", username);
+                    io::stdout().flush()?;
+
+                    let mut input = String::new();
+                    io::stdin().read_line(&mut input)?;
+
+                    if input.trim().to_lowercase() == "y" || input.trim().to_lowercase() == "yes" {
+                        match user_store.remove_user(username).await {
+                            Ok(()) => {
+                                println!("✓ User '{}' removed successfully", username);
+                            }
+                            Err(e) => {
+                                eprintln!("✗ Failed to remove user '{}': {}", username, e);
+                                std::process::exit(1);
+                            }
+                        }
+                    } else {
+                        println!("Operation cancelled");
+                    }
                 }
                 UserAction::List => {
-                    println!("User management not fully implemented yet.");
-                    println!("Would list all users");
+                    match user_store.list_users().await {
+                        Ok(users) => {
+                            if users.is_empty() {
+                                println!("No users found");
+                            } else {
+                                println!("Registered users:");
+                                println!("{:<20} {:<40} {:<20}", "Username", "Client ID", "Created");
+                                println!("{}", "-".repeat(80));
+
+                                for username in users {
+                                    match user_store.get_user(&username).await {
+                                        Ok(user) => {
+                                            println!(
+                                                "{:<20} {:<40} {:<20}",
+                                                user.username,
+                                                user.client_id.0,
+                                                user.created_at.format("%Y-%m-%d %H:%M:%S")
+                                            );
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Error getting user info for '{}': {}", username, e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to list users: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
                 }
                 UserAction::ChangePassword { username, password } => {
-                    use std::io::{self, Write};
-
-                    let _password = if let Some(pwd) = password {
+                    let new_password = if let Some(pwd) = password {
                         pwd.clone()
                     } else {
                         print!("New password for {}: ", username);
@@ -483,8 +562,15 @@ async fn main() -> Result<()> {
                             .map_err(|e| ferrix::error::FerrixError::Other(format!("Failed to read password: {}", e)))?
                     };
 
-                    println!("User management not fully implemented yet.");
-                    println!("Would change password for user '{}'", username);
+                    match user_store.change_password(username, new_password).await {
+                        Ok(()) => {
+                            println!("✓ Password changed successfully for user '{}'", username);
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to change password for user '{}': {}", username, e);
+                            std::process::exit(1);
+                        }
+                    }
                 }
             }
         }

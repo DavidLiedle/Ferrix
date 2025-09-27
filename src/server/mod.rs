@@ -281,10 +281,17 @@ async fn handle_message(
 
             for (id, session) in sessions_guard.iter() {
                 let session_guard = session.read().await;
+
+                // Count actual attached clients for this session
+                let clients_guard = clients.read().await;
+                let attached_count = clients_guard.values()
+                    .filter(|client| client.attached_session.as_ref() == Some(id))
+                    .count();
+
                 session_list.push(SessionInfo {
                     id: id.clone(),
                     name: session_guard.name.clone(),
-                    attached_clients: 0, // TODO: Count actual attached clients
+                    attached_clients: attached_count,
                     windows: session_guard.windows.len(),
                     created_at: session_guard.created_at,
                 });
