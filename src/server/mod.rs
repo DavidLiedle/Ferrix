@@ -5,6 +5,8 @@ pub mod pty;
 pub mod layout;
 pub mod snapshot;
 pub mod recovery;
+pub mod collaboration;
+pub mod timetravel;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
