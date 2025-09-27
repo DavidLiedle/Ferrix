@@ -71,6 +71,15 @@ pub enum ClientMessage {
         path: std::path::PathBuf,
     },
     Ping,
+    Authenticate(AuthCredentials),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthCredentials {
+    pub username: String,
+    pub password: Option<String>,
+    pub token: Option<String>,
+    pub certificate: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +136,10 @@ pub enum ServerMessage {
         message: String,
     },
     Pong,
+    Authenticated {
+        client_id: ClientId,
+    },
+    Success,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

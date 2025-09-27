@@ -1,4 +1,10 @@
-// Plugin module placeholder
-// Will be expanded with WASM plugin system
+pub mod api;
+pub mod runtime;
+pub mod manager;
 
-use crate::error::Result;
+pub use api::{
+    PluginManifest, PluginEvent, PluginCommand, PluginResponse,
+    PluginContext, PluginHook, PluginCapability,
+};
+pub use runtime::PluginRuntime;
+pub use manager::PluginManager;
