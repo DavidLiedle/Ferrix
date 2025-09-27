@@ -1,21 +1,21 @@
-# Ferrix - Blazingly Fast Terminal Multiplexer, Rewritten in Rust 🚀
+# Ferrix - Revolutionary Terminal Multiplexer 🚀
 
 <div align="center">
 
 ```
 ╔═══════════════════════════════════════════╗
 ║   _____ _____ ____  ____  ___ __  __     ║
-║  |  ___|_   _|  _ \|  _ \|_ _|\ \/ /     ║
-║  | |_    | | | |_) | |_) || |  \  /      ║
-║  |  _|   | | |  _ <|  _ < | |  /  \      ║
-║  |_|     |_| |_| \_\_| \_\___/_/\_\      ║
+║  |  ___| ____|  _ \|  _ \|_ _|\ \/ /     ║
+║  | |_  |  _| | |_) | |_) || |  \  /      ║
+║  |  _| | |___|  _ <|  _ < | |  /  \      ║
+║  |_|   |_____|_| \_\_| \_\___/_/\_\      ║
 ║                                           ║
-║  Blazingly fast terminal multiplexer      ║
-║           Rewritten in Rust               ║
+║  Revolutionary Terminal Multiplexer        ║
+║         Built with Rust                   ║
 ╚═══════════════════════════════════════════╝
 ```
 
-**The prophecy from the GNU Screen vs Tmux book has been fulfilled!**
+**The terminal multiplexer prophecy fulfilled!**
 
 </div>
 
