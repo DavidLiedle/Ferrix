@@ -2,7 +2,6 @@ use std::collections::{HashMap, VecDeque};
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
-use crate::error::{Result, FerrixError};
 
 /// AI-powered command assistant for intelligent suggestions and automation
 pub struct CommandAssistant {

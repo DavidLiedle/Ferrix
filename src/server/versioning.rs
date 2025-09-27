@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{Result, FerrixError};
 use crate::protocol::SessionId;
-use super::snapshot::{SessionSnapshot, SnapshotManager};
+use super::snapshot::SessionSnapshot;
 
 /// Git-like versioning system for sessions
 pub struct SessionVersioning {

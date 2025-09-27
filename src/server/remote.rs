@@ -7,8 +7,7 @@ use rustls::{ServerConfig, ClientConfig, RootCertStore};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 use futures::{StreamExt, SinkExt};
-use tracing::{info, warn, error};
-use tokio::sync::RwLock;
+use tracing::{info, error};
 use std::pin::Pin;
 
 use crate::error::{Result, FerrixError};

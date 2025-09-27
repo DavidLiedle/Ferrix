@@ -1,12 +1,11 @@
-use chrono::{DateTime, Local};
+use chrono::Local;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph},
+    style::{Color, Style},
+    text::Text,
+    widgets::Paragraph,
     Frame,
 };
-use std::collections::HashMap;
 use sysinfo::System;
 
 use crate::config::{Config, StatusBarPosition};

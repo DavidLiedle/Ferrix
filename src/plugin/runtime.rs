@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{RwLock, mpsc};
 use wasmtime::{Engine, Instance, Linker, Module, Store};
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder};
+use wasmtime_wasi::WasiCtxBuilder;
 use wasmtime_wasi::preview1::{WasiP1Ctx};
 use anyhow::Result;
 use tracing::{info, warn, error};
@@ -358,7 +358,7 @@ impl PluginRuntime {
         // Add Ferrix API functions that plugins can call
 
         // Log function
-        linker.func_wrap("ferrix", "log", |mut caller: wasmtime::Caller<'_, PluginState>, level: i32, ptr: i32, len: i32| {
+        linker.func_wrap("ferrix", "log", |caller: wasmtime::Caller<'_, PluginState>, level: i32, ptr: i32, len: i32| {
             // Read string from WASM memory
             // This is simplified - actual implementation would need proper memory management
             match level {
@@ -370,14 +370,14 @@ impl PluginRuntime {
         })?;
 
         // Send command function
-        linker.func_wrap("ferrix", "send_command", |mut caller: wasmtime::Caller<'_, PluginState>, ptr: i32, len: i32| -> i32 {
+        linker.func_wrap("ferrix", "send_command", |caller: wasmtime::Caller<'_, PluginState>, ptr: i32, len: i32| -> i32 {
             // Read command from WASM memory and execute
             // Return response code
             0 // Success
         })?;
 
         // Get context function
-        linker.func_wrap("ferrix", "get_context", |mut caller: wasmtime::Caller<'_, PluginState>| -> i32 {
+        linker.func_wrap("ferrix", "get_context", |caller: wasmtime::Caller<'_, PluginState>| -> i32 {
             // Write current context to WASM memory
             // Return pointer to context data
             0

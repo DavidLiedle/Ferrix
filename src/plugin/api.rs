@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use uuid::Uuid;
 
 /// Plugin API version for compatibility checking
 pub const API_VERSION: &str = "0.1.0";

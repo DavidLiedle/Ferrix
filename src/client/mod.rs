@@ -733,8 +733,8 @@ impl Client {
 
     async fn session_loop(&mut self) -> Result<()> {
         use crossterm::{
-            event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers},
-            terminal::{self, enable_raw_mode, disable_raw_mode, Clear, ClearType},
+            event::{Event, EventStream},
+            terminal::{enable_raw_mode, disable_raw_mode, Clear, ClearType},
             execute,
         };
         use futures::StreamExt;
@@ -931,7 +931,7 @@ impl Client {
     async fn render_copy_mode(&mut self) -> Result<()> {
         use crossterm::{
             cursor::MoveTo,
-            style::{Color, SetBackgroundColor, SetForegroundColor, ResetColor, Attribute, SetAttribute},
+            style::{Color, SetBackgroundColor, SetForegroundColor, ResetColor},
             terminal::{Clear, ClearType},
             execute,
         };

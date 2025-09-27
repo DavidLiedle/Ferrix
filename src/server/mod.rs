@@ -20,10 +20,10 @@ use futures::{StreamExt, SinkExt};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::error::{FerrixError, Result};
+use crate::error::Result;
 use crate::protocol::{ClientMessage, FerrixCodec, ServerMessage, SessionId, ClientId, SessionInfo, SnapshotInfo};
 use session::Session;
-use snapshot::{SnapshotManager, SessionSnapshot};
+use snapshot::SnapshotManager;
 use recovery::RecoveryManager;
 
 #[derive(Clone)]

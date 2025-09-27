@@ -6,7 +6,7 @@ use ferrix::cli::{Cli, Commands, UserAction};
 use ferrix::client::Client;
 use ferrix::server::{Server, remote::{RemoteServer, PasswordAuthHandler}};
 use ferrix::error::Result;
-use ferrix::protocol::{ClientId, AuthCredentials};
+use ferrix::protocol::AuthCredentials;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
