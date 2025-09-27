@@ -1,8 +1,8 @@
 [package]
 name = "ferrix"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
-authors = ["David Liedle"]
+authors = ["David Liedle", "Claude <noreply@anthropic.com>"]
 description = "A revolutionary Rust-based terminal multiplexer"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/davidliedle/Ferrix"
