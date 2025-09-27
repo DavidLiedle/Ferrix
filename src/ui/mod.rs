@@ -1,6 +1,10 @@
 pub mod statusbar;
 pub mod copymode;
 pub mod commandmode;
+// #[cfg(test)]
+// mod tests;
+// #[cfg(test)]
+// mod gpu_tests;
 
 #[cfg(feature = "gpu")]
 pub mod gpu_renderer;

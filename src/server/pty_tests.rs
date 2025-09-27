@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod pty_tests {
     use crate::error::Result;
-    use crate::server::pty::PtyManager;
+    use crate::server::pty::Pty;
     use crate::protocol::{PaneId, SessionId};
     use std::time::Duration;
     use tokio::time::timeout;

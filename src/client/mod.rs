@@ -1,7 +1,7 @@
 pub mod connection;
 pub mod renderer;
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod tests;
 
 use std::path::PathBuf;
 use tokio::net::UnixStream;

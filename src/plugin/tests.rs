@@ -4,7 +4,7 @@ mod plugin_tests {
     use crate::error::Result;
     use crate::plugin::manager::PluginManager;
     use crate::plugin::runtime::PluginRuntime;
-    use crate::plugin::manifest::{PluginManifest, PluginVersion};
+    use crate::plugin::{PluginManifest};
     use tempfile::TempDir;
     use std::path::PathBuf;
 

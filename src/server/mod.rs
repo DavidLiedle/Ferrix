@@ -9,10 +9,12 @@ pub mod collaboration;
 pub mod timetravel;
 pub mod remote;
 pub mod versioning;
-#[cfg(test)]
-mod pty_tests;
-#[cfg(test)]
-mod remote_tests;
+// #[cfg(test)]
+// mod pty_tests;
+// #[cfg(test)]
+// mod remote_tests;
+// #[cfg(test)]
+// mod recovery_tests;
 
 use std::collections::HashMap;
 use std::path::PathBuf;

@@ -184,3 +184,117 @@ pub enum UserAction {
         password: Option<String>,
     },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn test_cli_parsing_server_foreground() {
+        let args = vec!["ferrix", "server", "--foreground"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Some(Commands::Server { foreground, .. }) => {
+                assert!(foreground);
+            }
+            _ => panic!("Expected Server command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_new_session() {
+        let args = vec!["ferrix", "new", "--session", "test-session"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Some(Commands::New { session, .. }) => {
+                assert_eq!(session, Some("test-session".to_string()));
+            }
+            _ => panic!("Expected New command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_attach() {
+        let args = vec!["ferrix", "attach", "existing-session"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Some(Commands::Attach { target }) => {
+                assert_eq!(target, Some("existing-session".to_string()));
+            }
+            _ => panic!("Expected Attach command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_list() {
+        let args = vec!["ferrix", "list"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Some(Commands::List) => {
+                // Successfully parsed list command
+            }
+            _ => panic!("Expected List command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_parsing_save_snapshot() {
+        let args = vec!["ferrix", "save-snapshot", "session1", "--name", "backup1"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Some(Commands::SaveSnapshot { session, name, .. }) => {
+                assert_eq!(session, "session1");
+                assert_eq!(name, Some("backup1".to_string()));
+            }
+            _ => panic!("Expected SaveSnapshot command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_default_socket() {
+        let args = vec!["ferrix", "list"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        assert_eq!(cli.socket, "/tmp/ferrix.sock");
+    }
+
+    #[test]
+    fn test_cli_custom_socket() {
+        let args = vec!["ferrix", "--socket", "/custom/path.sock", "list"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        assert_eq!(cli.socket, "/custom/path.sock");
+    }
+
+    #[test]
+    fn test_cli_debug_flag() {
+        let args = vec!["ferrix", "--debug", "list"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        assert!(cli.debug);
+    }
+
+    #[test]
+    fn test_cli_user_management_add() {
+        let args = vec!["ferrix", "user-management", "add", "username"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Some(Commands::UserManagement { action }) => {
+                match action {
+                    UserAction::Add { username, .. } => {
+                        assert_eq!(username, "username");
+                    }
+                    _ => panic!("Expected Add action"),
+                }
+            }
+            _ => panic!("Expected UserManagement command"),
+        }
+    }
+}
