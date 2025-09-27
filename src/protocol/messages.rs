@@ -58,6 +58,12 @@ pub enum ClientMessage {
         direction: ResizeDirection,
         amount: i16,
     },
+    NextWindow,
+    PreviousWindow,
+    ZoomPane,
+    KillPane,
+    ListWindows,
+    EnterCopyMode,
     SaveSnapshot {
         session_id: SessionId,
         name: Option<String>,
@@ -101,6 +107,10 @@ pub enum ServerMessage {
     Output {
         data: Vec<u8>,
     },
+    PaneOutput {
+        pane_id: PaneId,
+        data: Vec<u8>,
+    },
     WindowCreated {
         window_id: WindowId,
         name: String,
@@ -140,6 +150,38 @@ pub enum ServerMessage {
         client_id: ClientId,
     },
     Success,
+    WindowList {
+        windows: Vec<WindowInfo>,
+    },
+    CopyModeEntered,
+    LayoutUpdate {
+        layout: LayoutInfo,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindowInfo {
+    pub id: WindowId,
+    pub name: String,
+    pub panes: usize,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayoutInfo {
+    pub window_id: WindowId,
+    pub panes: Vec<PaneInfo>,
+    pub focused_pane: Option<PaneId>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaneInfo {
+    pub id: PaneId,
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+    pub is_focused: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

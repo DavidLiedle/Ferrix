@@ -119,4 +119,32 @@ impl Window {
         }
         Ok(None)
     }
+
+    pub async fn get_all_pane_outputs(&mut self) -> Result<Vec<(PaneId, Vec<u8>)>> {
+        let mut outputs = Vec::new();
+
+        for (pane_id, pane) in &self.panes {
+            let mut pane_guard = pane.write().await;
+            if let Some(data) = pane_guard.get_output().await? {
+                if !data.is_empty() {
+                    outputs.push((pane_id.clone(), data));
+                }
+            }
+        }
+
+        Ok(outputs)
+    }
+
+    pub fn get_pane_count(&self) -> usize {
+        self.panes.len()
+    }
+
+    pub fn get_focused_pane(&self) -> Option<PaneId> {
+        self.current_pane.clone()
+    }
+
+    pub async fn toggle_zoom(&mut self) -> Result<()> {
+        self.layout.toggle_zoom();
+        self.update_pane_dimensions().await
+    }
 }

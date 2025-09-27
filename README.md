@@ -28,26 +28,27 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 ### Currently Working
 - ✅ **Session Management** - Create, attach, detach, list, and kill sessions
 - ✅ **Client-Server Architecture** - Robust separation with async Rust
-- ✅ **PTY Process Management** - Full pseudo-terminal handling
-- ✅ **Basic Window Support** - Single window per session with shell spawning
+- ✅ **Multiple Windows & Panes** - Split panes, navigate between them, and manage layouts
+- ✅ **PTY Process Management** - Each pane runs its own independent terminal
 - ✅ **Detach/Reattach** - Seamlessly disconnect and reconnect to sessions
-- ✅ **Session Snapshots** - Save, load, list, and delete session snapshots
-- ✅ **Snapshot Import/Export** - Export snapshots to compressed archives
+- ✅ **Visual Pane Rendering** - Borders, focus indication, and content display
+- ✅ **Session Snapshots** - Save and restore complete session state including layouts
+- ✅ **Status Bar** - Shows session info, window/pane counts, and current time
+- ✅ **Copy Mode** - Enter copy mode for text selection (UI in progress)
 - ✅ **Configuration System** - Generate and validate TOML configuration
 
-### Implemented (Architecture Complete, Integration Needed)
-- ✔️ **Window & Pane Management** - Binary tree layout engine with splits and navigation
-- ✔️ **Enhanced Copy Mode** - Vi-style navigation with visual selection modes
-- ✔️ **Session Versioning** - Git-like branching, commits, and merges for sessions
-- ✔️ **Remote Sessions** - TCP/TLS support with authentication framework
-- ✔️ **Plugin System** - WASM plugin architecture with sandboxed execution
+### Partially Implemented
+- 🔧 **Enhanced Copy Mode** - Vi-style navigation framework (needs UI completion)
+- 🔧 **Command Mode** - Architecture ready, needs command parser
+- 🔧 **Session Versioning** - Core implementation exists, needs integration
+- 🔧 **Remote Sessions** - TCP/TLS framework ready, needs testing
+- 🔧 **Plugin System** - WASM architecture complete, needs activation
 
-### In Development
-- 🚧 **Status Bar** - Customizable with session info and system stats
-- 🚧 **Command Mode** - Runtime commands for advanced control
-- 🚧 **Native Clipboard** - Cross-platform clipboard integration
-- 🚧 **GPU Acceleration** - Optional wgpu-based rendering (API updates needed)
-- 🚧 **Hot Reload Config** - Live configuration updates without restart
+### Planned
+- 📋 **Native Clipboard** - Cross-platform clipboard integration
+- 📋 **GPU Acceleration** - Optional wgpu-based rendering
+- 📋 **Hot Reload Config** - Live configuration updates
+- 📋 **Advanced Scripting** - Lua or Rhai scripting support
 
 ## 🚀 Quick Start
 
@@ -92,19 +93,21 @@ ferrix kill -t my-session
 
 ### Key Bindings
 
-All commands are prefixed with `Ctrl-b` by default (configurable):
+All commands are prefixed with `Ctrl-a` (similar to GNU Screen):
 
 | Key Combo | Action |
 |-----------|--------|
-| `Ctrl-b d` | Detach from current session |
-| `Ctrl-b c` | Create new window (planned) |
-| `Ctrl-b n` | Next window (planned) |
-| `Ctrl-b p` | Previous window (planned) |
-| `Ctrl-b %` | Split pane vertically (planned) |
-| `Ctrl-b "` | Split pane horizontally (planned) |
-| `Ctrl-b z` | Zoom/unzoom pane (planned) |
-| `Ctrl-b [` | Enter copy mode (planned) |
-| `Ctrl-b :` | Enter command mode (planned) |
+| `Ctrl-a d` | Detach from current session |
+| `Ctrl-a c` | Create new window |
+| `Ctrl-a n` | Next window |
+| `Ctrl-a p` | Previous window |
+| `Ctrl-a %` | Split pane vertically |
+| `Ctrl-a "` | Split pane horizontally |
+| `Ctrl-a` + arrows | Navigate between panes |
+| `Ctrl-a z` | Zoom/unzoom current pane |
+| `Ctrl-a x` | Close current pane |
+| `Ctrl-a [` | Enter copy mode |
+| `Ctrl-a w` | List windows |
 
 ## 🔧 Configuration
 
@@ -170,27 +173,33 @@ cargo bench
 
 ## 🗺️ Development Status
 
-- ✅ **Phase 1: Core Multiplexer** - Complete and functional
-- ✅ **Phase 2: Windows and Panes** - Architecture implemented, needs UI integration
-- ✅ **Phase 3: Configuration** - Basic system working, UI components in progress
-- ✅ **Phase 4: Advanced Features** - Core implementations complete
-- 🚧 **Phase 5: Polish** - Testing, optimization, and production hardening needed
+### Current Version: v0.2.0
 
-### Current State
+Ferrix is a **working terminal multiplexer** with essential features implemented. While still in active development, it provides a functional alternative for basic terminal multiplexing needs.
 
-Ferrix is a **functional terminal multiplexer** with core features working. The project has grown beyond initial plans with advanced architecture for windows, panes, plugins, and remote sessions all implemented. However, integration between components and UI polish is still in progress.
+**What works today:**
+- ✅ Create and manage multiple terminal sessions
+- ✅ Split windows into multiple panes (vertical/horizontal)
+- ✅ Navigate between panes with keyboard shortcuts
+- ✅ Detach and reattach to running sessions
+- ✅ Each pane runs an independent shell process
+- ✅ Visual pane borders with focus indication
+- ✅ Status bar showing session information
+- ✅ Save and restore session snapshots with layouts
 
-**What you can do today:**
-- Create and manage multiple terminal sessions
-- Detach and reattach to running sessions
-- Save and restore session snapshots
-- Run commands in detached sessions
+**Known limitations:**
+- Terminal emulation is basic (no full ANSI support yet)
+- Copy mode UI needs completion
+- Performance optimization needed for large outputs
+- Some edge cases in pane resizing
+- Limited to local sessions (remote support not activated)
 
-**What's coming soon:**
-- Full window splitting and pane navigation
+**Upcoming improvements:**
+- Better terminal emulation compliance
+- Completed copy/paste functionality
+- Performance optimizations
 - Plugin system activation
-- Remote session connectivity
-- Complete configuration system
+- Remote session support
 
 ## 📜 License
 

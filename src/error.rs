@@ -53,3 +53,10 @@ impl From<wasmtime::Error> for FerrixError {
         FerrixError::Plugin(format!("WASM runtime error: {}", err))
     }
 }
+
+#[cfg(feature = "gpu")]
+impl From<wgpu::SurfaceError> for FerrixError {
+    fn from(err: wgpu::SurfaceError) -> Self {
+        FerrixError::Other(format!("GPU surface error: {}", err))
+    }
+}

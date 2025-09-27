@@ -189,6 +189,12 @@ impl Layout {
 
         best_candidate.cloned()
     }
+
+    pub fn toggle_zoom(&mut self) {
+        // Simple implementation: for now, we'll just mark it as toggled
+        // In a full implementation, this would hide/show other panes
+        // For now, this is a no-op since zoom state would need to be tracked
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

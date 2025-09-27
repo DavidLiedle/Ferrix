@@ -1,12 +1,17 @@
 use crate::error::Result;
 use crate::protocol::PaneId;
 use super::pty::Pty;
+use std::path::PathBuf;
 
 pub struct Pane {
     pub id: PaneId,
     pub pty: Option<Pty>,
     pub cols: u16,
     pub rows: u16,
+    pub working_directory: PathBuf,
+    pub command: String,
+    pub scrollback: Vec<String>,
+    pub cursor_position: (u16, u16),
 }
 
 impl Pane {
@@ -16,6 +21,10 @@ impl Pane {
             pty: None,
             cols: 80,
             rows: 24,
+            working_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
+            command: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
+            scrollback: Vec::new(),
+            cursor_position: (0, 0),
         };
 
         if let Err(e) = pane.start_pty() {
