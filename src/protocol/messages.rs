@@ -48,8 +48,15 @@ pub enum ClientMessage {
     SwitchPane {
         pane_id: PaneId,
     },
+    NavigatePane {
+        direction: PaneNavigationDirection,
+    },
     ClosePane {
         pane_id: PaneId,
+    },
+    ResizePane {
+        direction: ResizeDirection,
+        amount: i16,
     },
     Ping,
 }
@@ -111,4 +118,20 @@ pub struct SessionInfo {
 pub enum SplitDirection {
     Horizontal,
     Vertical,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum PaneNavigationDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum ResizeDirection {
+    Up,
+    Down,
+    Left,
+    Right,
 }

@@ -2,6 +2,7 @@ pub mod session;
 pub mod window;
 pub mod pane;
 pub mod pty;
+pub mod layout;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
