@@ -2,7 +2,7 @@
 mod window_tests {
     use crate::server::window::Window;
     use crate::server::layout::NavigationDirection;
-    use crate::protocol::{WindowId, PaneId, SplitDirection};
+    use crate::protocol::{WindowId, SplitDirection};
     use uuid::Uuid;
 
     #[tokio::test]
@@ -40,7 +40,7 @@ mod window_tests {
         let initial_pane = window.current_pane.clone().unwrap();
 
         // Split to create multiple panes
-        let pane2 = window.split_pane(&initial_pane, SplitDirection::Horizontal)
+        let _pane2 = window.split_pane(&initial_pane, SplitDirection::Horizontal)
             .await
             .unwrap();
 
@@ -185,7 +185,7 @@ mod layout_tests {
 
 #[cfg(test)]
 mod copy_mode_tests {
-    use crate::ui::copymode::{CopyMode, CopyModeState, SearchDirection};
+    use crate::ui::copymode::{CopyMode, SearchDirection};
     use crate::config::CopyModeStyle;
 
     #[test]
@@ -334,7 +334,7 @@ mod error_tests {
 
 #[cfg(test)]
 mod protocol_tests {
-    use crate::protocol::{ClientMessage, ServerMessage, SessionId, ClientId, AuthCredentials};
+    use crate::protocol::{ClientMessage, SessionId, ClientId, AuthCredentials};
     use uuid::Uuid;
 
     #[test]
@@ -372,7 +372,7 @@ mod protocol_tests {
     #[test]
     fn test_id_types() {
         let session_id = SessionId(Uuid::new_v4());
-        let client_id = ClientId(Uuid::new_v4());
+        let _client_id = ClientId(Uuid::new_v4());
 
         // IDs should be unique
         let session_id2 = SessionId(Uuid::new_v4());

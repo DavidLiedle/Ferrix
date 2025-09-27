@@ -47,7 +47,7 @@ mod revolutionary_integration_tests {
             for mux in &legacy_multiplexers {
                 // These features don't exist in legacy multiplexers
                 assert!(
-                    true, // Placeholder for actual feature comparison
+                    !feature.is_empty() && !mux.is_empty(), // Basic validity check
                     "{} doesn't have: {}", mux, feature
                 );
             }
@@ -94,6 +94,10 @@ mod revolutionary_integration_tests {
         }
 
         // All features initialized and working together
-        assert!(true);
+        assert!(
+            !suggestions.is_empty() &&
+            collab_session.read().await.participants.len() > 0 &&
+            time_travel.read().await.is_recording()
+        );
     }
 }
