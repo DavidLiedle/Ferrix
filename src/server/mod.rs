@@ -4,6 +4,7 @@ pub mod pane;
 pub mod pty;
 pub mod layout;
 pub mod snapshot;
+pub mod recovery;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -19,6 +20,7 @@ use crate::error::{FerrixError, Result};
 use crate::protocol::{ClientMessage, FerrixCodec, ServerMessage, SessionId, ClientId, SessionInfo, SnapshotInfo};
 use session::Session;
 use snapshot::{SnapshotManager, SessionSnapshot};
+use recovery::RecoveryManager;
 
 pub struct Server {
     sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
@@ -44,6 +46,40 @@ impl Server {
     pub async fn run(&mut self) -> Result<()> {
         if self.socket_path.exists() {
             std::fs::remove_file(&self.socket_path)?;
+        }
+
+        // Check for crash recovery
+        let recovery_manager = Arc::new(RecoveryManager::new()?);
+
+        // Attempt to recover crashed sessions
+        match recovery_manager.check_and_recover().await {
+            Ok(recovered_sessions) => {
+                for snapshot in recovered_sessions {
+                    let session = Session::from_snapshot(snapshot.clone());
+                    let session_id = session.id.clone();
+                    let session_name = session.name.clone();
+
+                    let mut sessions_guard = self.sessions.write().await;
+                    sessions_guard.insert(session_id.clone(), Arc::new(RwLock::new(session)));
+
+                    info!("Recovered session {} ({}) from crash", session_name, session_id.0);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to recover sessions: {}", e);
+            }
+        }
+
+        // Setup signal handlers for graceful shutdown
+        recovery::setup_signal_handlers(recovery_manager.clone());
+
+        // Start auto-save task
+        {
+            let sessions_clone = self.sessions.clone();
+            let recovery_manager_clone = recovery_manager.clone();
+            tokio::spawn(async move {
+                recovery_manager_clone.start_auto_save(sessions_clone).await;
+            });
         }
 
         let listener = UnixListener::bind(&self.socket_path)?;

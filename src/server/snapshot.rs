@@ -147,7 +147,7 @@ impl SnapshotManager {
         Ok(())
     }
 
-    pub fn auto_snapshot(&self, snapshot: &SessionSnapshot) -> Result<PathBuf> {
+    pub async fn auto_snapshot(&self, snapshot: &SessionSnapshot) -> Result<PathBuf> {
         // Auto-snapshots go in a subdirectory
         let auto_dir = self.snapshot_dir.join("auto");
         fs::create_dir_all(&auto_dir)
