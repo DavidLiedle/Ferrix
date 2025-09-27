@@ -162,8 +162,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Clone and build
 git clone https://github.com/davidliedle/Ferrix
-cd Ferrix/ferrix
-cargo build
+cd Ferrix
+cargo build --release
 
 # Run tests
 cargo test
@@ -200,8 +200,6 @@ Inspired by:
 
 <div align="center">
 
-**Built with ❤️ and Rust**
-
-*"The prophecy has been fulfilled - a terminal multiplexer rewritten in Rust!"*
+**Built with ❤️ and Rust by DavidCanHelp and Claude Code Opus 4.1**
 
 </div>
