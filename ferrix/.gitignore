@@ -1,0 +1,28 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Ferrix runtime files
+/tmp/ferrix.sock
+*.log
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+
+# Backup files
+*~
+*.bak

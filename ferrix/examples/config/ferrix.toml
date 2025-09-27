@@ -1,0 +1,23 @@
+# Minimal Ferrix Configuration Example
+# Copy this to ~/.config/ferrix/config.toml to use as your personal configuration
+
+[general]
+default_shell = "/bin/zsh"  # Change to your preferred shell
+escape_key = "ctrl-a"       # Alternative prefix key (like GNU Screen)
+mouse = true
+clipboard = true
+
+[status_bar]
+position = "bottom"
+left = "[{session}]"
+center = "{windows}"
+right = "{time:%H:%M}"
+
+[colors]
+# Dracula theme example
+background = "#282a36"
+foreground = "#f8f8f2"
+pane_border = "#44475a"
+pane_active_border = "#bd93f9"
+status_bg = "#44475a"
+status_fg = "#f8f8f2"

@@ -1,0 +1,211 @@
+# Ferrix Configuration
+# This is the default configuration file for Ferrix terminal multiplexer
+
+[general]
+# Default shell to spawn in new panes
+default_shell = "/bin/bash"
+
+# Main prefix key (like tmux's prefix)
+escape_key = "ctrl-b"
+
+# Enable mouse support for selecting panes and resizing
+mouse = true
+
+# Enable system clipboard integration
+clipboard = true
+
+# Default terminal type
+term = "xterm-256color"
+
+# Number of lines to keep in scrollback buffer
+scrollback_lines = 10000
+
+# Automatically rename windows based on running command
+automatic_rename = true
+
+# Time in milliseconds to display pane numbers when switching
+display_panes_time = 2000
+
+[keybindings]
+# Session management
+new_session = "ctrl-b :new"
+detach = "ctrl-b d"
+list_sessions = "ctrl-b s"
+
+# Window management
+new_window = "ctrl-b c"
+next_window = "ctrl-b n"
+previous_window = "ctrl-b p"
+rename_window = "ctrl-b ,"
+kill_window = "ctrl-b &"
+
+# Pane management
+split_horizontal = "ctrl-b %"
+split_vertical = "ctrl-b \""
+navigate_left = "ctrl-b left"
+navigate_right = "ctrl-b right"
+navigate_up = "ctrl-b up"
+navigate_down = "ctrl-b down"
+zoom_pane = "ctrl-b z"
+kill_pane = "ctrl-b x"
+resize_pane_left = "ctrl-b alt-left"
+resize_pane_right = "ctrl-b alt-right"
+resize_pane_up = "ctrl-b alt-up"
+resize_pane_down = "ctrl-b alt-down"
+
+# Copy mode
+enter_copy_mode = "ctrl-b ["
+paste_buffer = "ctrl-b ]"
+
+# Command mode
+enter_command_mode = "ctrl-b :"
+
+# Advanced features
+save_snapshot = "ctrl-b shift-s"
+restore_snapshot = "ctrl-b shift-r"
+reload_config = "ctrl-b r"
+
+[status_bar]
+# Position: top or bottom
+position = "bottom"
+
+# Status bar format using template variables
+# Available variables: {session}, {window}, {pane}, {time}, {date}, {host}, {user}, {git_branch}, {battery}
+left = "[{session}] {windows}"
+center = ""
+right = "{git_branch} | {battery} | {time}"
+
+# Update interval in milliseconds
+refresh_rate = 1000
+
+# Status bar height (lines)
+height = 1
+
+[colors]
+# Color scheme for Ferrix
+# Colors can be specified as:
+# - Named colors: black, red, green, yellow, blue, magenta, cyan, white
+# - RGB hex: #rrggbb
+# - 256 colors: colour0 to colour255
+
+# Default colors
+background = "#1e1e1e"
+foreground = "#d4d4d4"
+
+# Pane borders
+pane_border = "#444444"
+pane_active_border = "#569cd6"
+
+# Status bar colors
+status_bg = "#2d2d30"
+status_fg = "#cccccc"
+status_current_bg = "#569cd6"
+status_current_fg = "#ffffff"
+
+# Copy mode colors
+copy_mode_bg = "#3c3c3c"
+copy_mode_fg = "#ffffff"
+copy_mode_selection_bg = "#264f78"
+copy_mode_selection_fg = "#ffffff"
+
+# Message/command bar
+message_bg = "#569cd6"
+message_fg = "#ffffff"
+
+[windows]
+# Renumber windows automatically when one is closed
+renumber = true
+
+# Start window indexing at
+base_index = 0
+
+# Aggressive resize (resize window to smallest client)
+aggressive_resize = false
+
+[panes]
+# Start pane indexing at
+base_index = 0
+
+# Display pane borders
+display_borders = true
+
+# Border style: single, double, heavy, rounded
+border_style = "single"
+
+[copy_mode]
+# Vi or emacs mode for copy mode
+mode = "vi"
+
+# Use system clipboard by default
+use_system_clipboard = true
+
+# Exit copy mode after selection
+exit_after_selection = false
+
+[plugins]
+# Enable plugin system
+enabled = true
+
+# Plugin directory
+directory = "~/.ferrix/plugins"
+
+# Auto-load plugins on startup
+autoload = true
+
+# List of plugins to load (WASM files)
+plugins = [
+    # "git-status.wasm",
+    # "system-monitor.wasm",
+]
+
+[advanced]
+# Session persistence
+auto_save_session = true
+auto_save_interval = 300  # seconds
+
+# Crash recovery
+enable_crash_recovery = true
+recovery_backup_dir = "~/.ferrix/recovery"
+
+# Remote sessions
+allow_remote = false
+remote_port = 7755
+remote_encryption = true
+
+# GPU acceleration (experimental)
+gpu_acceleration = false
+
+# Logging
+log_level = "info"  # trace, debug, info, warn, error
+log_file = "~/.ferrix/ferrix.log"
+
+[notifications]
+# Desktop notifications for various events
+on_bell = true
+on_activity = false
+on_silence = false
+
+# Command to run for notifications (leave empty for system default)
+notification_command = ""
+
+[performance]
+# Rendering optimizations
+lazy_rendering = true
+render_fps_limit = 60
+
+# Buffer optimizations
+max_buffer_size = 100000  # lines
+compression_threshold = 10000  # compress buffers larger than this
+
+# Network optimizations (for remote sessions)
+compression = true
+compression_level = 6  # 1-9, higher = better compression, more CPU
+
+[hooks]
+# Commands to run on various events
+on_session_created = ""
+on_session_closed = ""
+on_window_created = ""
+on_pane_created = ""
+
+# Example: on_session_created = "echo 'New session: #{session_name}' >> ~/.ferrix/sessions.log"
