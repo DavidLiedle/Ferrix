@@ -5,7 +5,7 @@ use std::sync::Arc;
 use wgpu::{
     Backends, Device, DeviceDescriptor, Instance, InstanceDescriptor, Queue, Surface,
     SurfaceConfiguration, TextureUsages, TextureView, RenderPipeline, BindGroup,
-    Buffer, BufferUsages,
+    Buffer, BufferUsages, MemoryHints,
 };
 use winit::window::Window;
 
@@ -118,7 +118,8 @@ impl GpuRenderer {
         });
 
         // Create surface
-        let surface = instance.create_surface(window.clone())?;
+        let surface = instance.create_surface(window.clone())
+            .map_err(|e| anyhow::anyhow!("Failed to create surface: {}", e))?;
 
         // Get adapter
         let adapter = instance
@@ -137,10 +138,12 @@ impl GpuRenderer {
                     label: Some("Ferrix GPU Device"),
                     required_features: wgpu::Features::empty(),
                     required_limits: wgpu::Limits::default(),
+                    memory_hints: MemoryHints::default(),
                 },
                 None,
             )
-            .await?;
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to create device: {}", e))?;
 
         let device = Arc::new(device);
         let queue = Arc::new(queue);
@@ -149,7 +152,7 @@ impl GpuRenderer {
         let size = window.inner_size();
         let config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
-            format: surface.get_preferred_format(&adapter).unwrap_or(wgpu::TextureFormat::Bgra8UnormSrgb),
+            format: surface.get_capabilities(&adapter).formats[0],
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::AutoVsync,
