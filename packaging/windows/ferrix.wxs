@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- WiX installer configuration for Ferrix -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="Ferrix Terminal Multiplexer"
+           Language="1033"
+           Version="0.1.0.0"
+           Manufacturer="David Liedle"
+           UpgradeCode="12345678-1234-1234-1234-123456789012">
+
+    <Package InstallerVersion="200"
+             Compressed="yes"
+             InstallScope="perMachine" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Ferrix is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Features -->
+    <Feature Id="ProductFeature" Title="Ferrix" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="PathComponents" />
+    </Feature>
+
+    <!-- Icons -->
+    <Icon Id="ferrix.ico" SourceFile="assets/ferrix.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ferrix.ico" />
+
+    <!-- UI -->
+    <UIRef Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <!-- License -->
+    <WixVariable Id="WixUILicenseRtf" Value="LICENSE.rtf" />
+
+    <!-- Banner images -->
+    <WixVariable Id="WixUIBannerBmp" Value="assets/banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="assets/dialog.bmp" />
+  </Product>
+
+  <!-- Directory structure -->
+  <Fragment>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Ferrix" />
+      </Directory>
+
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Ferrix" />
+      </Directory>
+    </Directory>
+  </Fragment>
+
+  <!-- Components -->
+  <Fragment>
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <!-- Main executable -->
+      <Component Id="FerrixExecutable" Guid="12345678-1234-1234-1234-123456789013">
+        <File Id="ferrix.exe"
+              Source="target/release/ferrix.exe"
+              KeyPath="yes">
+          <Shortcut Id="startMenuFerrix"
+                    Directory="ApplicationProgramsFolder"
+                    Name="Ferrix Terminal"
+                    Description="Revolutionary terminal multiplexer"
+                    WorkingDirectory="INSTALLFOLDER"
+                    Icon="ferrix.ico"
+                    IconIndex="0"
+                    Advertise="yes" />
+        </File>
+      </Component>
+
+      <!-- Configuration files -->
+      <Component Id="ConfigFiles" Guid="12345678-1234-1234-1234-123456789014">
+        <File Id="config.toml" Source="config/default.toml" />
+      </Component>
+
+      <!-- Documentation -->
+      <Component Id="Documentation" Guid="12345678-1234-1234-1234-123456789015">
+        <File Id="README.md" Source="README.md" />
+        <File Id="USER_GUIDE.md" Source="docs/USER_GUIDE.md" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- PATH environment variable -->
+    <ComponentGroup Id="PathComponents">
+      <Component Id="PathComponent" Directory="INSTALLFOLDER" Guid="12345678-1234-1234-1234-123456789016">
+        <Environment Id="PATH"
+                     Name="PATH"
+                     Value="[INSTALLFOLDER]"
+                     Permanent="no"
+                     Part="last"
+                     Action="set"
+                     System="yes" />
+        <CreateFolder />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

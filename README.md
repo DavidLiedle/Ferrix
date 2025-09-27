@@ -1,4 +1,4 @@
-# Ferrix - Revolutionary Terminal Multiplexer 🚀
+# Ferrix - Modern Terminal Multiplexer
 
 <div align="center">
 
@@ -10,44 +10,44 @@
 ║  |  _| | |___|  _ <|  _ < | |  /  \      ║
 ║  |_|   |_____|_| \_\_| \_\___/_/\_\      ║
 ║                                           ║
-║  Revolutionary Terminal Multiplexer        ║
+║    Modern Terminal Multiplexer             ║
 ║         Built with Rust                   ║
 ╚═══════════════════════════════════════════╝
 ```
 
-**The [terminal multiplexer prophecy](https://github.com/cloudstreet-dev/GNU-Screen-vs-Tmux) fulfilled!**
+**A modern take on terminal multiplexing inspired by [GNU Screen and Tmux](https://github.com/cloudstreet-dev/GNU-Screen-vs-Tmux)**
 
 </div>
 
 ## What is Ferrix?
 
-Ferrix is a revolutionary terminal multiplexer that combines the reliability of GNU Screen with the features of Tmux, while introducing modern innovations only possible with today's technology. The name combines "Fe" (iron - representing Rust's memory safety) with "Matrix" (representing the matrix of terminal sessions).
+Ferrix is a modern terminal multiplexer that combines the reliability of GNU Screen with features from Tmux, while exploring new possibilities with Rust's safety and performance. The name combines "Fe" (iron - representing Rust's memory safety) with "Matrix" (representing the matrix of terminal sessions).
 
 ## ✨ Features
 
-### Core Features (Phase 1 - Implemented)
-- ✅ **Session Management** - Create, attach, detach, and kill sessions
-- ✅ **Client-Server Architecture** - Robust separation with async/await throughout
+### Currently Working
+- ✅ **Session Management** - Create, attach, detach, list, and kill sessions
+- ✅ **Client-Server Architecture** - Robust separation with async Rust
 - ✅ **PTY Process Management** - Full pseudo-terminal handling
 - ✅ **Basic Window Support** - Single window per session with shell spawning
 - ✅ **Detach/Reattach** - Seamlessly disconnect and reconnect to sessions
-- ✅ **Memory Safe** - Written in 100% safe Rust
+- ✅ **Session Snapshots** - Save, load, list, and delete session snapshots
+- ✅ **Snapshot Import/Export** - Export snapshots to compressed archives
+- ✅ **Configuration System** - Generate and validate TOML configuration
 
-### Planned Features
-- 🚧 **Window & Pane Management** - Split horizontally/vertically, resize, navigate
-- 🚧 **Configuration System** - TOML-based config with hot-reloading
-- 🚧 **Status Bar** - Customizable with git branch, battery, system stats
-- 🚧 **Copy Mode** - Vim and Emacs bindings for text selection
+### Implemented (Architecture Complete, Integration Needed)
+- ✔️ **Window & Pane Management** - Binary tree layout engine with splits and navigation
+- ✔️ **Enhanced Copy Mode** - Vi-style navigation with visual selection modes
+- ✔️ **Session Versioning** - Git-like branching, commits, and merges for sessions
+- ✔️ **Remote Sessions** - TCP/TLS support with authentication framework
+- ✔️ **Plugin System** - WASM plugin architecture with sandboxed execution
+
+### In Development
+- 🚧 **Status Bar** - Customizable with session info and system stats
 - 🚧 **Command Mode** - Runtime commands for advanced control
-
-### Innovative Features (What Sets Ferrix Apart)
-- 📸 **Session Snapshots** - Save and restore exact session state
-- 🔌 **WASM Plugin System** - Safe plugins that can't crash the multiplexer
-- 📋 **Native Clipboard Integration** - Works seamlessly across all platforms
-- 🔐 **Encrypted Remote Sessions** - Built-in encryption for security
-- 🌳 **Session Versioning** - Git-like branching for experimental sessions
-- 🎮 **GPU Acceleration** - Optional rendering acceleration for smooth performance
-- 💾 **Crash Recovery** - Automatic session recovery after unexpected exits
+- 🚧 **Native Clipboard** - Cross-platform clipboard integration
+- 🚧 **GPU Acceleration** - Optional wgpu-based rendering (API updates needed)
+- 🚧 **Hot Reload Config** - Live configuration updates without restart
 
 ## 🚀 Quick Start
 
@@ -131,24 +131,20 @@ left = "[{session}]"
 right = "{time:%H:%M}"
 ```
 
-## 🏗️ Architecture
 
-Ferrix uses a modern client-server architecture:
+## 📊 Architecture & Performance
 
-- **Server Process** - Manages all sessions, windows, and panes
-- **Client Process** - Handles user input and terminal rendering
-- **Binary Protocol** - Efficient communication using bincode
-- **Async/Await** - Tokio-based async runtime for performance
-- **Zero-Copy** - Optimizations where possible for efficiency
+Ferrix uses a modern async Rust architecture:
 
-## 📊 Performance
+- **Async/Await** - Tokio-based runtime for efficient concurrency
+- **Binary Protocol** - Efficient bincode serialization for IPC
+- **Memory Safe** - 100% safe Rust with no unsafe blocks
+- **Modular Design** - Clean separation of concerns for maintainability
 
-Ferrix is designed with performance in mind:
-
-- Startup time < 50ms
-- Memory usage < 10MB per session
-- Zero perceptible lag in normal use
-- Efficient binary protocol for minimal overhead
+Performance characteristics:
+- Fast startup and low memory footprint
+- Efficient client-server communication
+- Responsive terminal handling
 
 ## 🤝 Contributing
 
@@ -172,13 +168,29 @@ cargo test
 cargo bench
 ```
 
-## 🗺️ Roadmap
+## 🗺️ Development Status
 
-- [x] Phase 1: Core Multiplexer - Basic attach/detach functionality
-- [ ] Phase 2: Windows and Panes - Full window/pane management
-- [ ] Phase 3: Configuration and UI - Customization and status bar
-- [ ] Phase 4: Advanced Features - Snapshots, plugins, remote sessions
-- [ ] Phase 5: Optimization and Polish - Production readiness
+- ✅ **Phase 1: Core Multiplexer** - Complete and functional
+- ✅ **Phase 2: Windows and Panes** - Architecture implemented, needs UI integration
+- ✅ **Phase 3: Configuration** - Basic system working, UI components in progress
+- ✅ **Phase 4: Advanced Features** - Core implementations complete
+- 🚧 **Phase 5: Polish** - Testing, optimization, and production hardening needed
+
+### Current State
+
+Ferrix is a **functional terminal multiplexer** with core features working. The project has grown beyond initial plans with advanced architecture for windows, panes, plugins, and remote sessions all implemented. However, integration between components and UI polish is still in progress.
+
+**What you can do today:**
+- Create and manage multiple terminal sessions
+- Detach and reattach to running sessions
+- Save and restore session snapshots
+- Run commands in detached sessions
+
+**What's coming soon:**
+- Full window splitting and pane navigation
+- Plugin system activation
+- Remote session connectivity
+- Complete configuration system
 
 ## 📜 License
 

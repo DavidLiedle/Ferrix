@@ -6,6 +6,12 @@ use super::messages::{ClientMessage, ServerMessage};
 
 pub struct FerrixCodec;
 
+impl FerrixCodec {
+    pub fn new() -> Self {
+        FerrixCodec
+    }
+}
+
 impl Decoder for FerrixCodec {
     type Item = ClientMessage;
     type Error = FerrixError;
@@ -47,6 +53,12 @@ impl Encoder<ServerMessage> for FerrixCodec {
 }
 
 pub struct FerrixClientCodec;
+
+impl FerrixClientCodec {
+    pub fn new() -> Self {
+        FerrixClientCodec
+    }
+}
 
 impl Decoder for FerrixClientCodec {
     type Item = ServerMessage;

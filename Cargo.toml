@@ -81,6 +81,12 @@ tokio-rustls = "0.26"
 rustls-pemfile = "2.2"
 webpki-roots = "0.26"
 
+# GPU acceleration
+wgpu = { version = "23.0", optional = true }
+raw-window-handle = { version = "0.6", optional = true }
+winit = { version = "0.30", optional = true }
+bytemuck = { version = "1.20", features = ["derive"], optional = true }
+
 [dev-dependencies]
 criterion = "0.5"
 tempfile = "3.14"
@@ -101,3 +107,7 @@ opt-level = 0
 
 [profile.bench]
 inherits = "release"
+
+[features]
+default = ["gpu"]
+gpu = ["dep:wgpu", "dep:raw-window-handle", "dep:winit", "dep:bytemuck"]

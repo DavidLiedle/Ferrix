@@ -150,7 +150,7 @@ pub enum PluginResponse {
 }
 
 /// Hook points where plugins can inject functionality
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub enum PluginHook {
     PreSessionCreate,
     PostSessionCreate,

@@ -1,0 +1,51 @@
+# Maintainer: David Liedle <david@example.com>
+
+pkgname=ferrix
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Revolutionary Rust-based terminal multiplexer"
+arch=('x86_64' 'aarch64')
+url="https://github.com/davidliedle/ferrix"
+license=('MIT' 'Apache')
+depends=('gcc-libs' 'openssl')
+makedepends=('rust' 'cargo' 'git')
+provides=('ferrix')
+conflicts=('ferrix-git')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/davidliedle/ferrix/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+
+  # Install binary
+  install -Dm755 target/release/ferrix "$pkgdir/usr/bin/ferrix"
+
+  # Install documentation
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 docs/USER_GUIDE.md "$pkgdir/usr/share/doc/$pkgname/USER_GUIDE.md"
+  install -Dm644 docs/DEVELOPER_GUIDE.md "$pkgdir/usr/share/doc/$pkgname/DEVELOPER_GUIDE.md"
+
+  # Install license files
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  # Install man page
+  install -Dm644 docs/ferrix.1 "$pkgdir/usr/share/man/man1/ferrix.1"
+
+  # Install shell completions
+  install -Dm644 completions/ferrix.bash "$pkgdir/usr/share/bash-completion/completions/ferrix"
+  install -Dm644 completions/_ferrix "$pkgdir/usr/share/zsh/site-functions/_ferrix"
+  install -Dm644 completions/ferrix.fish "$pkgdir/usr/share/fish/vendor_completions.d/ferrix.fish"
+}

@@ -47,3 +47,9 @@ pub enum FerrixError {
 }
 
 pub type Result<T> = std::result::Result<T, FerrixError>;
+
+impl From<wasmtime::Error> for FerrixError {
+    fn from(err: wasmtime::Error) -> Self {
+        FerrixError::Plugin(format!("WASM runtime error: {}", err))
+    }
+}

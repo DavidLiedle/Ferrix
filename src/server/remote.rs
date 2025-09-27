@@ -4,16 +4,68 @@ use std::path::PathBuf;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 use rustls::{ServerConfig, ClientConfig, RootCertStore};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 use futures::{StreamExt, SinkExt};
 use tracing::{info, warn, error};
 use std::collections::HashMap;
 use tokio::sync::RwLock;
+use std::pin::Pin;
 
 use crate::error::{Result, FerrixError};
-use crate::protocol::{ClientMessage, ServerMessage, FerrixCodec, ClientId, SessionId};
+use crate::protocol::{ClientMessage, ServerMessage, FerrixCodec, ClientId, SessionId, AuthCredentials};
 use super::Server;
+
+/// Wrapper enum for different stream types
+enum Stream {
+    Tcp(TcpStream),
+    TlsServer(tokio_rustls::server::TlsStream<TcpStream>),
+    TlsClient(tokio_rustls::client::TlsStream<TcpStream>),
+}
+
+impl AsyncRead for Stream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match &mut *self {
+            Stream::Tcp(s) => Pin::new(s).poll_read(cx, buf),
+            Stream::TlsServer(s) => Pin::new(s).poll_read(cx, buf),
+            Stream::TlsClient(s) => Pin::new(s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for Stream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        match &mut *self {
+            Stream::Tcp(s) => Pin::new(s).poll_write(cx, buf),
+            Stream::TlsServer(s) => Pin::new(s).poll_write(cx, buf),
+            Stream::TlsClient(s) => Pin::new(s).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+        match &mut *self {
+            Stream::Tcp(s) => Pin::new(s).poll_flush(cx),
+            Stream::TlsServer(s) => Pin::new(s).poll_flush(cx),
+            Stream::TlsClient(s) => Pin::new(s).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+        match &mut *self {
+            Stream::Tcp(s) => Pin::new(s).poll_shutdown(cx),
+            Stream::TlsServer(s) => Pin::new(s).poll_shutdown(cx),
+            Stream::TlsClient(s) => Pin::new(s).poll_shutdown(cx),
+        }
+    }
+}
 
 /// Remote session server for network access
 pub struct RemoteServer {
@@ -35,15 +87,6 @@ pub struct RemoteClient {
 pub trait AuthenticationHandler: Send + Sync {
     async fn authenticate(&self, credentials: &AuthCredentials) -> Result<ClientId>;
     async fn authorize(&self, client_id: &ClientId, action: &str) -> Result<bool>;
-}
-
-/// Authentication credentials
-#[derive(Debug, Clone)]
-pub struct AuthCredentials {
-    pub username: String,
-    pub password: Option<String>,
-    pub token: Option<String>,
-    pub certificate: Option<Vec<u8>>,
 }
 
 /// Simple password-based authentication
@@ -81,7 +124,7 @@ impl RemoteServer {
 
         let cert = rustls_pemfile::certs(&mut cert.as_ref())
             .map(|c| c.map(|c| c.to_vec()))
-            .collect::<Result<Vec<_>, _>>()
+            .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(|e| FerrixError::Other(format!("Failed to parse certificate: {}", e)))?;
 
         let key = rustls_pemfile::private_key(&mut key.as_ref())
@@ -94,7 +137,7 @@ impl RemoteServer {
 
         let config = ServerConfig::builder()
             .with_no_client_auth()
-            .with_single_cert(cert_chain, rustls::pki_types::PrivateKeyDer::from(key.secret_der().to_vec()))
+            .with_single_cert(cert_chain, rustls::pki_types::PrivateKeyDer::from(rustls::pki_types::PrivatePkcs8KeyDer::from(key.secret_der().to_vec())))
             .map_err(|e| FerrixError::Other(format!("Failed to create TLS config: {}", e)))?;
 
         self.tls_config = Some(Arc::new(config));
@@ -136,12 +179,12 @@ impl RemoteServer {
         tls_acceptor: Option<TlsAcceptor>,
     ) -> Result<()> {
         // Apply TLS if configured
-        let stream: Box<dyn AsyncReadExt + AsyncWriteExt + Send + Unpin> = if let Some(acceptor) = tls_acceptor {
+        let stream = if let Some(acceptor) = tls_acceptor {
             let tls_stream = acceptor.accept(stream).await
                 .map_err(|e| FerrixError::Other(format!("TLS handshake failed: {}", e)))?;
-            Box::new(tls_stream)
+            Stream::TlsServer(tls_stream)
         } else {
-            Box::new(stream)
+            Stream::Tcp(stream)
         };
 
         // Create framed codec
@@ -217,7 +260,7 @@ impl RemoteClient {
 
             let ca_certs = rustls_pemfile::certs(&mut ca_cert.as_ref())
                 .map(|c| c.map(|c| c.to_vec()))
-                .collect::<Result<Vec<_>, _>>()
+                .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(|e| FerrixError::Other(format!("Failed to parse CA certificate: {}", e)))?;
 
             for cert in ca_certs {
@@ -243,7 +286,7 @@ impl RemoteClient {
             .map_err(|e| FerrixError::Other(format!("Failed to connect to server: {}", e)))?;
 
         // Apply TLS if configured
-        let stream: Box<dyn AsyncReadExt + AsyncWriteExt + Send + Unpin> = if let Some(config) = &self.tls_config {
+        let stream = if let Some(config) = &self.tls_config {
             let connector = TlsConnector::from(config.clone());
             let domain = rustls::pki_types::ServerName::try_from("ferrix")
                 .map_err(|e| FerrixError::Other(format!("Invalid server name: {}", e)))?
@@ -251,12 +294,12 @@ impl RemoteClient {
 
             let tls_stream = connector.connect(domain, stream).await
                 .map_err(|e| FerrixError::Other(format!("TLS connection failed: {}", e)))?;
-            Box::new(tls_stream)
+            Stream::TlsClient(tls_stream)
         } else {
-            Box::new(stream)
+            Stream::Tcp(stream)
         };
 
-        let mut framed = Framed::new(stream, FerrixCodec::new());
+        let mut framed = Framed::new(stream, crate::protocol::codec::FerrixClientCodec::new());
 
         // Send authentication
         framed.send(ClientMessage::Authenticate(self.auth_credentials.clone())).await?;
@@ -284,7 +327,7 @@ impl RemoteClient {
 
 /// Active remote session
 pub struct RemoteSession {
-    framed: Framed<Box<dyn AsyncReadExt + AsyncWriteExt + Send + Unpin>, FerrixCodec>,
+    framed: Framed<Stream, crate::protocol::codec::FerrixClientCodec>,
     client_id: ClientId,
     session_id: Option<SessionId>,
 }

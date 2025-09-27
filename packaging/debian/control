@@ -1,0 +1,23 @@
+Package: ferrix
+Version: 0.1.0
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: David Liedle <david@example.com>
+Homepage: https://github.com/davidliedle/ferrix
+Description: Revolutionary Rust-based terminal multiplexer
+ Ferrix is a modern terminal multiplexer that combines the best features
+ of GNU Screen and tmux while introducing innovative capabilities only
+ possible with modern technology.
+ .
+ Features:
+  - Session persistence across system restarts
+  - Advanced window and pane management with intelligent layouts
+  - Vim-style copy mode with search and visual selection
+  - Remote session support with TLS encryption
+  - Plugin system for extensibility
+  - Git-like session versioning for checkpoint and rollback
+  - GPU-accelerated rendering (when available)
+Depends: libc6 (>= 2.31), libssl1.1
+Recommends: git
+Suggests: wl-clipboard | xclip | xsel

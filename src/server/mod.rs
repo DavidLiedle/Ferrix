@@ -8,6 +8,7 @@ pub mod recovery;
 pub mod collaboration;
 pub mod timetravel;
 pub mod remote;
+pub mod versioning;
 
 use std::collections::HashMap;
 use std::path::PathBuf;

@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  ferrix:
+    build: .
+    image: ferrix:latest
+    container_name: ferrix-server
+    hostname: ferrix
+
+    # Persistent storage for sessions
+    volumes:
+      - ferrix-data:/home/ferrix/.ferrix
+      - ferrix-sessions:/tmp/ferrix
+
+    # Environment configuration
+    environment:
+      - FERRIX_LOG_LEVEL=info
+      - FERRIX_SERVER_BIND=0.0.0.0:9999
+      - FERRIX_AUTH_MODE=token
+      - FERRIX_AUTH_TOKEN=${FERRIX_AUTH_TOKEN:-changeme}
+
+    # Network configuration
+    ports:
+      - "9999:9999"
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+
+    # Auto-restart policy
+    restart: unless-stopped
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "ferrix", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Nginx reverse proxy with SSL
+  nginx:
+    image: nginx:alpine
+    container_name: ferrix-proxy
+    profiles:
+      - with-ssl
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - ferrix
+    restart: unless-stopped
+
+volumes:
+  ferrix-data:
+    driver: local
+  ferrix-sessions:
+    driver: local
+
+networks:
+  default:
+    name: ferrix-network
+    driver: bridge
