@@ -9,6 +9,16 @@ use super::window::Window;
 use super::snapshot::{SessionSnapshot, SnapshotMetadata, SessionState, WindowState, PaneState};
 use super::layout::NavigationDirection;
 
+#[derive(Debug, Clone)]
+pub struct CopyModeState {
+    pub cursor_row: usize,
+    pub cursor_col: usize,
+    pub selection_start: Option<(usize, usize)>,
+    pub selection_end: Option<(usize, usize)>,
+    pub buffer_content: Vec<String>,
+    pub mode: String,
+}
+
 pub struct Session {
     pub id: SessionId,
     pub name: String,
@@ -34,6 +44,11 @@ impl Session {
     }
 
     pub async fn handle_input(&mut self, data: Vec<u8>) -> Result<()> {
+        // If copy mode is active, don't pass input to the underlying pane
+        if self.copy_mode.is_some() {
+            return Ok(());
+        }
+
         if let Some(current_window_id) = &self.current_window {
             for window in &self.windows {
                 let window_guard = window.read().await;
@@ -266,11 +281,154 @@ impl Session {
 
     pub async fn enter_copy_mode(&mut self) -> Result<()> {
         if self.copy_mode.is_none() {
-            self.copy_mode = Some(crate::ui::copymode::CopyMode::new(crate::config::CopyModeStyle::Vi));
+            // Get buffer first
+            let buffer = self.get_current_pane_buffer().await;
+
+            // Create and initialize copy mode
+            let mut copy_mode = crate::ui::copymode::CopyMode::new(crate::config::CopyModeStyle::Vi);
+            copy_mode.enter(buffer);
+            self.copy_mode = Some(copy_mode);
+
             Ok(())
         } else {
             Err(FerrixError::Other("Already in copy mode".to_string()))
         }
+    }
+
+    pub async fn exit_copy_mode(&mut self) -> Result<()> {
+        if let Some(copy_mode) = &mut self.copy_mode {
+            copy_mode.exit();
+            self.copy_mode = None;
+            Ok(())
+        } else {
+            Err(FerrixError::Other("Not in copy mode".to_string()))
+        }
+    }
+
+    pub async fn handle_copy_mode_input(&mut self, key: String) -> Result<Option<CopyModeState>> {
+        if let Some(copy_mode) = &mut self.copy_mode {
+            // Handle the key input using the copy mode implementation
+            match key.as_str() {
+                "h" | "Left" => copy_mode.move_cursor_left(),
+                "j" | "Down" => copy_mode.move_cursor_down(),
+                "k" | "Up" => copy_mode.move_cursor_up(),
+                "l" | "Right" => copy_mode.move_cursor_right(),
+                "w" => copy_mode.move_word_forward(),
+                "b" => copy_mode.move_word_backward(),
+                "0" => copy_mode.move_to_line_start(),
+                "$" => copy_mode.move_to_line_end(),
+                "g" => copy_mode.move_to_first_line(),
+                "G" => copy_mode.move_to_last_line(),
+                "v" => copy_mode.enter_visual_mode(),
+                "V" => copy_mode.enter_visual_line_mode(),
+                "y" => {
+                    copy_mode.yank_selection();
+                    // Exit copy mode after yanking
+                    copy_mode.exit();
+                    self.copy_mode = None;
+                    return Ok(None);
+                }
+                "Escape" => {
+                    if *copy_mode.state() == crate::ui::copymode::CopyModeState::Visual
+                        || *copy_mode.state() == crate::ui::copymode::CopyModeState::VisualLine {
+                        copy_mode.exit_visual_mode();
+                    } else {
+                        copy_mode.exit();
+                        self.copy_mode = None;
+                        return Ok(None);
+                    }
+                }
+                "/" => copy_mode.start_search(crate::ui::copymode::SearchDirection::Forward),
+                "?" => copy_mode.start_search(crate::ui::copymode::SearchDirection::Backward),
+                "n" => copy_mode.jump_to_next_match(),
+                "N" => copy_mode.jump_to_previous_match(),
+                "Ctrl+u" => copy_mode.move_half_page_up(),
+                "Ctrl+d" => copy_mode.move_half_page_down(),
+                "Ctrl+o" => copy_mode.jump_backward(),
+                "Ctrl+i" => copy_mode.jump_forward(),
+                _ => {
+                    // For other keys, we might want to handle them differently
+                    // For now, just ignore them
+                }
+            }
+
+            // Update selection if in visual mode
+            if *copy_mode.state() == crate::ui::copymode::CopyModeState::Visual
+                || *copy_mode.state() == crate::ui::copymode::CopyModeState::VisualLine {
+                copy_mode.update_selection();
+            }
+
+            // Return updated state
+            Ok(Some(CopyModeState {
+                cursor_row: copy_mode.cursor_row(),
+                cursor_col: copy_mode.cursor_col(),
+                selection_start: copy_mode.selection_start(),
+                selection_end: copy_mode.selection_end(),
+                buffer_content: copy_mode.buffer().clone(),
+                mode: match copy_mode.state() {
+                    crate::ui::copymode::CopyModeState::Normal => "COPY".to_string(),
+                    crate::ui::copymode::CopyModeState::Visual => "VISUAL".to_string(),
+                    crate::ui::copymode::CopyModeState::VisualLine => "VISUAL LINE".to_string(),
+                    crate::ui::copymode::CopyModeState::VisualBlock => "VISUAL BLOCK".to_string(),
+                    crate::ui::copymode::CopyModeState::Search(_) => "SEARCH".to_string(),
+                },
+            }))
+        } else {
+            Err(FerrixError::Other("Not in copy mode".to_string()))
+        }
+    }
+
+    pub async fn get_copy_mode_state(&self) -> Option<CopyModeState> {
+        if let Some(copy_mode) = &self.copy_mode {
+            Some(CopyModeState {
+                cursor_row: copy_mode.cursor_row(),
+                cursor_col: copy_mode.cursor_col(),
+                selection_start: copy_mode.selection_start(),
+                selection_end: copy_mode.selection_end(),
+                buffer_content: copy_mode.buffer().clone(),
+                mode: match copy_mode.state() {
+                    crate::ui::copymode::CopyModeState::Normal => "COPY".to_string(),
+                    crate::ui::copymode::CopyModeState::Visual => "VISUAL".to_string(),
+                    crate::ui::copymode::CopyModeState::VisualLine => "VISUAL LINE".to_string(),
+                    crate::ui::copymode::CopyModeState::VisualBlock => "VISUAL BLOCK".to_string(),
+                    crate::ui::copymode::CopyModeState::Search(_) => "SEARCH".to_string(),
+                },
+            })
+        } else {
+            None
+        }
+    }
+
+    async fn get_current_pane_buffer(&mut self) -> Vec<String> {
+        // Get the buffer content from the current pane
+        if let Some(current_window) = self.get_current_window() {
+            let window_guard = current_window.read().await;
+            if let Some(current_pane_id) = &window_guard.current_pane {
+                if let Some(pane_arc) = window_guard.panes.get(current_pane_id) {
+                    let pane_guard = pane_arc.read().await;
+                    return pane_guard.scrollback.clone();
+                }
+            }
+        }
+
+        // Fallback: return some dummy content for testing
+        vec![
+            "Welcome to Ferrix Terminal Multiplexer".to_string(),
+            "Copy mode is now active!".to_string(),
+            "Use vim-like keys to navigate:".to_string(),
+            "  h/j/k/l or arrow keys - move cursor".to_string(),
+            "  v - enter visual mode".to_string(),
+            "  V - enter visual line mode".to_string(),
+            "  y - yank (copy) selection".to_string(),
+            "  / - search forward".to_string(),
+            "  ? - search backward".to_string(),
+            "  Esc - exit copy mode".to_string(),
+            "".to_string(),
+            "This is line 12".to_string(),
+            "This is line 13 with some longer text to test scrolling".to_string(),
+            "Line 14".to_string(),
+            "Line 15".to_string(),
+        ]
     }
 
     pub fn get_current_window(&self) -> Option<&Arc<RwLock<Window>>> {

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::{RwLock, mpsc};
 use wasmtime::{Engine, Instance, Linker, Module, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder};
+use wasmtime_wasi::preview1::{WasiP1Ctx};
 use anyhow::Result;
 use tracing::{info, warn, error};
 
@@ -26,16 +27,18 @@ struct LoadedPlugin {
     id: String,
     manifest: PluginManifest,
     instance: Instance,
-    store: Store<PluginState>,
+    store: Arc<Mutex<Store<PluginState>>>,
     exports: HashMap<String, wasmtime::Func>,
 }
 
 struct PluginState {
-    wasi: WasiCtx,
+    wasi: WasiP1Ctx,
     context: PluginContext,
     manifest: PluginManifest,
     event_queue: Vec<PluginEvent>,
 }
+
+// No WasiView implementation needed for Preview 1
 
 struct HookRegistry {
     hooks: HashMap<PluginHook, Vec<String>>, // Hook -> Vec<plugin_id>
@@ -71,10 +74,10 @@ impl PluginRuntime {
             .map_err(|e| FerrixError::Plugin(format!("Failed to compile WASM module: {}", e)))?;
 
         // Create WASI context
-        let wasi_ctx = WasiCtxBuilder::new()
+        let wasi_p1_ctx = WasiCtxBuilder::new()
             .inherit_stdio()
             .inherit_env()
-            .build();
+            .build_p1();
 
         // Get plugin manifest
         let manifest = self.get_plugin_manifest(&module).await?;
@@ -91,7 +94,7 @@ impl PluginRuntime {
 
         // Create plugin state
         let plugin_state = PluginState {
-            wasi: wasi_ctx,
+            wasi: wasi_p1_ctx,
             context: PluginContext {
                 session_id: None,
                 window_id: None,
@@ -102,32 +105,41 @@ impl PluginRuntime {
             event_queue: Vec::new(),
         };
 
-        let mut store = Store::new(&self.engine, plugin_state);
+        let store = Arc::new(Mutex::new(Store::new(&self.engine, plugin_state)));
 
         // Create linker and add WASI
         let mut linker = Linker::new(&self.engine);
-        // Add WASI to linker - API has changed in newer versions
-        // wasmtime_wasi::add_to_linker(&mut linker, |state: &mut PluginState| &mut state.wasi)?;
+        // Add WASI to linker - updated for wasmtime 27.0
+        wasmtime_wasi::preview1::add_to_linker_sync(&mut linker, |state: &mut PluginState| &mut state.wasi)?;
 
         // Add Ferrix API functions
         self.add_ferrix_api(&mut linker)?;
 
         // Instantiate the module
-        let instance = linker.instantiate(&mut store, &module)
-            .map_err(|e| FerrixError::Plugin(format!("Failed to instantiate plugin: {}", e)))?;
+        let instance = {
+            let mut store_guard = store.lock().unwrap();
+            linker.instantiate(&mut *store_guard, &module)
+                .map_err(|e| FerrixError::Plugin(format!("Failed to instantiate plugin: {}", e)))?
+        };
 
         // Get exported functions
         let mut exports = HashMap::new();
-        for export_name in &manifest.exports {
-            if let Some(func) = instance.get_func(&mut store, export_name) {
-                exports.insert(export_name.clone(), func);
+        {
+            let mut store_guard = store.lock().unwrap();
+            for export_name in &manifest.exports {
+                if let Some(func) = instance.get_func(&mut *store_guard, export_name) {
+                    exports.insert(export_name.clone(), func);
+                }
             }
         }
 
         // Initialize the plugin
-        if let Some(init_func) = instance.get_func(&mut store, "plugin_init") {
-            init_func.call(&mut store, &[], &mut [])
-                .map_err(|e| FerrixError::Plugin(format!("Plugin initialization failed: {}", e)))?;
+        {
+            let mut store_guard = store.lock().unwrap();
+            if let Some(init_func) = instance.get_func(&mut *store_guard, "plugin_init") {
+                init_func.call(&mut *store_guard, &[], &mut [])
+                    .map_err(|e| FerrixError::Plugin(format!("Plugin initialization failed: {}", e)))?;
+            }
         }
 
         let loaded_plugin = LoadedPlugin {
@@ -162,8 +174,8 @@ impl PluginRuntime {
         if let Some(plugin) = plugins.remove(plugin_id) {
             // Call cleanup if available
             if let Some(cleanup_func) = plugin.exports.get("plugin_cleanup") {
-                let mut store = plugin.store;
-                cleanup_func.call(&mut store, &[], &mut [])
+                let mut store_guard = plugin.store.lock().unwrap();
+                cleanup_func.call(&mut *store_guard, &[], &mut [])
                     .map_err(|e| FerrixError::Plugin(format!("Plugin cleanup failed: {}", e)))?;
             }
 
@@ -192,13 +204,29 @@ impl PluginRuntime {
         let plugins = self.plugins.read().await;
 
         // Execute command on all plugins that export "handle_command"
-        // TODO: Fix Store clone issue - need to refactor plugin state management
-        // for (_id, plugin) in plugins.iter() {
-        //     if let Some(handle_func) = plugin.exports.get("handle_command") {
-        //         let mut store = plugin.store.clone();
-        //         ...
-        //     }
-        // }
+        for (_id, plugin) in plugins.iter() {
+            if let Some(handle_func) = plugin.exports.get("handle_command") {
+                // Get a lock on the store and update context
+                let mut store_guard = plugin.store.lock().unwrap();
+                store_guard.data_mut().context = context.clone();
+
+                // Serialize command to pass to WASM
+                let command_json = serde_json::to_string(&command)
+                    .map_err(|e| FerrixError::Plugin(format!("Failed to serialize command: {}", e)))?;
+
+                // For now, call the function without parameters
+                // In a real implementation, you'd pass the serialized command to WASM memory
+                match handle_func.call(&mut *store_guard, &[], &mut []) {
+                    Ok(_) => {
+                        return Ok(PluginResponse::Success { data: None });
+                    }
+                    Err(e) => {
+                        warn!("Plugin command execution failed: {}", e);
+                        continue;
+                    }
+                }
+            }
+        }
 
         Err(FerrixError::Plugin("No plugin handled the command".to_string()))
     }
@@ -218,14 +246,23 @@ impl PluginRuntime {
                 if let Some(plugin) = plugins.get(plugin_id) {
                     // Call hook handler if it exists
                     let hook_name = format!("hook_{:?}", hook).to_lowercase();
-                    if let Some(_hook_func) = plugin.exports.get(&hook_name) {
-                        // TODO: Fix Store clone issue
-                        // let mut store = plugin.store.clone();
-                        // store.data_mut().context = context.clone();
-                        // let result = hook_func.call(&mut store, &[], &mut []);
-                        // if let Ok(_) = result {
-                        //     responses.push(PluginResponse::Success { data: None });
-                        // }
+                    if let Some(hook_func) = plugin.exports.get(&hook_name) {
+                        // Get a lock on the store and update context
+                        let mut store_guard = plugin.store.lock().unwrap();
+                        store_guard.data_mut().context = context.clone();
+
+                        // Call the hook function
+                        match hook_func.call(&mut *store_guard, &[], &mut []) {
+                            Ok(_) => {
+                                responses.push(PluginResponse::Success { data: None });
+                            }
+                            Err(e) => {
+                                warn!("Plugin hook execution failed: {}", e);
+                                responses.push(PluginResponse::Error {
+                                    message: format!("Hook execution failed: {}", e)
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -239,11 +276,20 @@ impl PluginRuntime {
         let plugins = self.plugins.read().await;
 
         for (_id, plugin) in plugins.iter() {
-            if let Some(_event_func) = plugin.exports.get("handle_event") {
-                // TODO: Fix Store clone issue
-                // let mut store = plugin.store.clone();
-                // store.data_mut().event_queue.push(event.clone());
-                // let _ = event_func.call(&mut store, &[], &mut []);
+            if let Some(event_func) = plugin.exports.get("handle_event") {
+                // Get a lock on the store and add event to queue
+                let mut store_guard = plugin.store.lock().unwrap();
+                store_guard.data_mut().event_queue.push(event.clone());
+
+                // Call the event handler function
+                match event_func.call(&mut *store_guard, &[], &mut []) {
+                    Ok(_) => {
+                        // Event handled successfully
+                    }
+                    Err(e) => {
+                        warn!("Plugin event handling failed: {}", e);
+                    }
+                }
             }
         }
     }
@@ -261,13 +307,13 @@ impl PluginRuntime {
         module: &Module,
     ) -> Result<PluginManifest, FerrixError> {
         // Create temporary store to call get_manifest
-        let wasi_ctx = WasiCtxBuilder::new()
+        let wasi_p1_ctx = WasiCtxBuilder::new()
             .inherit_stdio()
             .inherit_env()
-            .build();
+            .build_p1();
 
         let mut store = Store::new(&self.engine, PluginState {
-            wasi: wasi_ctx,
+            wasi: wasi_p1_ctx,
             context: PluginContext {
                 session_id: None,
                 window_id: None,
@@ -289,8 +335,8 @@ impl PluginRuntime {
         });
 
         let mut linker = Linker::new(&self.engine);
-        // Add WASI to linker - API has changed in newer versions
-        // wasmtime_wasi::add_to_linker(&mut linker, |state: &mut PluginState| &mut state.wasi)?;
+        // Add WASI to linker - updated for wasmtime 27.0
+        wasmtime_wasi::preview1::add_to_linker_sync(&mut linker, |state: &mut PluginState| &mut state.wasi)?;
 
         let instance = linker.instantiate(&mut store, module)
             .map_err(|e| FerrixError::Plugin(format!("Failed to get manifest: {}", e)))?;

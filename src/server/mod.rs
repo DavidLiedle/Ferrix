@@ -26,6 +26,7 @@ use session::Session;
 use snapshot::{SnapshotManager, SessionSnapshot};
 use recovery::RecoveryManager;
 
+#[derive(Clone)]
 pub struct Server {
     sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
     clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
@@ -852,9 +853,91 @@ async fn handle_message(
                     if let Some(session) = sessions_guard.get_mut(session_id) {
                         let mut session_guard = session.write().await;
                         match session_guard.enter_copy_mode().await {
-                            Ok(()) => Ok(Some(ServerMessage::CopyModeEntered)),
+                            Ok(()) => {
+                                // Get the buffer content and send initial update
+                                if let Some(copy_mode_state) = session_guard.get_copy_mode_state().await {
+                                    Ok(Some(ServerMessage::CopyModeUpdate {
+                                        cursor_row: copy_mode_state.cursor_row,
+                                        cursor_col: copy_mode_state.cursor_col,
+                                        selection_start: copy_mode_state.selection_start,
+                                        selection_end: copy_mode_state.selection_end,
+                                        buffer_content: copy_mode_state.buffer_content,
+                                        mode: copy_mode_state.mode,
+                                    }))
+                                } else {
+                                    Ok(Some(ServerMessage::CopyModeEntered))
+                                }
+                            }
                             Err(e) => Ok(Some(ServerMessage::Error {
                                 message: format!("Failed to enter copy mode: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::ExitCopyMode => {
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+                        match session_guard.exit_copy_mode().await {
+                            Ok(()) => Ok(Some(ServerMessage::CopyModeExited)),
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to exit copy mode: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::CopyModeInput { key } => {
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+                        match session_guard.handle_copy_mode_input(key).await {
+                            Ok(Some(copy_mode_state)) => {
+                                Ok(Some(ServerMessage::CopyModeUpdate {
+                                    cursor_row: copy_mode_state.cursor_row,
+                                    cursor_col: copy_mode_state.cursor_col,
+                                    selection_start: copy_mode_state.selection_start,
+                                    selection_end: copy_mode_state.selection_end,
+                                    buffer_content: copy_mode_state.buffer_content,
+                                    mode: copy_mode_state.mode,
+                                }))
+                            }
+                            Ok(None) => Ok(None), // No update needed
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to handle copy mode input: {}", e),
                             }))
                         }
                     } else {

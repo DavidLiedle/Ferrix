@@ -16,7 +16,10 @@ use tracing::{debug, error, info};
 
 use crate::error::{FerrixError, Result};
 use crate::protocol::{ClientMessage, ServerMessage, SessionId, codec::FerrixClientCodec, LayoutInfo, PaneInfo, PaneId};
+use crate::config::{Config, keybindings::{KeyBindingManager, KeyBinding, Action}};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 pub struct Client {
     socket_path: PathBuf,
@@ -25,18 +28,86 @@ pub struct Client {
     current_layout: Option<LayoutInfo>,
     terminal_size: (u16, u16), // (cols, rows)
     pane_buffers: HashMap<PaneId, Vec<u8>>, // Buffer terminal output per pane
+    copy_mode: CopyModeState,
+    config: Arc<RwLock<Config>>,
+    key_binding_manager: Arc<RwLock<KeyBindingManager>>,
+    prefix_mode: bool, // Track if we're waiting for the second key after prefix
+}
+
+#[derive(Debug, Clone)]
+struct CopyModeState {
+    active: bool,
+    cursor_row: usize,
+    cursor_col: usize,
+    selection_start: Option<(usize, usize)>,
+    selection_end: Option<(usize, usize)>,
+    buffer_content: Vec<String>,
+    mode: String, // COPY, VISUAL, VISUAL_LINE
 }
 
 impl Client {
-    pub fn new(socket_path: PathBuf) -> Self {
-        Self {
+    pub fn new(socket_path: PathBuf) -> Result<Self> {
+        let config = Config::load().unwrap_or_default();
+        let mut key_binding_manager = KeyBindingManager::new();
+
+        // Update key binding manager with config
+        if let Ok(prefix_key) = KeyBindingManager::parse_key_string(&config.keybindings.prefix) {
+            key_binding_manager.set_prefix(prefix_key);
+        }
+
+        // Add custom key bindings from config
+        for (key_str, action_str) in &config.keybindings.custom {
+            if let Ok(key) = KeyBindingManager::parse_key_string(key_str) {
+                let action = Action::Custom(action_str.clone());
+                key_binding_manager.bind(key, action);
+            }
+        }
+
+        Ok(Self {
             socket_path,
             attached_session: None,
             framed: None,
             current_layout: None,
             terminal_size: (80, 24),
             pane_buffers: HashMap::new(),
+            copy_mode: CopyModeState {
+                active: false,
+                cursor_row: 0,
+                cursor_col: 0,
+                selection_start: None,
+                selection_end: None,
+                buffer_content: Vec::new(),
+                mode: "COPY".to_string(),
+            },
+            config: Arc::new(RwLock::new(config)),
+            key_binding_manager: Arc::new(RwLock::new(key_binding_manager)),
+            prefix_mode: false,
+        })
+    }
+
+    pub async fn reload_config(&mut self) -> Result<()> {
+        let new_config = Config::load().unwrap_or_default();
+        let mut key_binding_manager = KeyBindingManager::new();
+
+        // Update key binding manager with new config
+        if let Ok(prefix_key) = KeyBindingManager::parse_key_string(&new_config.keybindings.prefix) {
+            key_binding_manager.set_prefix(prefix_key);
         }
+
+        // Add custom key bindings from config
+        for (key_str, action_str) in &new_config.keybindings.custom {
+            if let Ok(key) = KeyBindingManager::parse_key_string(key_str) {
+                let action = Action::Custom(action_str.clone());
+                key_binding_manager.bind(key, action);
+            }
+        }
+
+        // Update the shared state
+        *self.config.write().await = new_config;
+        *self.key_binding_manager.write().await = key_binding_manager;
+
+        info!("Configuration reloaded successfully");
+        Ok(())
     }
 
     pub async fn connect(&mut self) -> Result<()> {
@@ -204,108 +275,49 @@ impl Client {
     }
 
     async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<bool> {
-        if key_event.modifiers == KeyModifiers::CONTROL && key_event.code == KeyCode::Char('b') {
-            if let Some(next_key) = event::read().ok() {
-                if let Event::Key(next_event) = next_key {
-                    match next_event.code {
-                        // Detach
-                        KeyCode::Char('d') => {
-                            self.detach_session().await?;
-                            return Ok(true);
-                        }
-                        // Split pane vertically
-                        KeyCode::Char('%') => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::SplitPane {
-                                    direction: crate::protocol::SplitDirection::Vertical
-                                }).await?;
-                            }
-                        }
-                        // Split pane horizontally
-                        KeyCode::Char('"') => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::SplitPane {
-                                    direction: crate::protocol::SplitDirection::Horizontal
-                                }).await?;
-                            }
-                        }
-                        // Create new window
-                        KeyCode::Char('c') => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::CreateWindow { name: None }).await?;
-                            }
-                        }
-                        // Next window
-                        KeyCode::Char('n') => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::NextWindow).await?;
-                            }
-                        }
-                        // Previous window
-                        KeyCode::Char('p') => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::PreviousWindow).await?;
-                            }
-                        }
-                        // Zoom pane
-                        KeyCode::Char('z') => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::ZoomPane).await?;
-                            }
-                        }
-                        // Enter copy mode
-                        KeyCode::Char('[') => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::EnterCopyMode).await?;
-                            }
-                        }
-                        // Navigate panes with arrow keys
-                        KeyCode::Up => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::NavigatePane {
-                                    direction: crate::protocol::PaneNavigationDirection::Up
-                                }).await?;
-                            }
-                        }
-                        KeyCode::Down => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::NavigatePane {
-                                    direction: crate::protocol::PaneNavigationDirection::Down
-                                }).await?;
-                            }
-                        }
-                        KeyCode::Left => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::NavigatePane {
-                                    direction: crate::protocol::PaneNavigationDirection::Left
-                                }).await?;
-                            }
-                        }
-                        KeyCode::Right => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::NavigatePane {
-                                    direction: crate::protocol::PaneNavigationDirection::Right
-                                }).await?;
-                            }
-                        }
-                        // Kill pane
-                        KeyCode::Char('x') => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::KillPane).await?;
-                            }
-                        }
-                        // List windows
-                        KeyCode::Char('w') => {
-                            if let Some(framed) = &mut self.framed {
-                                framed.send(ClientMessage::ListWindows).await?;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
+        // If in copy mode, handle copy mode keys
+        if self.copy_mode.active {
+            return self.handle_copy_mode_key(key_event).await;
         }
 
+        let key_binding = KeyBinding {
+            modifiers: key_event.modifiers,
+            code: key_event.code,
+        };
+
+        // Check for prefix key and actions
+        let (is_prefix, action_to_execute) = {
+            let key_manager = self.key_binding_manager.read().await;
+            let prefix_key = key_manager.get_prefix().clone();
+
+            let is_prefix = key_binding == prefix_key;
+            let action = if self.prefix_mode && !is_prefix {
+                key_manager.get_action(&key_binding).cloned()
+            } else {
+                None
+            };
+
+            (is_prefix, action)
+        };
+
+        // Check if this is the prefix key
+        if is_prefix {
+            self.prefix_mode = true;
+            return Ok(false);
+        }
+
+        // If we're in prefix mode, check for action bindings
+        if self.prefix_mode {
+            self.prefix_mode = false;
+
+            if let Some(action) = action_to_execute {
+                return self.execute_action(action).await;
+            }
+
+            // If no binding found, fall through to normal key handling
+        }
+
+        // Handle normal key input (not command keys)
         let mut data = Vec::new();
         match key_event.code {
             KeyCode::Char(c) => {
@@ -329,6 +341,157 @@ impl Client {
         if !data.is_empty() {
             if let Some(framed) = &mut self.framed {
                 framed.send(ClientMessage::Input { data }).await?;
+            }
+        }
+
+        Ok(false)
+    }
+
+    async fn execute_action(&mut self, action: Action) -> Result<bool> {
+        match action {
+            Action::DetachSession => {
+                self.detach_session().await?;
+                return Ok(true);
+            }
+            Action::SplitVertical => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::SplitPane {
+                        direction: crate::protocol::SplitDirection::Vertical
+                    }).await?;
+                }
+            }
+            Action::SplitHorizontal => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::SplitPane {
+                        direction: crate::protocol::SplitDirection::Horizontal
+                    }).await?;
+                }
+            }
+            Action::NewWindow => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::CreateWindow { name: None }).await?;
+                }
+            }
+            Action::NextWindow => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::NextWindow).await?;
+                }
+            }
+            Action::PreviousWindow => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::PreviousWindow).await?;
+                }
+            }
+            Action::ZoomPane => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::ZoomPane).await?;
+                }
+            }
+            Action::EnterCopyMode => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::EnterCopyMode).await?;
+                }
+            }
+            Action::NavigateUp => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::NavigatePane {
+                        direction: crate::protocol::PaneNavigationDirection::Up
+                    }).await?;
+                }
+            }
+            Action::NavigateDown => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::NavigatePane {
+                        direction: crate::protocol::PaneNavigationDirection::Down
+                    }).await?;
+                }
+            }
+            Action::NavigateLeft => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::NavigatePane {
+                        direction: crate::protocol::PaneNavigationDirection::Left
+                    }).await?;
+                }
+            }
+            Action::NavigateRight => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::NavigatePane {
+                        direction: crate::protocol::PaneNavigationDirection::Right
+                    }).await?;
+                }
+            }
+            Action::ClosePane => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::KillPane).await?;
+                }
+            }
+            Action::ListSessions => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::ListWindows).await?;
+                }
+            }
+            Action::ReloadConfig => {
+                self.reload_config().await?;
+            }
+            Action::SelectWindow(num) => {
+                // Handle window selection (0-9)
+                // For now, we'll just log this as window selection isn't directly supported
+                // In a full implementation, you'd need to get the list of windows first
+                // and then switch to the nth window
+                info!("Window selection {} requested (not yet implemented)", num);
+            }
+            Action::Custom(command) => {
+                // Handle custom commands
+                info!("Executing custom command: {}", command);
+                // For now, just log the custom command
+                // In a full implementation, you'd parse and execute the command
+            }
+            _ => {
+                // Handle other actions as needed
+                debug!("Unhandled action: {:?}", action);
+            }
+        }
+        Ok(false)
+    }
+
+    async fn handle_copy_mode_key(&mut self, key_event: KeyEvent) -> Result<bool> {
+        let mut key_str = String::new();
+
+        // Handle key events and convert to string representation for server
+        match key_event.code {
+            KeyCode::Char(c) => {
+                if key_event.modifiers == KeyModifiers::CONTROL {
+                    key_str = format!("Ctrl+{}", c);
+                } else {
+                    key_str = c.to_string();
+                }
+            }
+            KeyCode::Esc => {
+                // Exit copy mode
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::ExitCopyMode).await?;
+                }
+                return Ok(false);
+            }
+            KeyCode::Up => key_str = "Up".to_string(),
+            KeyCode::Down => key_str = "Down".to_string(),
+            KeyCode::Left => key_str = "Left".to_string(),
+            KeyCode::Right => key_str = "Right".to_string(),
+            KeyCode::Enter => key_str = "Enter".to_string(),
+            KeyCode::Tab => key_str = "Tab".to_string(),
+            KeyCode::Backspace => key_str = "Backspace".to_string(),
+            // Vim-style movement keys
+            _ => {
+                // For other keys, convert to character if possible
+                if let KeyCode::Char(c) = key_event.code {
+                    key_str = c.to_string();
+                }
+            }
+        }
+
+        if !key_str.is_empty() {
+            if let Some(framed) = &mut self.framed {
+                framed.send(ClientMessage::CopyModeInput { key: key_str }).await?;
             }
         }
 
@@ -626,6 +789,12 @@ impl Client {
                             ServerMessage::CopyModeEntered => {
                                 self.handle_copy_mode_entered().await?;
                             }
+                            ServerMessage::CopyModeUpdate { cursor_row, cursor_col, selection_start, selection_end, buffer_content, mode } => {
+                                self.handle_copy_mode_update(cursor_row, cursor_col, selection_start, selection_end, buffer_content, mode).await?;
+                            }
+                            ServerMessage::CopyModeExited => {
+                                self.handle_copy_mode_exited().await?;
+                            }
                             ServerMessage::SessionDetached => {
                                 info!("Session detached");
                                 break;
@@ -654,21 +823,36 @@ impl Client {
     }
 
     async fn handle_copy_mode_entered(&mut self) -> Result<()> {
-        use std::io::Write;
-        let mut stdout = std::io::stdout();
-
-        // Show copy mode indicator
-        execute!(
-            stdout,
-            crossterm::cursor::MoveTo(0, 0),
-            crossterm::style::SetBackgroundColor(crossterm::style::Color::Blue),
-            crossterm::style::SetForegroundColor(crossterm::style::Color::White)
-        )?;
-        write!(stdout, " COPY MODE - Use arrow keys to navigate, Enter to copy, Esc to exit ")?;
-        execute!(stdout, crossterm::style::ResetColor)?;
-        std::io::Write::flush(&mut stdout)?;
-
+        self.copy_mode.active = true;
+        self.render_copy_mode().await?;
         info!("Entered copy mode");
+        Ok(())
+    }
+
+    async fn handle_copy_mode_update(&mut self, cursor_row: usize, cursor_col: usize, selection_start: Option<(usize, usize)>, selection_end: Option<(usize, usize)>, buffer_content: Vec<String>, mode: String) -> Result<()> {
+        self.copy_mode.cursor_row = cursor_row;
+        self.copy_mode.cursor_col = cursor_col;
+        self.copy_mode.selection_start = selection_start;
+        self.copy_mode.selection_end = selection_end;
+        self.copy_mode.buffer_content = buffer_content;
+        self.copy_mode.mode = mode;
+
+        if self.copy_mode.active {
+            self.render_copy_mode().await?;
+        }
+        Ok(())
+    }
+
+    async fn handle_copy_mode_exited(&mut self) -> Result<()> {
+        self.copy_mode.active = false;
+        self.copy_mode.selection_start = None;
+        self.copy_mode.selection_end = None;
+
+        // Clear screen and re-render normal layout
+        self.clear_screen().await?;
+        self.render_layout().await?;
+
+        info!("Exited copy mode");
         Ok(())
     }
 
@@ -740,6 +924,182 @@ impl Client {
 
         execute!(stdout, ResetColor)?;
         stdout.flush()?;
+
+        Ok(())
+    }
+
+    async fn render_copy_mode(&mut self) -> Result<()> {
+        use crossterm::{
+            cursor::MoveTo,
+            style::{Color, SetBackgroundColor, SetForegroundColor, ResetColor, Attribute, SetAttribute},
+            terminal::{Clear, ClearType},
+            execute,
+        };
+        use std::io::{stdout, Write};
+
+        let mut stdout = stdout();
+        let (cols, rows) = self.terminal_size;
+
+        // Clear the screen
+        execute!(stdout, Clear(ClearType::All))?;
+
+        // Render copy mode indicator at the top
+        execute!(stdout, MoveTo(0, 0))?;
+        execute!(stdout, SetBackgroundColor(Color::Blue), SetForegroundColor(Color::White))?;
+
+        let mode_indicator = format!(" {} MODE ", self.copy_mode.mode);
+        let help_text = " h/j/k/l:move v:visual V:visual-line y:yank /:search Esc:exit ";
+        let padding = cols.saturating_sub(mode_indicator.len() as u16 + help_text.len() as u16);
+
+        write!(stdout, "{}{}{}", mode_indicator, " ".repeat(padding as usize), help_text)?;
+        execute!(stdout, ResetColor)?;
+
+        // Render buffer content starting from row 1
+        let visible_rows = (rows - 2) as usize; // Reserve space for header and status
+        let buffer_len = self.copy_mode.buffer_content.len();
+
+        // Calculate scroll offset to keep cursor visible
+        let scroll_offset = if self.copy_mode.cursor_row >= visible_rows {
+            self.copy_mode.cursor_row - visible_rows + 1
+        } else {
+            0
+        };
+
+        // Render buffer lines
+        for (i, line) in self.copy_mode.buffer_content
+            .iter()
+            .enumerate()
+            .skip(scroll_offset)
+            .take(visible_rows)
+        {
+            let screen_row = (i - scroll_offset + 1) as u16;
+            execute!(stdout, MoveTo(0, screen_row))?;
+
+            // Check if this line has selection
+            let line_has_selection = self.is_line_selected(i);
+            let (start_col, end_col) = self.get_selection_range_for_line(i);
+
+            if line_has_selection {
+                // Render line with selection highlighting
+                self.render_line_with_selection(line, i, start_col, end_col, &mut stdout)?;
+            } else {
+                // Normal line
+                write!(stdout, "{}", line)?;
+            }
+
+            // Highlight cursor position
+            if i == self.copy_mode.cursor_row {
+                let cursor_col = self.copy_mode.cursor_col.min(line.len());
+                execute!(stdout, MoveTo(cursor_col as u16, screen_row))?;
+                execute!(stdout, SetBackgroundColor(Color::White), SetForegroundColor(Color::Black))?;
+
+                if cursor_col < line.len() {
+                    let cursor_char = line.chars().nth(cursor_col).unwrap_or(' ');
+                    write!(stdout, "{}", cursor_char)?;
+                } else {
+                    write!(stdout, " ")?;
+                }
+                execute!(stdout, ResetColor)?;
+            }
+        }
+
+        // Render status line at the bottom
+        execute!(stdout, MoveTo(0, rows - 1))?;
+        execute!(stdout, SetBackgroundColor(Color::DarkGrey), SetForegroundColor(Color::White))?;
+
+        let status = format!(
+            " Line {}/{} Col {} | {} lines | Selection: {} ",
+            self.copy_mode.cursor_row + 1,
+            buffer_len,
+            self.copy_mode.cursor_col + 1,
+            buffer_len,
+            if self.copy_mode.selection_start.is_some() && self.copy_mode.selection_end.is_some() {
+                "active"
+            } else {
+                "none"
+            }
+        );
+
+        let status_padding = cols.saturating_sub(status.len() as u16);
+        write!(stdout, "{}{}", status, " ".repeat(status_padding as usize))?;
+        execute!(stdout, ResetColor)?;
+
+        stdout.flush()?;
+        Ok(())
+    }
+
+    fn is_line_selected(&self, line_idx: usize) -> bool {
+        if let (Some(start), Some(end)) = (self.copy_mode.selection_start, self.copy_mode.selection_end) {
+            let (start_row, _) = start;
+            let (end_row, _) = end;
+            let min_row = start_row.min(end_row);
+            let max_row = start_row.max(end_row);
+            line_idx >= min_row && line_idx <= max_row
+        } else {
+            false
+        }
+    }
+
+    fn get_selection_range_for_line(&self, line_idx: usize) -> (usize, usize) {
+        if let (Some(start), Some(end)) = (self.copy_mode.selection_start, self.copy_mode.selection_end) {
+            let (start_row, start_col) = start;
+            let (end_row, end_col) = end;
+
+            let (min_pos, max_pos) = if start_row < end_row || (start_row == end_row && start_col <= end_col) {
+                (start, end)
+            } else {
+                (end, start)
+            };
+
+            if line_idx == min_pos.0 && line_idx == max_pos.0 {
+                // Single line selection
+                (min_pos.1, max_pos.1)
+            } else if line_idx == min_pos.0 {
+                // First line of multi-line selection
+                (min_pos.1, usize::MAX)
+            } else if line_idx == max_pos.0 {
+                // Last line of multi-line selection
+                (0, max_pos.1)
+            } else {
+                // Middle line of multi-line selection
+                (0, usize::MAX)
+            }
+        } else {
+            (0, 0)
+        }
+    }
+
+    fn render_line_with_selection(&self, line: &str, line_idx: usize, start_col: usize, end_col: usize, stdout: &mut std::io::Stdout) -> Result<()> {
+        use crossterm::{style::{Color, SetBackgroundColor, SetForegroundColor, ResetColor}, execute};
+        use std::io::Write;
+
+        let chars: Vec<char> = line.chars().collect();
+
+        // Before selection
+        if start_col > 0 {
+            let before_selection: String = chars.iter().take(start_col).collect();
+            write!(stdout, "{}", before_selection)?;
+        }
+
+        // Selection
+        let selection_start = start_col;
+        let selection_end = if end_col == usize::MAX { chars.len() } else { end_col.min(chars.len()) };
+
+        if selection_start < chars.len() {
+            execute!(stdout, SetBackgroundColor(Color::Yellow), SetForegroundColor(Color::Black))?;
+            let selected_text: String = chars.iter()
+                .skip(selection_start)
+                .take(selection_end - selection_start)
+                .collect();
+            write!(stdout, "{}", selected_text)?;
+            execute!(stdout, ResetColor)?;
+        }
+
+        // After selection
+        if selection_end < chars.len() {
+            let after_selection: String = chars.iter().skip(selection_end).collect();
+            write!(stdout, "{}", after_selection)?;
+        }
 
         Ok(())
     }

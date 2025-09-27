@@ -19,6 +19,21 @@ pub enum Commands {
     Server {
         #[arg(short, long)]
         foreground: bool,
+
+        #[arg(long, help = "Enable remote TCP/TLS access")]
+        remote: bool,
+
+        #[arg(long, default_value = "8080", help = "Port for remote connections")]
+        port: u16,
+
+        #[arg(long, help = "TLS certificate file for secure connections")]
+        tls_cert: Option<String>,
+
+        #[arg(long, help = "TLS private key file for secure connections")]
+        tls_key: Option<String>,
+
+        #[arg(long, default_value = "0.0.0.0", help = "Bind address for remote connections")]
+        bind: String,
     },
 
     #[command(visible_alias = "n")]
@@ -36,6 +51,24 @@ pub enum Commands {
     #[command(visible_alias = "a")]
     Attach {
         target: Option<String>,
+    },
+
+    #[command(about = "Connect to a remote Ferrix server")]
+    Connect {
+        #[arg(help = "Remote server address (host:port)")]
+        address: String,
+
+        #[arg(short, long, help = "Username for authentication")]
+        username: String,
+
+        #[arg(short, long, help = "Password for authentication (will prompt if not provided)")]
+        password: Option<String>,
+
+        #[arg(long, help = "CA certificate file for TLS verification")]
+        tls_ca: Option<String>,
+
+        #[arg(long, help = "Enable TLS (auto-detected if certificates provided)")]
+        tls: bool,
     },
 
     #[command(visible_alias = "ls")]
@@ -113,5 +146,41 @@ pub enum Commands {
     ValidateConfig {
         #[arg(help = "Path to config file to validate")]
         path: Option<String>,
+    },
+
+    #[command(about = "Manage remote users and authentication")]
+    UserManagement {
+        #[command(subcommand)]
+        action: UserAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum UserAction {
+    #[command(about = "Add a new remote user")]
+    Add {
+        #[arg(help = "Username")]
+        username: String,
+
+        #[arg(short, long, help = "Password (will prompt if not provided)")]
+        password: Option<String>,
+    },
+
+    #[command(about = "Remove a remote user")]
+    Remove {
+        #[arg(help = "Username to remove")]
+        username: String,
+    },
+
+    #[command(about = "List all remote users")]
+    List,
+
+    #[command(about = "Change user password")]
+    ChangePassword {
+        #[arg(help = "Username")]
+        username: String,
+
+        #[arg(short, long, help = "New password (will prompt if not provided)")]
+        password: Option<String>,
     },
 }

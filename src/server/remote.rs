@@ -299,7 +299,7 @@ impl RemoteClient {
             Stream::Tcp(stream)
         };
 
-        let mut framed = Framed::new(stream, crate::protocol::codec::FerrixClientCodec::new());
+        let mut framed = Framed::new(stream, crate::protocol::FerrixClientCodec::new());
 
         // Send authentication
         framed.send(ClientMessage::Authenticate(self.auth_credentials.clone())).await?;
@@ -327,7 +327,7 @@ impl RemoteClient {
 
 /// Active remote session
 pub struct RemoteSession {
-    framed: Framed<Stream, crate::protocol::codec::FerrixClientCodec>,
+    framed: Framed<Stream, crate::protocol::FerrixClientCodec>,
     client_id: ClientId,
     session_id: Option<SessionId>,
 }

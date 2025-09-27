@@ -331,6 +331,31 @@ impl CopyMode {
         self.yanked_text.as_deref()
     }
 
+    // Getters for accessing private fields
+    pub fn cursor_row(&self) -> usize {
+        self.cursor_row
+    }
+
+    pub fn cursor_col(&self) -> usize {
+        self.cursor_col
+    }
+
+    pub fn selection_start(&self) -> Option<(usize, usize)> {
+        self.selection_start
+    }
+
+    pub fn selection_end(&self) -> Option<(usize, usize)> {
+        self.selection_end
+    }
+
+    pub fn buffer(&self) -> &Vec<String> {
+        &self.buffer
+    }
+
+    pub fn state(&self) -> &CopyModeState {
+        &self.state
+    }
+
     pub fn get_selected_text(&self) -> Option<String> {
         if let (Some(start), Some(end)) = (self.selection_start, self.selection_end) {
             let mut result = String::new();

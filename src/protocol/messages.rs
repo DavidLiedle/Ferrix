@@ -64,6 +64,10 @@ pub enum ClientMessage {
     KillPane,
     ListWindows,
     EnterCopyMode,
+    ExitCopyMode,
+    CopyModeInput {
+        key: String,
+    },
     SaveSnapshot {
         session_id: SessionId,
         name: Option<String>,
@@ -154,6 +158,15 @@ pub enum ServerMessage {
         windows: Vec<WindowInfo>,
     },
     CopyModeEntered,
+    CopyModeUpdate {
+        cursor_row: usize,
+        cursor_col: usize,
+        selection_start: Option<(usize, usize)>,
+        selection_end: Option<(usize, usize)>,
+        buffer_content: Vec<String>,
+        mode: String,
+    },
+    CopyModeExited,
     LayoutUpdate {
         layout: LayoutInfo,
     },
