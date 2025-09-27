@@ -1,6 +1,8 @@
 pub mod api;
 pub mod runtime;
 pub mod manager;
+#[cfg(test)]
+mod tests;
 
 pub use api::{
     PluginManifest, PluginEvent, PluginCommand, PluginResponse,
