@@ -1,4 +1,5 @@
-// UI module placeholder
-// Will be expanded with status bar, copy mode, etc.
+pub mod statusbar;
+pub mod copymode;
+pub mod commandmode;
 
-use crate::error::Result;
+pub use statusbar::StatusBar;
