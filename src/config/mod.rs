@@ -1,5 +1,7 @@
 pub mod parser;
 pub mod keybindings;
+pub mod ferrixrc;
+pub mod loader;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

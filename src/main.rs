@@ -228,6 +228,69 @@ async fn main() -> Result<()> {
             eprintln!("ReloadConfig command not yet implemented");
         }
 
+        Some(Commands::GenerateConfig { force, output }) => {
+            use ferrix::config::ferrixrc::FerrixRc;
+            use std::path::PathBuf;
+
+            let config_path = if let Some(path) = output {
+                PathBuf::from(path)
+            } else if let Some(home) = dirs::home_dir() {
+                home.join(".ferrixrc")
+            } else {
+                eprintln!("Could not determine home directory");
+                return Ok(());
+            };
+
+            if config_path.exists() && !force {
+                eprintln!("Configuration file already exists at {:?}", config_path);
+                eprintln!("Use --force to overwrite");
+                return Ok(());
+            }
+
+            let sample_config = FerrixRc::generate_sample();
+            std::fs::write(&config_path, sample_config)?;
+            println!("Generated configuration file at {:?}", config_path);
+            println!("Edit this file to customize Ferrix behavior");
+        }
+
+        Some(Commands::ValidateConfig { path }) => {
+            use ferrix::config::ferrixrc::FerrixRc;
+            use std::path::PathBuf;
+
+            let config_path = if let Some(p) = path {
+                PathBuf::from(p)
+            } else if let Ok(p) = std::env::var("FERRIXRC") {
+                PathBuf::from(p)
+            } else if let Some(home) = dirs::home_dir() {
+                home.join(".ferrixrc")
+            } else {
+                eprintln!("Could not determine config file location");
+                return Ok(());
+            };
+
+            if !config_path.exists() {
+                eprintln!("Configuration file not found at {:?}", config_path);
+                return Ok(());
+            }
+
+            println!("Validating configuration file: {:?}", config_path);
+
+            match FerrixRc::load() {
+                Ok(config) => {
+                    println!("✓ Configuration is valid");
+                    println!("  - {} keybindings defined", config.keybindings.len());
+                    println!("  - {} hooks registered", config.hooks.len());
+                    println!("  - {} aliases configured", config.aliases.len());
+                    println!("  - {} startup commands", config.startup_commands.len());
+                    println!("  - {} plugins configured", config.settings.plugins.len());
+                }
+                Err(e) => {
+                    eprintln!("✗ Configuration validation failed:");
+                    eprintln!("  {}", e);
+                }
+            }
+        }
+
         None => {
             let mut client = Client::new(socket_path.clone());
 

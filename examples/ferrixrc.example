@@ -1,0 +1,212 @@
+# Ferrix Configuration File (~/.ferrixrc)
+# ========================================
+# This file can be written in either TOML format or traditional rc format
+# Both formats are supported for maximum flexibility
+
+# ============================
+# TRADITIONAL RC FORMAT EXAMPLE
+# ============================
+
+# Set the prefix key (like GNU Screen's escape or tmux's prefix)
+set prefix C-a
+# Or use: set escape ^Aa  (GNU Screen style)
+
+# General Settings
+set default-shell /bin/zsh
+set default-directory ~
+set history-limit 50000
+set mouse on
+set detach-on-destroy off
+
+# Status Bar Configuration
+set status on
+set status-position bottom
+set status-interval 15
+set status-left " #[fg=green,bold]#S #[fg=yellow]▶ "
+set status-right " #[fg=cyan]#(whoami)@#H #[fg=yellow]%H:%M:%S "
+
+# Window Settings
+set base-index 1                  # Start window numbering at 1
+set renumber-windows on            # Renumber windows when one is closed
+set automatic-rename on            # Automatically set window title
+set aggressive-resize on           # Resize to smallest client viewing window
+
+# Pane Settings
+set pane-border-style fg=colour235
+set pane-active-border-style fg=green,bold
+
+# Activity Monitoring
+set monitor-activity on
+set visual-activity off
+set visual-bell on
+set bell-action any
+
+# Copy Mode
+set mode-keys vi                  # Use vi-style keys in copy mode
+
+# ============================
+# KEY BINDINGS
+# ============================
+
+# Reload configuration
+bind r source-file ~/.ferrixrc \; display "Config reloaded!"
+
+# Window Management
+bind c new-window -n 'shell'      # Create new window
+bind , command-prompt -I "#W" "rename-window '%%'"  # Rename window
+bind n next-window                # Next window
+bind p previous-window            # Previous window
+bind & kill-window                # Kill window with confirmation
+
+# Pane Management (vim-style)
+bind h select-pane -L             # Move left
+bind j select-pane -D             # Move down
+bind k select-pane -U             # Move up
+bind l select-pane -R             # Move right
+
+# Pane Resizing
+bind -r H resize-pane -L 5        # Resize left
+bind -r J resize-pane -D 5        # Resize down
+bind -r K resize-pane -U 5        # Resize up
+bind -r L resize-pane -R 5        # Resize right
+
+# Pane Splitting
+bind | split-window -h            # Split vertically
+bind - split-window -v            # Split horizontally
+bind \\ split-window -h           # Alternative vertical split
+bind _ split-window -v            # Alternative horizontal split
+
+# Session Management
+bind $ command-prompt -I "#S" "rename-session '%%'"
+bind s choose-session             # Session switcher
+bind S save-snapshot              # Quick snapshot
+bind R load-snapshot              # Restore from snapshot
+
+# Copy Mode Enhancements
+bind [ copy-mode                  # Enter copy mode
+bind ] paste-buffer               # Paste from buffer
+bind v copy-mode \; send -X begin-selection  # Visual selection
+bind y copy-mode \; send -X copy-selection   # Yank selection
+
+# Quick Layouts
+bind M-1 select-layout even-horizontal
+bind M-2 select-layout even-vertical
+bind M-3 select-layout main-horizontal
+bind M-4 select-layout main-vertical
+bind M-5 select-layout tiled
+
+# Toggle Features
+bind m set mouse                  # Toggle mouse support
+bind b set status                 # Toggle status bar
+bind z resize-pane -Z             # Toggle pane zoom
+
+# ============================
+# HOOKS (Event Handlers)
+# ============================
+
+# Session hooks
+hook after-new-session 'display "Welcome to Ferrix!"'
+hook before-session-exit 'save-snapshot --auto'
+
+# Window hooks
+hook after-new-window 'run-shell "echo Window created at $(date) >> ~/.ferrix.log"'
+hook after-rename-window 'display "Window renamed to #W"'
+
+# Pane hooks
+hook after-split-window 'select-layout tiled'
+hook pane-exited 'display "Pane process exited with status #{pane_dead_status}"'
+
+# ============================
+# ALIASES
+# ============================
+
+alias ks kill-session
+alias kw kill-window
+alias kp kill-pane
+alias ns new-session
+alias nw new-window
+alias ss save-snapshot
+alias ls list-sessions
+alias lw list-windows
+alias lp list-panes
+
+# ============================
+# STARTUP COMMANDS
+# ============================
+
+# Create default session layout
+run-shell 'ferrix new-session -d -s main'
+run-shell 'ferrix new-window -t main -n monitoring'
+run-shell 'ferrix send-keys -t main:monitoring "htop" C-m'
+
+# ============================
+# PLUGINS
+# ============================
+
+# Load plugins (when plugin system is ready)
+plugin ferrix-resurrect ~/.ferrix/plugins/resurrect
+plugin ferrix-continuum ~/.ferrix/plugins/continuum
+plugin ferrix-sensible ~/.ferrix/plugins/sensible
+
+# ============================
+# COLOR THEMES
+# ============================
+
+# You can also source theme files
+# source-file ~/.ferrix/themes/solarized-dark.conf
+
+# Or define colors inline
+set status-style bg=black,fg=white
+set message-style bg=yellow,fg=black
+set window-status-current-style bg=green,fg=black,bold
+set window-status-style bg=black,fg=white
+set window-status-activity-style bg=red,fg=white
+
+# ============================
+# ADVANCED SETTINGS
+# ============================
+
+# Auto-save settings
+set auto-save on
+set auto-save-interval 300
+set auto-save-on-detach on
+set auto-save-max-snapshots 20
+
+# Lock settings
+set lock-after-time 30            # Lock after 30 minutes of inactivity
+set lock-command "vlock"
+
+# Advanced copy mode
+set copy-mode-mouse-select on
+set copy-mode-clipboard on
+
+# Performance tuning
+set escape-time 0                 # No delay for escape key
+set repeat-time 500              # Repeat time for repeatable commands
+
+# ========================================
+# TOML FORMAT ALTERNATIVE
+# ========================================
+# You can also write this file in TOML format:
+
+# [settings]
+# default_shell = "/bin/zsh"
+# escape_key = "ctrl-a"
+# history_limit = 50000
+# mouse_support = true
+#
+# [settings.status_bar]
+# enabled = true
+# position = "bottom"
+# format_left = " #S ▶ "
+# format_right = " %H:%M:%S "
+#
+# [[keybindings]]
+# key = "r"
+# modifiers = ["prefix"]
+# command = "source-file ~/.ferrixrc"
+# description = "Reload configuration"
+#
+# [[hooks]]
+# event = "after-new-session"
+# command = "display 'Welcome to Ferrix!'"

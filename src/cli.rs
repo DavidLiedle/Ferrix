@@ -99,4 +99,19 @@ pub enum Commands {
 
     #[command(visible_alias = "config")]
     ReloadConfig,
+
+    #[command(about = "Generate a default configuration file")]
+    GenerateConfig {
+        #[arg(short, long, help = "Force overwrite existing config")]
+        force: bool,
+
+        #[arg(short, long, help = "Output path for config file")]
+        output: Option<String>,
+    },
+
+    #[command(about = "Validate configuration file")]
+    ValidateConfig {
+        #[arg(help = "Path to config file to validate")]
+        path: Option<String>,
+    },
 }
