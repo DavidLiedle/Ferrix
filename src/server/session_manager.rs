@@ -1,0 +1,245 @@
+use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use tokio::sync::{RwLock, mpsc, broadcast};
+use tracing::{info, warn, error};
+use uuid::Uuid;
+
+use crate::protocol::{SessionId, ClientId, PaneId, ServerMessage};
+use crate::error::Result;
+use super::session::Session;
+use super::ClientConnection;
+
+/// Manages sessions and their associated clients, handling multi-client attachment
+pub struct SessionManager {
+    /// All active sessions
+    sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
+
+    /// Mapping of session IDs to the clients attached to them
+    session_clients: Arc<RwLock<HashMap<SessionId, HashSet<ClientId>>>>,
+
+    /// All connected clients
+    clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
+
+    /// Broadcast channel for session updates
+    update_sender: broadcast::Sender<SessionUpdate>,
+
+    /// Session output polling tasks
+    session_pollers: Arc<RwLock<HashMap<SessionId, tokio::task::JoinHandle<()>>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionUpdate {
+    pub session_id: SessionId,
+    pub update_type: UpdateType,
+}
+
+#[derive(Debug, Clone)]
+pub enum UpdateType {
+    PaneOutput { pane_id: PaneId, data: Vec<u8> },
+    LayoutChanged,
+    SessionClosed,
+}
+
+impl SessionManager {
+    pub fn new(
+        sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
+        clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
+    ) -> Self {
+        let (update_sender, _) = broadcast::channel(1000);
+
+        Self {
+            sessions,
+            session_clients: Arc::new(RwLock::new(HashMap::new())),
+            clients,
+            update_sender,
+            session_pollers: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Attach a client to a session
+    pub async fn attach_client(&self, client_id: ClientId, session_id: SessionId) -> Result<()> {
+        // Check if session exists
+        {
+            let sessions_guard = self.sessions.read().await;
+            if !sessions_guard.contains_key(&session_id) {
+                return Err(crate::error::FerrixError::SessionNotFound(session_id.0.to_string()));
+            }
+        }
+
+        // Add client to session mapping
+        {
+            let mut session_clients = self.session_clients.write().await;
+            session_clients.entry(session_id.clone())
+                .or_insert_with(HashSet::new)
+                .insert(client_id.clone());
+        }
+
+        // Update client's attached session
+        {
+            let mut clients_guard = self.clients.write().await;
+            if let Some(client) = clients_guard.get_mut(&client_id) {
+                client.attached_session = Some(session_id.clone());
+            }
+        }
+
+        // Start polling task for this session if not already running
+        {
+            let mut pollers = self.session_pollers.write().await;
+            if !pollers.contains_key(&session_id) {
+                let handle = self.start_session_poller(session_id.clone()).await;
+                pollers.insert(session_id.clone(), handle);
+            }
+        }
+
+        info!("Client {} attached to session {}", client_id.0, session_id.0);
+        Ok(())
+    }
+
+    /// Detach a client from its current session
+    pub async fn detach_client(&self, client_id: ClientId) -> Result<()> {
+        let session_id = {
+            let mut clients_guard = self.clients.write().await;
+            if let Some(client) = clients_guard.get_mut(&client_id) {
+                let session = client.attached_session.clone();
+                client.attached_session = None;
+                session
+            } else {
+                None
+            }
+        };
+
+        if let Some(session_id) = session_id {
+            // Remove client from session mapping
+            let should_stop_poller = {
+                let mut session_clients = self.session_clients.write().await;
+                if let Some(clients) = session_clients.get_mut(&session_id) {
+                    clients.remove(&client_id);
+                    clients.is_empty()
+                } else {
+                    false
+                }
+            };
+
+            // Stop polling task if no clients are attached
+            if should_stop_poller {
+                let mut pollers = self.session_pollers.write().await;
+                if let Some(handle) = pollers.remove(&session_id) {
+                    handle.abort();
+                    info!("Stopped polling for session {} (no attached clients)", session_id.0);
+                }
+            }
+
+            info!("Client {} detached from session {}", client_id.0, session_id.0);
+        }
+
+        Ok(())
+    }
+
+    /// Start a polling task for a session that broadcasts updates to all attached clients
+    async fn start_session_poller(&self, session_id: SessionId) -> tokio::task::JoinHandle<()> {
+        let sessions = self.sessions.clone();
+        let session_clients = self.session_clients.clone();
+        let clients = self.clients.clone();
+        let update_sender = self.update_sender.clone();
+
+        tokio::spawn(async move {
+            info!("Starting output poller for session {}", session_id.0);
+
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+                // Get session
+                let session_arc = {
+                    let sessions_guard = sessions.read().await;
+                    sessions_guard.get(&session_id).cloned()
+                };
+
+                if let Some(session_arc) = session_arc {
+                    let mut session_guard = session_arc.write().await;
+
+                    // Get all pane outputs
+                    if let Ok(pane_outputs) = session_guard.get_all_pane_outputs().await {
+                        for (pane_id, output) in pane_outputs {
+                            if !output.is_empty() {
+                                // Get list of attached clients
+                                let client_ids = {
+                                    let session_clients_guard = session_clients.read().await;
+                                    session_clients_guard.get(&session_id)
+                                        .map(|set| set.clone())
+                                        .unwrap_or_default()
+                                };
+
+                                if client_ids.is_empty() {
+                                    // No clients attached, exit poller
+                                    info!("No clients attached to session {}, stopping poller", session_id.0);
+                                    return;
+                                }
+
+                                // Send output to all attached clients
+                                let clients_guard = clients.read().await;
+                                for client_id in client_ids {
+                                    if let Some(client) = clients_guard.get(&client_id) {
+                                        let _ = client.sender.send(ServerMessage::PaneOutput {
+                                            pane_id: pane_id.clone(),
+                                            data: output.clone()
+                                        }).await;
+                                    }
+                                }
+
+                                // Also broadcast the update
+                                let _ = update_sender.send(SessionUpdate {
+                                    session_id: session_id.clone(),
+                                    update_type: UpdateType::PaneOutput {
+                                        pane_id,
+                                        data: output
+                                    }
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    // Session no longer exists, exit poller
+                    warn!("Session {} no longer exists, stopping poller", session_id.0);
+                    return;
+                }
+            }
+        })
+    }
+
+    /// Get a list of clients attached to a session
+    pub async fn get_session_clients(&self, session_id: &SessionId) -> Vec<ClientId> {
+        let session_clients_guard = self.session_clients.read().await;
+        session_clients_guard.get(session_id)
+            .map(|set| set.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Broadcast a message to all clients attached to a session
+    pub async fn broadcast_to_session(&self, session_id: &SessionId, message: ServerMessage) {
+        let client_ids = self.get_session_clients(session_id).await;
+        let clients_guard = self.clients.read().await;
+
+        for client_id in client_ids {
+            if let Some(client) = clients_guard.get(&client_id) {
+                let _ = client.sender.send(message.clone()).await;
+            }
+        }
+    }
+
+    /// Subscribe to session updates
+    pub fn subscribe_updates(&self) -> broadcast::Receiver<SessionUpdate> {
+        self.update_sender.subscribe()
+    }
+
+    /// Clean up when a client disconnects
+    pub async fn handle_client_disconnect(&self, client_id: ClientId) {
+        // Detach the client from any session
+        let _ = self.detach_client(client_id).await;
+
+        // Remove the client from the clients map
+        let mut clients_guard = self.clients.write().await;
+        clients_guard.remove(&client_id);
+
+        info!("Cleaned up disconnected client {}", client_id.0);
+    }
+}

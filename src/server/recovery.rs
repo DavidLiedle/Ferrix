@@ -15,7 +15,7 @@ const RECOVERY_FILE: &str = ".ferrix_recovery";
 const AUTO_SAVE_INTERVAL: u64 = 300; // 5 minutes
 
 pub struct RecoveryManager {
-    snapshot_manager: SnapshotManager,
+    pub snapshot_manager: SnapshotManager,
     recovery_file: PathBuf,
     auto_save_enabled: bool,
 }
@@ -167,7 +167,10 @@ impl RecoveryManager {
 }
 
 // Signal handler for graceful shutdown
-pub fn setup_signal_handlers(recovery_manager: Arc<RecoveryManager>) {
+pub fn setup_signal_handlers(
+    recovery_manager: Arc<RecoveryManager>,
+    sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
+) {
     use tokio::signal;
 
     tokio::spawn(async move {
@@ -186,10 +189,36 @@ pub fn setup_signal_handlers(recovery_manager: Arc<RecoveryManager>) {
             }
         }
 
+        // Save all active sessions before shutdown
+        info!("Saving all active sessions...");
+        let sessions_guard = sessions.read().await;
+
+        for (session_id, session_arc) in sessions_guard.iter() {
+            let session_guard = session_arc.read().await;
+
+            let snapshot = session_guard.create_snapshot(
+                Some(format!("shutdown_{}", session_guard.name)),
+                Some("Session saved on shutdown".to_string()),
+            );
+
+            // Use block_on to ensure synchronous save before exit
+            match tokio::task::block_in_place(|| {
+                recovery_manager.snapshot_manager.save_snapshot(&snapshot)
+            }) {
+                Ok(path) => {
+                    info!("Saved session {} to {:?}", session_id.0, path);
+                }
+                Err(e) => {
+                    error!("Failed to save session {} on shutdown: {}", session_id.0, e);
+                }
+            }
+        }
+
         if let Err(e) = recovery_manager.mark_clean_shutdown() {
             error!("Failed to mark clean shutdown: {}", e);
         }
 
+        info!("Clean shutdown completed");
         std::process::exit(0);
     });
 }

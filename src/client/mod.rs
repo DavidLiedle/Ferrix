@@ -8,7 +8,7 @@ use tokio::net::UnixStream;
 use tokio_util::codec::Framed;
 use futures::{StreamExt, SinkExt};
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, EnableMouseCapture, DisableMouseCapture},
     terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
     execute,
     cursor,
@@ -18,7 +18,10 @@ use tracing::{debug, error, info};
 
 use crate::error::{FerrixError, Result};
 use crate::protocol::{ClientMessage, ServerMessage, SessionId, codec::FerrixClientCodec, LayoutInfo, PaneInfo, PaneId};
-use crate::config::{Config, keybindings::{KeyBindingManager, KeyBinding, Action}};
+use crate::config::{Config, keybindings::{KeyBindingManager, KeyBinding, Action}, CopyModeStyle};
+use crate::ui::copymode::CopyMode;
+use crate::ui::mouse::{MouseHandler, MouseAction};
+use crate::ui::commandmode::{CommandMode, CommandResult};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -30,21 +33,12 @@ pub struct Client {
     current_layout: Option<LayoutInfo>,
     terminal_size: (u16, u16), // (cols, rows)
     pane_buffers: HashMap<PaneId, Vec<u8>>, // Buffer terminal output per pane
-    copy_mode: CopyModeState,
+    copy_mode: CopyMode,
+    command_mode: CommandMode,
+    mouse_handler: MouseHandler,
     config: Arc<RwLock<Config>>,
     key_binding_manager: Arc<RwLock<KeyBindingManager>>,
     prefix_mode: bool, // Track if we're waiting for the second key after prefix
-}
-
-#[derive(Debug, Clone)]
-struct CopyModeState {
-    active: bool,
-    cursor_row: usize,
-    cursor_col: usize,
-    selection_start: Option<(usize, usize)>,
-    selection_end: Option<(usize, usize)>,
-    buffer_content: Vec<String>,
-    mode: String, // COPY, VISUAL, VISUAL_LINE
 }
 
 impl Client {
@@ -65,6 +59,9 @@ impl Client {
             }
         }
 
+        let copy_mode_style = config.copy_mode.mode.clone();
+        let mouse_enabled = config.general.mouse;
+
         Ok(Self {
             socket_path,
             attached_session: None,
@@ -72,15 +69,9 @@ impl Client {
             current_layout: None,
             terminal_size: (80, 24),
             pane_buffers: HashMap::new(),
-            copy_mode: CopyModeState {
-                active: false,
-                cursor_row: 0,
-                cursor_col: 0,
-                selection_start: None,
-                selection_end: None,
-                buffer_content: Vec::new(),
-                mode: "COPY".to_string(),
-            },
+            copy_mode: CopyMode::new(copy_mode_style),
+            command_mode: CommandMode::new(),
+            mouse_handler: MouseHandler::new(mouse_enabled),
             config: Arc::new(RwLock::new(config)),
             key_binding_manager: Arc::new(RwLock::new(key_binding_manager)),
             prefix_mode: false,
@@ -207,6 +198,11 @@ impl Client {
             terminal::enable_raw_mode()?;
             execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
 
+            // Enable mouse support if configured
+            if self.mouse_handler.enabled {
+                execute!(stdout(), EnableMouseCapture)?;
+            }
+
             let (term_width, term_height) = terminal::size()?;
             self.terminal_size = (term_width, term_height);
             if let Some(framed) = &mut self.framed {
@@ -223,6 +219,10 @@ impl Client {
         let result = self.handle_attached_session().await;
 
         if is_tty {
+            // Disable mouse capture if it was enabled
+            if self.mouse_handler.enabled {
+                execute!(stdout(), DisableMouseCapture)?;
+            }
             terminal::disable_raw_mode()?;
             execute!(stdout(), LeaveAlternateScreen, cursor::Show)?;
         }
@@ -305,6 +305,9 @@ impl Client {
                             // Re-render with new size
                             self.render_layout().await?;
                         }
+                        Ok(Event::Mouse(mouse_event)) => {
+                            self.handle_mouse_event(mouse_event).await?;
+                        }
                         _ => {}
                     }
                 }
@@ -347,9 +350,21 @@ impl Client {
     }
 
     async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<bool> {
+        // If in command mode, handle command mode keys
+        if self.command_mode.is_active() {
+            return self.handle_command_mode_key(key_event).await;
+        }
+
         // If in copy mode, handle copy mode keys
-        if self.copy_mode.active {
+        if self.copy_mode.is_active() {
             return self.handle_copy_mode_key(key_event).await;
+        }
+
+        // Check for colon to enter command mode
+        if key_event.code == KeyCode::Char(':') && key_event.modifiers == KeyModifiers::empty() {
+            self.command_mode.enter();
+            self.render_command_line().await?;
+            return Ok(false);
         }
 
         let key_binding = KeyBinding {
@@ -460,9 +475,24 @@ impl Client {
                 }
             }
             Action::EnterCopyMode => {
-                if let Some(framed) = &mut self.framed {
-                    framed.send(ClientMessage::EnterCopyMode).await?;
+                // Get the current pane's buffer content
+                let mut buffer = Vec::new();
+                if let Some(layout) = &self.current_layout {
+                    for pane_info in &layout.panes {
+                        if pane_info.is_focused {
+                            if let Some(pane_buffer) = self.pane_buffers.get(&pane_info.id) {
+                                // Convert buffer to lines
+                                let text = String::from_utf8_lossy(pane_buffer);
+                                buffer = text.lines().map(|s| s.to_string()).collect();
+                            }
+                            break;
+                        }
+                    }
                 }
+
+                // Enter copy mode with the buffer
+                self.copy_mode.enter(buffer);
+                self.render_copy_mode().await?;
             }
             Action::NavigateUp => {
                 if let Some(framed) = &mut self.framed {
@@ -527,47 +557,223 @@ impl Client {
     }
 
     async fn handle_copy_mode_key(&mut self, key_event: KeyEvent) -> Result<bool> {
-        let mut key_str = String::new();
-
-        // Handle key events and convert to string representation for server
-        match key_event.code {
-            KeyCode::Char(c) => {
-                if key_event.modifiers == KeyModifiers::CONTROL {
-                    key_str = format!("Ctrl+{}", c);
+        // Handle the key locally with our CopyMode implementation
+        match self.copy_mode.handle_key(key_event) {
+            Ok(continue_in_copy_mode) => {
+                if !continue_in_copy_mode {
+                    // Exit copy mode
+                    if let Some(framed) = &mut self.framed {
+                        framed.send(ClientMessage::ExitCopyMode).await?;
+                    }
                 } else {
-                    key_str = c.to_string();
+                    // Update the display to show current copy mode state
+                    self.render_copy_mode().await?;
                 }
             }
-            KeyCode::Esc => {
-                // Exit copy mode
-                if let Some(framed) = &mut self.framed {
-                    framed.send(ClientMessage::ExitCopyMode).await?;
-                }
-                return Ok(false);
-            }
-            KeyCode::Up => key_str = "Up".to_string(),
-            KeyCode::Down => key_str = "Down".to_string(),
-            KeyCode::Left => key_str = "Left".to_string(),
-            KeyCode::Right => key_str = "Right".to_string(),
-            KeyCode::Enter => key_str = "Enter".to_string(),
-            KeyCode::Tab => key_str = "Tab".to_string(),
-            KeyCode::Backspace => key_str = "Backspace".to_string(),
-            // Vim-style movement keys
-            _ => {
-                // For other keys, convert to character if possible
-                if let KeyCode::Char(c) = key_event.code {
-                    key_str = c.to_string();
-                }
-            }
-        }
-
-        if !key_str.is_empty() {
-            if let Some(framed) = &mut self.framed {
-                framed.send(ClientMessage::CopyModeInput { key: key_str }).await?;
+            Err(e) => {
+                tracing::error!("Copy mode error: {}", e);
             }
         }
 
         Ok(false)
+    }
+
+    async fn render_copy_mode(&mut self) -> Result<()> {
+        use crossterm::{cursor, terminal, ExecutableCommand};
+        use std::io::Write;
+
+        let mut stdout = stdout();
+
+        // Clear screen and render copy mode UI
+        stdout.execute(terminal::Clear(terminal::ClearType::All))?;
+        stdout.execute(cursor::MoveTo(0, 0))?;
+
+        // Get terminal dimensions
+        let (_term_width, term_height) = self.terminal_size;
+        let display_height = (term_height - 2) as usize; // Leave room for status
+
+        // Set viewport height
+        self.copy_mode.set_viewport_height(display_height);
+
+        // Get buffer and viewport from copy mode
+        let buffer = self.copy_mode.buffer();
+        let viewport_offset = self.copy_mode.viewport_offset();
+
+        // Render visible lines
+        for i in 0..display_height {
+            let line_idx = viewport_offset + i;
+            if let Some(line) = buffer.get(line_idx) {
+                // Highlight selection if in visual mode
+                if let (Some(start), Some(end)) = (self.copy_mode.selection_start(), self.copy_mode.selection_end()) {
+                    // Simple highlight by inverting colors for selected text
+                    let mut output = String::new();
+                    for (col_idx, ch) in line.chars().enumerate() {
+                        let is_selected = self.is_char_selected(line_idx, col_idx, start, end);
+                        if is_selected {
+                            output.push_str("\x1b[7m"); // Reverse video
+                        }
+                        output.push(ch);
+                        if is_selected {
+                            output.push_str("\x1b[0m"); // Reset
+                        }
+                    }
+                    writeln!(stdout, "{}", output)?;
+                } else {
+                    writeln!(stdout, "{}", line)?;
+                }
+            } else {
+                writeln!(stdout, "~")?; // Empty line indicator
+            }
+        }
+
+        // Status line
+        stdout.execute(cursor::MoveTo(0, term_height - 1))?;
+        let mode = match self.copy_mode.state() {
+            crate::ui::copymode::CopyModeState::Normal => "COPY",
+            crate::ui::copymode::CopyModeState::Visual => "VISUAL",
+            crate::ui::copymode::CopyModeState::VisualLine => "VISUAL LINE",
+            crate::ui::copymode::CopyModeState::VisualBlock => "VISUAL BLOCK",
+            crate::ui::copymode::CopyModeState::Search(_) => "SEARCH",
+        };
+        write!(stdout, "\x1b[7m-- {} MODE -- Line {}/{} Col {}\x1b[0m",
+               mode,
+               self.copy_mode.cursor_row() + 1,
+               buffer.len(),
+               self.copy_mode.cursor_col() + 1)?;
+
+        // Position cursor
+        let cursor_screen_row = (self.copy_mode.cursor_row() - viewport_offset) as u16;
+        let cursor_screen_col = self.copy_mode.cursor_col() as u16;
+        stdout.execute(cursor::MoveTo(cursor_screen_col, cursor_screen_row))?;
+        stdout.execute(cursor::Show)?;
+
+        stdout.flush()?;
+        Ok(())
+    }
+
+    async fn handle_command_mode_key(&mut self, key_event: KeyEvent) -> Result<bool> {
+        match key_event.code {
+            KeyCode::Esc => {
+                self.command_mode.exit();
+                self.render_layout().await?;
+            }
+            KeyCode::Enter => {
+                let result = self.command_mode.execute_command();
+                self.command_mode.exit();
+
+                match result {
+                    CommandResult::Message(msg) => {
+                        if let Some(framed) = &mut self.framed {
+                            framed.send(msg).await?;
+                        }
+                    }
+                    CommandResult::Quit => {
+                        return Ok(true); // Detach from session
+                    }
+                    CommandResult::Error(err) => {
+                        self.command_mode.set_message(format!("Error: {}", err));
+                        self.command_mode.enter(); // Stay in command mode to show error
+                        self.render_command_line().await?;
+                        return Ok(false);
+                    }
+                    CommandResult::Info(info) => {
+                        self.command_mode.set_message(info);
+                        self.command_mode.enter(); // Stay in command mode to show info
+                        self.render_command_line().await?;
+                        return Ok(false);
+                    }
+                    CommandResult::None => {}
+                }
+
+                self.render_layout().await?;
+            }
+            KeyCode::Char(c) => {
+                self.command_mode.insert_char(c);
+                self.render_command_line().await?;
+            }
+            KeyCode::Backspace => {
+                self.command_mode.delete_char();
+                self.render_command_line().await?;
+            }
+            KeyCode::Left => {
+                self.command_mode.move_cursor_left();
+                self.render_command_line().await?;
+            }
+            KeyCode::Right => {
+                self.command_mode.move_cursor_right();
+                self.render_command_line().await?;
+            }
+            KeyCode::Home => {
+                self.command_mode.move_cursor_home();
+                self.render_command_line().await?;
+            }
+            KeyCode::End => {
+                self.command_mode.move_cursor_end();
+                self.render_command_line().await?;
+            }
+            KeyCode::Up => {
+                self.command_mode.history_previous();
+                self.render_command_line().await?;
+            }
+            KeyCode::Down => {
+                self.command_mode.history_next();
+                self.render_command_line().await?;
+            }
+            _ => {}
+        }
+
+        Ok(false)
+    }
+
+    async fn render_command_line(&mut self) -> Result<()> {
+        use std::io::Write;
+        let mut stdout = stdout();
+
+        // Move cursor to bottom line
+        let (_, rows) = self.terminal_size;
+        execute!(stdout, cursor::MoveTo(0, rows - 1))?;
+
+        // Clear the line
+        execute!(stdout, crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine))?;
+
+        // Display command mode prompt and input
+        let display = self.command_mode.get_display();
+        write!(stdout, "{}", display)?;
+
+        // Position cursor correctly
+        let cursor_pos = self.command_mode.get_cursor_position();
+        execute!(stdout, cursor::MoveTo(cursor_pos as u16, rows - 1))?;
+        execute!(stdout, cursor::Show)?;
+
+        stdout.flush()?;
+        Ok(())
+    }
+
+    fn is_char_selected(&self, row: usize, col: usize, start: (usize, usize), end: (usize, usize)) -> bool {
+        let (start_row, start_col) = if start.0 < end.0 || (start.0 == end.0 && start.1 <= end.1) {
+            start
+        } else {
+            end
+        };
+        let (end_row, end_col) = if start.0 < end.0 || (start.0 == end.0 && start.1 <= end.1) {
+            end
+        } else {
+            start
+        };
+
+        if row < start_row || row > end_row {
+            return false;
+        }
+
+        if row == start_row && row == end_row {
+            col >= start_col && col <= end_col
+        } else if row == start_row {
+            col >= start_col
+        } else if row == end_row {
+            col <= end_col
+        } else {
+            true
+        }
     }
 
     async fn handle_output(&mut self, data: Vec<u8>) -> Result<()> {
@@ -633,6 +839,76 @@ impl Client {
     async fn clear_screen(&mut self) -> Result<()> {
         execute!(stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))?;
         Ok(())
+    }
+
+    async fn handle_mouse_event(&mut self, event: MouseEvent) -> Result<()> {
+        // Only handle mouse events if we have a layout
+        if let Some(layout) = &self.current_layout {
+            // Pass the event to the mouse handler
+            if let Some(action) = self.mouse_handler.handle_mouse_event(event, layout)? {
+                // Handle the action
+                match action {
+                    MouseAction::FocusPane { .. } | MouseAction::ScrollPane { .. } => {
+                        // Convert to client message and send to server
+                        if let Some(msg) = action.to_client_message() {
+                            if let Some(framed) = &mut self.framed {
+                                framed.send(msg).await?;
+                            }
+                        }
+                    }
+                    MouseAction::UpdateSelection { start, end } => {
+                        // Update visual selection in copy mode
+                        if self.copy_mode.is_active() {
+                            // TODO: Update copy mode selection based on mouse selection
+                            debug!("Mouse selection: {:?} to {:?}", start, end);
+                        }
+                    }
+                    MouseAction::CompleteSelection { start, end } => {
+                        // Complete selection and copy to clipboard
+                        if let Some(text) = self.get_text_in_range(start, end) {
+                            // Try to copy to clipboard
+                            if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                let _ = clipboard.set_text(&text);
+                                debug!("Copied to clipboard: {} chars", text.len());
+                            }
+                        }
+                    }
+                    MouseAction::SelectWord { x, y } => {
+                        // Select word at position
+                        if let Some(word) = self.get_word_at(x, y) {
+                            if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                let _ = clipboard.set_text(&word);
+                                debug!("Selected word: {}", word);
+                            }
+                        }
+                    }
+                    MouseAction::PasteClipboard { .. } => {
+                        // Paste from clipboard
+                        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                            if let Ok(text) = clipboard.get_text() {
+                                if let Some(framed) = &mut self.framed {
+                                    framed.send(ClientMessage::Input { data: text.into_bytes() }).await?;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn get_text_in_range(&self, start: (u16, u16), end: (u16, u16)) -> Option<String> {
+        // Get text from the pane buffer in the specified range
+        // This is simplified - in reality you'd need to handle the buffer properly
+        None
+    }
+
+    fn get_word_at(&self, x: u16, y: u16) -> Option<String> {
+        // Get word at the specified position
+        // This is simplified - in reality you'd need to parse the buffer
+        None
     }
 
     async fn draw_panes(&mut self, layout: &LayoutInfo) -> Result<()> {
@@ -923,30 +1199,20 @@ impl Client {
     }
 
     async fn handle_copy_mode_entered(&mut self) -> Result<()> {
-        self.copy_mode.active = true;
-        self.render_copy_mode().await?;
-        info!("Entered copy mode");
+        // Legacy server-side copy mode handler
+        // Now we handle copy mode locally in the client
+        info!("Server notified copy mode entered");
         Ok(())
     }
 
-    async fn handle_copy_mode_update(&mut self, cursor_row: usize, cursor_col: usize, selection_start: Option<(usize, usize)>, selection_end: Option<(usize, usize)>, buffer_content: Vec<String>, mode: String) -> Result<()> {
-        self.copy_mode.cursor_row = cursor_row;
-        self.copy_mode.cursor_col = cursor_col;
-        self.copy_mode.selection_start = selection_start;
-        self.copy_mode.selection_end = selection_end;
-        self.copy_mode.buffer_content = buffer_content;
-        self.copy_mode.mode = mode;
-
-        if self.copy_mode.active {
-            self.render_copy_mode().await?;
-        }
+    async fn handle_copy_mode_update(&mut self, _cursor_row: usize, _cursor_col: usize, _selection_start: Option<(usize, usize)>, _selection_end: Option<(usize, usize)>, _buffer_content: Vec<String>, _mode: String) -> Result<()> {
+        // Legacy server-side copy mode handler
+        // Now we handle copy mode locally in the client
         Ok(())
     }
 
     async fn handle_copy_mode_exited(&mut self) -> Result<()> {
-        self.copy_mode.active = false;
-        self.copy_mode.selection_start = None;
-        self.copy_mode.selection_end = None;
+        self.copy_mode.exit();
 
         // Clear screen and re-render normal layout
         self.clear_screen().await?;
@@ -1028,108 +1294,9 @@ impl Client {
         Ok(())
     }
 
-    async fn render_copy_mode(&mut self) -> Result<()> {
-        use crossterm::{
-            cursor::MoveTo,
-            style::{Color, SetBackgroundColor, SetForegroundColor, ResetColor},
-            terminal::{Clear, ClearType},
-            execute,
-        };
-        use std::io::{stdout, Write};
-
-        let mut stdout = stdout();
-        let (cols, rows) = self.terminal_size;
-
-        // Clear the screen
-        execute!(stdout, Clear(ClearType::All))?;
-
-        // Render copy mode indicator at the top
-        execute!(stdout, MoveTo(0, 0))?;
-        execute!(stdout, SetBackgroundColor(Color::Blue), SetForegroundColor(Color::White))?;
-
-        let mode_indicator = format!(" {} MODE ", self.copy_mode.mode);
-        let help_text = " h/j/k/l:move v:visual V:visual-line y:yank /:search Esc:exit ";
-        let padding = cols.saturating_sub(mode_indicator.len() as u16 + help_text.len() as u16);
-
-        write!(stdout, "{}{}{}", mode_indicator, " ".repeat(padding as usize), help_text)?;
-        execute!(stdout, ResetColor)?;
-
-        // Render buffer content starting from row 1
-        let visible_rows = (rows - 2) as usize; // Reserve space for header and status
-        let buffer_len = self.copy_mode.buffer_content.len();
-
-        // Calculate scroll offset to keep cursor visible
-        let scroll_offset = if self.copy_mode.cursor_row >= visible_rows {
-            self.copy_mode.cursor_row - visible_rows + 1
-        } else {
-            0
-        };
-
-        // Render buffer lines
-        for (i, line) in self.copy_mode.buffer_content
-            .iter()
-            .enumerate()
-            .skip(scroll_offset)
-            .take(visible_rows)
-        {
-            let screen_row = (i - scroll_offset + 1) as u16;
-            execute!(stdout, MoveTo(0, screen_row))?;
-
-            // Check if this line has selection
-            let line_has_selection = self.is_line_selected(i);
-            let (start_col, end_col) = self.get_selection_range_for_line(i);
-
-            if line_has_selection {
-                // Render line with selection highlighting
-                self.render_line_with_selection(line, i, start_col, end_col, &mut stdout)?;
-            } else {
-                // Normal line
-                write!(stdout, "{}", line)?;
-            }
-
-            // Highlight cursor position
-            if i == self.copy_mode.cursor_row {
-                let cursor_col = self.copy_mode.cursor_col.min(line.len());
-                execute!(stdout, MoveTo(cursor_col as u16, screen_row))?;
-                execute!(stdout, SetBackgroundColor(Color::White), SetForegroundColor(Color::Black))?;
-
-                if cursor_col < line.len() {
-                    let cursor_char = line.chars().nth(cursor_col).unwrap_or(' ');
-                    write!(stdout, "{}", cursor_char)?;
-                } else {
-                    write!(stdout, " ")?;
-                }
-                execute!(stdout, ResetColor)?;
-            }
-        }
-
-        // Render status line at the bottom
-        execute!(stdout, MoveTo(0, rows - 1))?;
-        execute!(stdout, SetBackgroundColor(Color::DarkGrey), SetForegroundColor(Color::White))?;
-
-        let status = format!(
-            " Line {}/{} Col {} | {} lines | Selection: {} ",
-            self.copy_mode.cursor_row + 1,
-            buffer_len,
-            self.copy_mode.cursor_col + 1,
-            buffer_len,
-            if self.copy_mode.selection_start.is_some() && self.copy_mode.selection_end.is_some() {
-                "active"
-            } else {
-                "none"
-            }
-        );
-
-        let status_padding = cols.saturating_sub(status.len() as u16);
-        write!(stdout, "{}{}", status, " ".repeat(status_padding as usize))?;
-        execute!(stdout, ResetColor)?;
-
-        stdout.flush()?;
-        Ok(())
-    }
 
     fn is_line_selected(&self, line_idx: usize) -> bool {
-        if let (Some(start), Some(end)) = (self.copy_mode.selection_start, self.copy_mode.selection_end) {
+        if let (Some(start), Some(end)) = (self.copy_mode.selection_start(), self.copy_mode.selection_end()) {
             let (start_row, _) = start;
             let (end_row, _) = end;
             let min_row = start_row.min(end_row);
@@ -1141,7 +1308,7 @@ impl Client {
     }
 
     fn get_selection_range_for_line(&self, line_idx: usize) -> (usize, usize) {
-        if let (Some(start), Some(end)) = (self.copy_mode.selection_start, self.copy_mode.selection_end) {
+        if let (Some(start), Some(end)) = (self.copy_mode.selection_start(), self.copy_mode.selection_end()) {
             let (start_row, start_col) = start;
             let (end_row, end_col) = end;
 

@@ -1,6 +1,7 @@
 pub mod statusbar;
 pub mod copymode;
 pub mod commandmode;
+pub mod mouse;
 // #[cfg(test)]
 // mod tests;
 // #[cfg(test)]

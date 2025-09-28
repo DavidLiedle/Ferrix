@@ -1,4 +1,6 @@
 use crate::config::CopyModeStyle;
+use arboard::Clipboard;
+use std::error::Error;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CopyModeState {
@@ -30,10 +32,15 @@ pub struct CopyMode {
     jump_list: Vec<(usize, usize)>,
     jump_index: usize,
     yanked_text: Option<String>,
+    clipboard: Option<Clipboard>,
+    viewport_offset: usize,
+    viewport_height: usize,
 }
 
 impl CopyMode {
     pub fn new(mode: CopyModeStyle) -> Self {
+        let clipboard = Clipboard::new().ok();
+
         Self {
             active: false,
             mode,
@@ -49,6 +56,9 @@ impl CopyMode {
             jump_list: Vec::new(),
             jump_index: 0,
             yanked_text: None,
+            clipboard,
+            viewport_offset: 0,
+            viewport_height: 24,
         }
     }
 
@@ -320,10 +330,42 @@ impl CopyMode {
     }
 
     // Yank (copy) operation
-    pub fn yank_selection(&mut self) {
+    pub fn yank_selection(&mut self) -> Result<(), Box<dyn Error>> {
         if let Some(text) = self.get_selected_text() {
-            self.yanked_text = Some(text);
+            self.yanked_text = Some(text.clone());
+
+            // Copy to system clipboard
+            if let Some(ref mut clipboard) = self.clipboard {
+                clipboard.set_text(&text)?;
+            }
+
             self.exit_visual_mode();
+        }
+        Ok(())
+    }
+
+    // Yank entire line
+    pub fn yank_line(&mut self) -> Result<(), Box<dyn Error>> {
+        if let Some(line) = self.buffer.get(self.cursor_row) {
+            let text = format!("{}
+", line);
+            self.yanked_text = Some(text.clone());
+
+            // Copy to system clipboard
+            if let Some(ref mut clipboard) = self.clipboard {
+                clipboard.set_text(&text)?;
+            }
+        }
+        Ok(())
+    }
+
+    // Paste from clipboard
+    pub fn paste_from_clipboard(&mut self) -> Result<Option<String>, Box<dyn Error>> {
+        if let Some(ref mut clipboard) = self.clipboard {
+            let text = clipboard.get_text()?;
+            Ok(Some(text))
+        } else {
+            Ok(self.yanked_text.clone())
         }
     }
 
@@ -354,6 +396,172 @@ impl CopyMode {
 
     pub fn state(&self) -> &CopyModeState {
         &self.state
+    }
+
+    // Handle keyboard input
+    pub fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> Result<bool, Box<dyn Error>> {
+        use crossterm::event::{KeyCode, KeyModifiers};
+
+        match self.state {
+            CopyModeState::Normal => {
+                match (key.code, key.modifiers) {
+                    // Movement
+                    (KeyCode::Char('h'), KeyModifiers::NONE) | (KeyCode::Left, _) => self.move_cursor_left(),
+                    (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, _) => self.move_cursor_down(),
+                    (KeyCode::Char('k'), KeyModifiers::NONE) | (KeyCode::Up, _) => self.move_cursor_up(),
+                    (KeyCode::Char('l'), KeyModifiers::NONE) | (KeyCode::Right, _) => self.move_cursor_right(),
+
+                    // Word movement
+                    (KeyCode::Char('w'), KeyModifiers::NONE) => self.move_word_forward(),
+                    (KeyCode::Char('b'), KeyModifiers::NONE) => self.move_word_backward(),
+                    (KeyCode::Char('e'), KeyModifiers::NONE) => self.move_to_word_end(),
+
+                    // Line movement
+                    (KeyCode::Char('0'), KeyModifiers::NONE) => self.move_to_line_start(),
+                    (KeyCode::Char('$'), KeyModifiers::NONE) => self.move_to_line_end(),
+                    (KeyCode::Char('^'), KeyModifiers::NONE) => self.move_to_first_non_blank(),
+
+                    // Page movement
+                    (KeyCode::Char('g'), KeyModifiers::NONE) => {
+                        // Wait for second 'g' for move to first line
+                        // This is simplified - real implementation would handle double-key
+                        self.move_to_first_line();
+                    }
+                    (KeyCode::Char('G'), KeyModifiers::SHIFT) => self.move_to_last_line(),
+                    (KeyCode::Char('d'), KeyModifiers::CONTROL) => self.move_half_page_down(),
+                    (KeyCode::Char('u'), KeyModifiers::CONTROL) => self.move_half_page_up(),
+
+                    // Visual mode
+                    (KeyCode::Char('v'), KeyModifiers::NONE) => self.enter_visual_mode(),
+                    (KeyCode::Char('V'), KeyModifiers::SHIFT) => self.enter_visual_line_mode(),
+                    (KeyCode::Char('v'), KeyModifiers::CONTROL) => self.enter_visual_block_mode(),
+
+                    // Yank
+                    (KeyCode::Char('y'), KeyModifiers::NONE) => {
+                        self.yank_line()?;
+                    }
+
+                    // Search
+                    (KeyCode::Char('/'), KeyModifiers::NONE) => self.start_search(SearchDirection::Forward),
+                    (KeyCode::Char('?'), KeyModifiers::NONE) => self.start_search(SearchDirection::Backward),
+                    (KeyCode::Char('n'), KeyModifiers::NONE) => self.jump_to_next_match(),
+                    (KeyCode::Char('N'), KeyModifiers::SHIFT) => self.jump_to_previous_match(),
+
+                    // Jump list
+                    (KeyCode::Char('o'), KeyModifiers::CONTROL) => self.jump_backward(),
+                    (KeyCode::Char('i'), KeyModifiers::CONTROL) => self.jump_forward(),
+
+                    // Exit
+                    (KeyCode::Char('q'), KeyModifiers::NONE) | (KeyCode::Esc, _) => {
+                        self.exit();
+                        return Ok(false); // Signal to exit copy mode
+                    }
+
+                    _ => {}
+                }
+            }
+            CopyModeState::Visual | CopyModeState::VisualLine | CopyModeState::VisualBlock => {
+                // Update selection as cursor moves
+                self.update_selection();
+
+                match (key.code, key.modifiers) {
+                    // Movement (same as normal mode)
+                    (KeyCode::Char('h'), KeyModifiers::NONE) | (KeyCode::Left, _) => self.move_cursor_left(),
+                    (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, _) => self.move_cursor_down(),
+                    (KeyCode::Char('k'), KeyModifiers::NONE) | (KeyCode::Up, _) => self.move_cursor_up(),
+                    (KeyCode::Char('l'), KeyModifiers::NONE) | (KeyCode::Right, _) => self.move_cursor_right(),
+
+                    // Yank and exit
+                    (KeyCode::Char('y'), KeyModifiers::NONE) => {
+                        self.yank_selection()?;
+                    }
+
+                    // Copy to clipboard with Ctrl+C
+                    (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                        self.yank_selection()?;
+                    }
+
+                    // Exit visual mode
+                    (KeyCode::Esc, _) => self.exit_visual_mode(),
+
+                    _ => {}
+                }
+            }
+            CopyModeState::Search(_) => {
+                match key.code {
+                    KeyCode::Char(c) => {
+                        self.search_query.push(c);
+                        self.update_search(self.search_query.clone());
+                    }
+                    KeyCode::Backspace => {
+                        self.search_query.pop();
+                        self.update_search(self.search_query.clone());
+                    }
+                    KeyCode::Enter => {
+                        self.jump_to_next_match();
+                        self.state = CopyModeState::Normal;
+                    }
+                    KeyCode::Esc => {
+                        self.state = CopyModeState::Normal;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Adjust viewport to follow cursor
+        self.adjust_viewport();
+
+        Ok(true) // Continue in copy mode
+    }
+
+    // Helper methods
+    fn move_to_word_end(&mut self) {
+        if let Some(line) = self.buffer.get(self.cursor_row) {
+            let mut col = self.cursor_col;
+            let chars: Vec<char> = line.chars().collect();
+
+            // Move to end of current word
+            while col < chars.len() - 1 && !chars[col + 1].is_whitespace() {
+                col += 1;
+            }
+
+            self.cursor_col = col;
+        }
+    }
+
+    fn move_to_first_non_blank(&mut self) {
+        if let Some(line) = self.buffer.get(self.cursor_row) {
+            for (i, ch) in line.chars().enumerate() {
+                if !ch.is_whitespace() {
+                    self.cursor_col = i;
+                    return;
+                }
+            }
+        }
+    }
+
+    fn enter_visual_block_mode(&mut self) {
+        self.state = CopyModeState::VisualBlock;
+        self.selection_start = Some((self.cursor_row, self.cursor_col));
+        self.selection_end = Some((self.cursor_row, self.cursor_col));
+    }
+
+    fn adjust_viewport(&mut self) {
+        // Ensure cursor is visible in viewport
+        if self.cursor_row < self.viewport_offset {
+            self.viewport_offset = self.cursor_row;
+        } else if self.cursor_row >= self.viewport_offset + self.viewport_height {
+            self.viewport_offset = self.cursor_row - self.viewport_height + 1;
+        }
+    }
+
+    pub fn set_viewport_height(&mut self, height: usize) {
+        self.viewport_height = height;
+    }
+
+    pub fn viewport_offset(&self) -> usize {
+        self.viewport_offset
     }
 
     pub fn get_selected_text(&self) -> Option<String> {

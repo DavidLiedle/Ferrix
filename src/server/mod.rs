@@ -3,12 +3,14 @@ pub mod window;
 pub mod pane;
 pub mod pty;
 pub mod layout;
+pub mod layout_presets;
 pub mod snapshot;
 pub mod recovery;
 pub mod collaboration;
 pub mod timetravel;
 pub mod remote;
 pub mod versioning;
+pub mod session_manager;
 // #[cfg(test)]
 // mod pty_tests;
 // #[cfg(test)]
@@ -82,7 +84,7 @@ impl Server {
         }
 
         // Setup signal handlers for graceful shutdown
-        recovery::setup_signal_handlers(recovery_manager.clone());
+        recovery::setup_signal_handlers(recovery_manager.clone(), self.sessions.clone());
 
         // Start auto-save task
         {

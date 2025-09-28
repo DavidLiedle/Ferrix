@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use portable_pty::{CommandBuilder, PtySize, native_pty_system};
-use tokio::sync::mpsc;
+use portable_pty::{CommandBuilder, PtySize, native_pty_system, Child};
+use tokio::sync::{mpsc, broadcast};
 
 use crate::error::{FerrixError, Result};
 
@@ -11,6 +11,8 @@ pub struct Pty {
     resize_tx: mpsc::Sender<(u16, u16)>,
     _writer_task: tokio::task::JoinHandle<()>,
     _reader_task: tokio::task::JoinHandle<()>,
+    child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+    shutdown_tx: Option<broadcast::Sender<()>>,
 }
 
 impl Pty {
@@ -29,8 +31,10 @@ impl Pty {
         let mut cmd = CommandBuilder::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()));
         cmd.cwd(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
 
-        let _child = pty_pair.slave.spawn_command(cmd)
+        let child = pty_pair.slave.spawn_command(cmd)
             .map_err(|e| FerrixError::Pty(format!("Failed to spawn shell: {}", e)))?;
+
+        let child = Arc::new(Mutex::new(child));
 
         let writer = Arc::new(Mutex::new(
             pty_pair.master.take_writer()
@@ -51,17 +55,29 @@ impl Pty {
         // Channel for resize requests
         let (resize_tx, mut resize_rx) = mpsc::channel::<(u16, u16)>(10);
 
+        // Channel for shutdown signal
+        let (shutdown_tx, _shutdown_rx) = broadcast::channel::<()>(1);
+
         // Reader task - Convert blocking reader to async
         let output_tx_clone = output_tx.clone();
+        let mut shutdown_rx_reader = shutdown_tx.subscribe();
+        let child_clone = child.clone();
         let reader_task = tokio::spawn(async move {
             // Use a separate thread for blocking I/O but communicate asynchronously
             let (tx, mut rx) = mpsc::channel::<Vec<u8>>(100);
+            let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
 
             std::thread::spawn(move || {
                 let mut reader = reader;
                 let mut buffer = vec![0u8; 4096];
                 tracing::debug!("PTY reader thread started");
                 loop {
+                    // Check for shutdown signal
+                    if stop_rx.try_recv().is_ok() {
+                        tracing::debug!("PTY reader thread received shutdown signal");
+                        break;
+                    }
+
                     match reader.read(&mut buffer) {
                         Ok(0) => {
                             tracing::debug!("PTY reader got EOF");
@@ -90,35 +106,63 @@ impl Pty {
             });
 
             // Forward data from the thread to the output channel
-            while let Some(data) = rx.recv().await {
-                if output_tx_clone.send(data).await.is_err() {
-                    break;
+            tokio::select! {
+                _ = async {
+                    while let Some(data) = rx.recv().await {
+                        if output_tx_clone.send(data).await.is_err() {
+                            break;
+                        }
+                    }
+                } => {}
+                _ = shutdown_rx_reader.recv() => {
+                    tracing::debug!("Reader task received shutdown signal");
+                    let _ = stop_tx.send(());
+                    // Try to kill the child process
+                    if let Ok(mut child_guard) = child_clone.lock() {
+                        let _ = child_guard.kill();
+                    }
                 }
             }
         });
 
         // Writer task
         let writer_clone = writer.clone();
+        let mut shutdown_rx_writer = shutdown_tx.subscribe();
         let writer_task = tokio::spawn(async move {
-            while let Some(data) = input_rx.recv().await {
-                if let Ok(mut w) = writer_clone.lock() {
-                    let _ = w.write_all(&data);
-                    let _ = w.flush();
+            tokio::select! {
+                _ = async {
+                    while let Some(data) = input_rx.recv().await {
+                        if let Ok(mut w) = writer_clone.lock() {
+                            let _ = w.write_all(&data);
+                            let _ = w.flush();
+                        }
+                    }
+                } => {}
+                _ = shutdown_rx_writer.recv() => {
+                    tracing::debug!("Writer task received shutdown signal");
                 }
             }
         });
 
         // Resize task
         let master_clone = master.clone();
+        let mut shutdown_rx_resize = shutdown_tx.subscribe();
         tokio::spawn(async move {
-            while let Some((cols, rows)) = resize_rx.recv().await {
-                if let Ok(m) = master_clone.lock() {
-                    let _ = m.resize(PtySize {
-                        rows,
-                        cols,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    });
+            tokio::select! {
+                _ = async {
+                    while let Some((cols, rows)) = resize_rx.recv().await {
+                        if let Ok(m) = master_clone.lock() {
+                            let _ = m.resize(PtySize {
+                                rows,
+                                cols,
+                                pixel_width: 0,
+                                pixel_height: 0,
+                            });
+                        }
+                    }
+                } => {}
+                _ = shutdown_rx_resize.recv() => {
+                    tracing::debug!("Resize task received shutdown signal");
                 }
             }
         });
@@ -129,6 +173,8 @@ impl Pty {
             resize_tx,
             _writer_task: writer_task,
             _reader_task: reader_task,
+            child,
+            shutdown_tx: Some(shutdown_tx),
         })
     }
 
@@ -153,6 +199,27 @@ impl Pty {
         self.resize_tx.send((cols, rows)).await
             .map_err(|e| FerrixError::Pty(format!("Failed to send resize request: {}", e)))?;
         Ok(())
+    }
+
+    pub fn shutdown(&mut self) {
+        tracing::debug!("Shutting down PTY");
+
+        // Send shutdown signal to all tasks
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+        }
+
+        // Kill the child process
+        if let Ok(mut child_guard) = self.child.lock() {
+            let _ = child_guard.kill();
+            tracing::debug!("Killed PTY child process");
+        }
+    }
+}
+
+impl Drop for Pty {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 

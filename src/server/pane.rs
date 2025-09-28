@@ -63,6 +63,13 @@ impl Pane {
     }
 }
 
+impl Drop for Pane {
+    fn drop(&mut self) {
+        tracing::debug!("Dropping pane {}", self.id.0);
+        // PTY will be dropped automatically and its Drop will handle cleanup
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
