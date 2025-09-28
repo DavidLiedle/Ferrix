@@ -159,8 +159,8 @@ impl ConfigLoader {
 
         // Apply keybindings
         for binding in &ferrixrc.keybindings {
-            let key = Self::parse_key_binding(&binding.key)?;
-            let action = Self::parse_action(&binding.command)?;
+            let _key = Self::parse_key_binding(&binding.key)?;
+            let _action = Self::parse_action(&binding.command)?;
 
             // Add to appropriate keybinding map based on modifiers
             if binding.modifiers.contains(&"prefix".to_string()) {
@@ -241,7 +241,7 @@ impl ConfigLoader {
 
         loop {
             match rx.recv() {
-                Ok(event) => {
+                Ok(_event) => {
                     info!("Configuration file changed, reloading...");
                     // Trigger reload
                 }

@@ -208,7 +208,7 @@ impl PluginManager {
 
     // Helper functions
 
-    async fn download_plugin(&self, url: &str) -> Result<PathBuf> {
+    async fn download_plugin(&self, _url: &str) -> Result<PathBuf> {
         // Implementation would download plugin from URL
         // For now, return a placeholder
         Err(FerrixError::Plugin("Plugin download not yet implemented".to_string()))

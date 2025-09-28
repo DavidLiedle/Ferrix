@@ -253,7 +253,7 @@ async fn handle_message(
 
                 // Send initial layout info
                 let session_guard = session.read().await;
-                if let Some(layout) = session_guard.get_layout_info().await {
+                if let Some(_layout) = session_guard.get_layout_info().await {
                     drop(session_guard);
                     // For now, we'll send the SessionAttached message first
                     // In a full implementation, we'd want to batch these or use a different approach
@@ -709,7 +709,14 @@ async fn handle_message(
                     if let Some(session) = sessions_guard.get_mut(session_id) {
                         let mut session_guard = session.write().await;
                         match session_guard.next_window().await {
-                            Ok(()) => Ok(None),
+                            Ok(()) => {
+                                // Send layout update after switching windows
+                                if let Some(layout) = session_guard.get_layout_info().await {
+                                    Ok(Some(ServerMessage::LayoutUpdate { layout }))
+                                } else {
+                                    Ok(None)
+                                }
+                            },
                             Err(e) => Ok(Some(ServerMessage::Error {
                                 message: format!("Failed to switch to next window: {}", e),
                             }))
@@ -738,7 +745,14 @@ async fn handle_message(
                     if let Some(session) = sessions_guard.get_mut(session_id) {
                         let mut session_guard = session.write().await;
                         match session_guard.previous_window().await {
-                            Ok(()) => Ok(None),
+                            Ok(()) => {
+                                // Send layout update after switching windows
+                                if let Some(layout) = session_guard.get_layout_info().await {
+                                    Ok(Some(ServerMessage::LayoutUpdate { layout }))
+                                } else {
+                                    Ok(None)
+                                }
+                            },
                             Err(e) => Ok(Some(ServerMessage::Error {
                                 message: format!("Failed to switch to previous window: {}", e),
                             }))

@@ -97,7 +97,7 @@ impl SessionVersioning {
     }
 
     /// Initialize a repository for a session
-    pub fn init(&mut self, session_id: &SessionId, initial_snapshot: SessionSnapshot) -> Result<()> {
+    pub fn init(&mut self, _session_id: &SessionId, initial_snapshot: SessionSnapshot) -> Result<()> {
         let initial_commit = Commit {
             id: self.head.clone(),
             parent: None,

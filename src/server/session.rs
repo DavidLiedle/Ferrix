@@ -256,7 +256,7 @@ impl Session {
                 if window_guard.id == *current_window_id {
                     drop(window_guard);
                     let mut window_guard = window.write().await;
-                    window_guard.toggle_zoom().await;
+                    let _ = window_guard.toggle_zoom().await;
                     return Ok(());
                 }
             }

@@ -241,7 +241,7 @@ impl Client {
         };
 
         // For non-TTY mode, spawn a task to read from stdin
-        let (stdin_tx, mut stdin_rx) = if !is_tty {
+        let (_stdin_tx, mut stdin_rx) = if !is_tty {
             let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
             let tx_clone = tx.clone();
             tokio::spawn(async move {
@@ -1169,7 +1169,7 @@ impl Client {
         }
     }
 
-    fn render_line_with_selection(&self, line: &str, line_idx: usize, start_col: usize, end_col: usize, stdout: &mut std::io::Stdout) -> Result<()> {
+    fn render_line_with_selection(&self, line: &str, _line_idx: usize, start_col: usize, end_col: usize, stdout: &mut std::io::Stdout) -> Result<()> {
         use crossterm::{style::{Color, SetBackgroundColor, SetForegroundColor, ResetColor}, execute};
         use std::io::Write;
 

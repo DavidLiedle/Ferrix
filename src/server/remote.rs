@@ -166,7 +166,7 @@ impl RemoteServer {
     async fn handle_client(
         stream: TcpStream,
         peer_addr: SocketAddr,
-        server: Arc<Server>,
+        _server: Arc<Server>,
         auth_handler: Arc<dyn AuthenticationHandler>,
         tls_acceptor: Option<TlsAcceptor>,
     ) -> Result<()> {
