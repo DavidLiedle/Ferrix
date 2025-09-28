@@ -27,7 +27,7 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 
 ## ✨ Features
 
-### Currently Working
+### Currently Working (v0.9.0)
 - ✅ **Session Management** - Create, attach, detach, list, and kill sessions
 - ✅ **Client-Server Architecture** - Robust separation with async Rust
 - ✅ **Multiple Windows & Panes** - Split panes, navigate between them, and manage layouts
@@ -35,9 +35,17 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 - ✅ **Detach/Reattach** - Seamlessly disconnect and reconnect to sessions
 - ✅ **Visual Pane Rendering** - Borders, focus indication, and content display
 - ✅ **Session Snapshots** - Save and restore complete session state including layouts
-- ✅ **Status Bar** - Shows session info, window/pane counts, and current time
+- ✅ **Enhanced Status Bar** - Shows session info, window/pane counts, activity indicators, and time
 - ✅ **Copy Mode** - Enter copy mode for text selection (UI in progress)
 - ✅ **Configuration System** - Generate and validate TOML configuration
+- ✅ **Scrollback Buffer** - Optimized scrollback with configurable capacity
+- ✅ **Pane Synchronization** - Broadcast input to all panes in a window
+- ✅ **Session Locking** - Read-only mode for secure session viewing
+- ✅ **Activity Monitoring** - Visual indicators for pane activity (bell, output, silence)
+- ✅ **Window Renaming** - Rename windows for better organization
+- ✅ **Pane Zoom** - Focus on a single pane by zooming it to full window
+- ✅ **Keybinding Customization** - Load custom keybindings from config, runtime modification
+- ✅ **Auto-Save Intervals** - Automatic session snapshots at configurable intervals
 
 ### Partially Implemented
 - 🔧 **Enhanced Copy Mode** - Vi-style navigation framework (needs UI completion)

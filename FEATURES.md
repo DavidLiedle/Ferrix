@@ -1,5 +1,7 @@
 # Ferrix Features Documentation
 
+## Version 0.9.0 Release
+
 ## Overview
 Ferrix is a modern terminal multiplexer written in Rust that combines the reliability of GNU Screen with the features of Tmux, while adding innovative capabilities only possible with modern technology.
 
@@ -61,7 +63,52 @@ Modern mouse interactions:
 - **Double-Click**: Select words with double-click
 - **Right-Click Menu**: Context-sensitive actions
 
-### 7. Advanced Features
+### 7. New Features (v0.9.0)
+
+#### Scrollback Buffer
+- **Optimized Storage**: Efficient memory usage with configurable capacity
+- **Fast Scrolling**: Smooth scrolling through terminal history
+- **Search in History**: Find text in scrollback buffer
+- **Configurable Size**: Set buffer size per pane or globally
+
+#### Pane Synchronization
+- **Broadcast Mode**: Send input to all panes simultaneously
+- **Toggle Control**: Easy on/off switching with `toggle-pane-sync`
+- **Visual Indicator**: Status bar shows sync state
+- **Selective Sync**: Can be enabled per window
+
+#### Session Locking
+- **Read-Only Mode**: Lock session to prevent accidental changes
+- **Security Feature**: Allow viewing without modification
+- **Visual Feedback**: Status bar indicates locked state
+- **Quick Toggle**: Easy lock/unlock commands
+
+#### Activity Monitoring
+- **Visual Indicators**: 🔔 for bell, ● for activity, ○ for silence
+- **Per-Pane Monitoring**: Track individual pane activity
+- **Status Bar Integration**: Activity shown in window list
+- **Configurable Thresholds**: Set silence detection timeout
+
+#### Window Management
+- **Window Renaming**: Rename windows for better organization
+- **Pane Zoom**: Focus on single pane with `toggle-zoom`
+- **Activity Status**: See activity indicators per window
+- **Enhanced Navigation**: Better window switching commands
+
+#### Keybinding System
+- **Custom Bindings**: Define your own key mappings
+- **Config File Support**: Load bindings from configuration
+- **Runtime Modification**: Change bindings without restart
+- **Import/Export**: Share keybinding configurations
+- **Conflict Detection**: Validates binding conflicts
+
+#### Auto-Save System
+- **Automatic Snapshots**: Save sessions at regular intervals
+- **Configurable Intervals**: Set save frequency (default 5 minutes)
+- **Background Operation**: Non-blocking auto-save
+- **Recovery Support**: Restore from auto-saves after crashes
+
+### 8. Advanced Features
 
 #### Process Management
 - **Proper PTY Handling**: Clean process lifecycle management
@@ -79,6 +126,7 @@ Modern mouse interactions:
 - **Manual Snapshots**: Save session state at any time
 - **Crash Recovery**: Restore sessions after unexpected termination
 - **Environment Preservation**: Maintain environment variables
+- **Auto-Save Recovery**: Restore from periodic auto-saves
 
 ## Key Bindings
 
@@ -92,6 +140,10 @@ Modern mouse interactions:
 - `Prefix + d` - Detach session
 - `Prefix + [` - Enter copy mode
 - `Prefix + :` - Enter command mode
+- `Prefix + z` - Toggle pane zoom
+- `Prefix + ,` - Rename current window
+- `Prefix + ?` - Show all keybindings
+- `Prefix + M` - Toggle mouse mode
 
 ### Copy Mode (Vi-style)
 - `h/j/k/l` - Move cursor
