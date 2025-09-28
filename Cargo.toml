@@ -1,6 +1,6 @@
 [package]
 name = "ferrix"
-version = "0.7.3"
+version = "0.7.4"
 edition = "2021"
 authors = ["David Liedle", "Claude <noreply@anthropic.com>"]
 description = "A new Rust-based terminal multiplexer"
