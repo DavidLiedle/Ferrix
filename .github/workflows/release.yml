@@ -32,6 +32,8 @@ jobs:
           draft: true
           prerelease: false
           generate_release_notes: true
+          # Allow updating existing releases
+          fail_on_unmatched_files: false
 
   build:
     needs: create-release
