@@ -402,6 +402,162 @@ See the [Developer Documentation](DEVELOPER_GUIDE.md#plugins) for plugin develop
 
 ## Advanced Features
 
+### New Features in v0.9.0
+
+#### Activity Monitoring
+
+Monitor and track activity in your panes:
+
+```bash
+# Enable activity monitoring
+ferrix toggle-activity-monitoring
+
+# Set monitoring for specific pane
+ferrix set-activity-monitoring on
+
+# Activity indicators in status bar:
+# 🔔 - Bell triggered
+# ● - Recent output activity
+# ○ - Silence detected (no output for threshold period)
+```
+
+#### Pane Synchronization
+
+Send input to all panes in a window simultaneously:
+
+```bash
+# Toggle synchronization
+Ctrl-b s
+
+# Or via command mode
+:toggle-pane-sync
+
+# Set sync status explicitly
+:set-pane-sync on
+:set-pane-sync off
+```
+
+Perfect for running the same command across multiple servers or environments.
+
+#### Session Locking
+
+Lock sessions for read-only viewing:
+
+```bash
+# Lock current session
+Ctrl-b L
+
+# Or via command
+ferrix lock-session
+
+# Unlock session
+ferrix unlock-session
+
+# The status bar shows [LOCKED] when session is locked
+```
+
+#### Enhanced Window Management
+
+```bash
+# Rename current window
+Ctrl-b ,
+
+# Zoom current pane to full window
+Ctrl-b z
+
+# Activity indicators appear in window list
+# Example: 1:editor● 2:logs○ 3:terminal🔔
+```
+
+#### Custom Keybindings
+
+Manage and customize your keybindings:
+
+```bash
+# List all keybindings
+ferrix list-keys
+
+# Add custom keybinding
+ferrix bind-key "Ctrl-b S" "save-snapshot"
+
+# Remove keybinding
+ferrix unbind-key "Ctrl-b x"
+
+# Export keybindings to file
+ferrix export-keys ~/my-bindings.toml
+
+# Import keybindings from file
+ferrix import-keys ~/my-bindings.toml
+
+# Reset to defaults
+ferrix reset-keys
+
+# Reload from config
+ferrix reload-keys
+```
+
+Example keybindings configuration:
+
+```toml
+# ~/.ferrix/keybindings.toml
+[[keybindings]]
+key = "Ctrl-b r"
+command = "reload-config"
+description = "Reload configuration"
+
+[[keybindings]]
+key = "Ctrl-b S"
+command = "save-snapshot"
+description = "Save session snapshot"
+
+[[keybindings]]
+key = "Ctrl-b M"
+command = "toggle-mouse"
+description = "Toggle mouse support"
+```
+
+#### Automatic Session Snapshots
+
+Enable automatic saving of your sessions:
+
+```bash
+# Enable auto-save with default 5-minute interval
+ferrix enable-auto-save
+
+# Set custom interval (10 minutes)
+ferrix enable-auto-save --interval 10
+
+# Check auto-save status
+ferrix auto-save-status
+# Output: Auto-save: Enabled
+#         Interval: 5 minutes
+#         Last save: 2024-01-20 14:30:15 UTC
+#         Next save: 2024-01-20 14:35:15 UTC
+
+# Disable auto-save
+ferrix disable-auto-save
+```
+
+Auto-saves are stored in `~/.ferrix/auto/` and can be restored like regular snapshots.
+
+#### Optimized Scrollback Buffer
+
+Improved terminal history with efficient memory usage:
+
+```bash
+# Configure scrollback buffer size
+set history-limit 50000
+
+# Search in scrollback (in copy mode)
+Ctrl-b [
+/search-term
+
+# The scrollback buffer is optimized for:
+# - Fast scrolling performance
+# - Efficient memory usage
+# - Quick search operations
+```
+
 ### Session Versioning
 
 Ferrix provides git-like versioning for sessions:
@@ -531,10 +687,15 @@ ferrix --version --verbose
 ## Tips and Tricks
 
 1. **Quick window switching**: Use `Ctrl-b '` to select window by name
-2. **Synchronize panes**: `Ctrl-b :setw synchronize-panes on` to type in all panes
+2. **Synchronize panes**: Use `Ctrl-b s` to toggle synchronization across all panes
 3. **Save layout**: `Ctrl-b :save-layout my-layout` to save current layout
-4. **Monitor activity**: `Ctrl-b :setw monitor-activity on` for notifications
+4. **Monitor activity**: Activity indicators (🔔 ● ○) show automatically in status bar
 5. **Pipe pane output**: `Ctrl-b :pipe-pane -o 'cat >> output.log'`
+6. **Zoom for focus**: `Ctrl-b z` to zoom current pane, repeat to unzoom
+7. **Lock for viewing**: `Ctrl-b L` to lock session in read-only mode
+8. **Auto-save peace of mind**: Enable with `ferrix enable-auto-save` for automatic backups
+9. **Custom shortcuts**: Use `ferrix bind-key` to create your own keybindings
+10. **Rename windows**: `Ctrl-b ,` to give windows meaningful names
 
 ## Conclusion
 

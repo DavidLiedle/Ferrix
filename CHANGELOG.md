@@ -5,6 +5,20 @@ All notable changes to Ferrix will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2025-09-28
+
+### Changed
+- Comprehensive documentation update for v0.9.0 features
+- Updated README.md with complete feature list
+- Updated FEATURES.md with detailed v0.9.0 capabilities
+- Enhanced docs/commands.md with new CLI commands
+- Improved docs/configuration.md with keybinding and auto-save configuration
+- Expanded docs/USER_GUIDE.md with guides for all new features
+
+### Fixed
+- Documentation inconsistencies and outdated information
+- Missing documentation for v0.9.0 features
+
 ## [0.9.0] - 2024-01-28
 
 ### Added

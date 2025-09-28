@@ -223,12 +223,12 @@ Examples:
 ```
 
 ### reload-config
-Reload configuration (not yet implemented)
+Reload configuration
 
 ```bash
 ferrix reload-config
 
-Note: Currently use keybinding (Ctrl-b r) or source-file command
+Note: Also available via keybinding (Ctrl-b r)
 ```
 
 ## Window Commands (Within Session)
@@ -350,6 +350,226 @@ Toggle pane zoom (full window)
 Keybinding: Ctrl-b z
 
 Command mode: :resize-pane -Z
+```
+
+## Activity & Synchronization Commands (v0.9.0)
+
+### toggle-pane-sync
+Toggle synchronization of input across all panes in current window
+
+```bash
+ferrix toggle-pane-sync
+
+Keybinding: Ctrl-b s
+
+Command mode: :toggle-pane-sync
+```
+
+### set-pane-sync
+Set pane synchronization on or off
+
+```bash
+ferrix set-pane-sync on|off
+
+Command mode: :set-pane-sync on|off
+```
+
+### toggle-activity-monitoring
+Toggle activity monitoring for current pane
+
+```bash
+ferrix toggle-activity-monitoring
+
+Command mode: :toggle-activity-monitoring
+```
+
+### set-activity-monitoring
+Set activity monitoring on or off for current pane
+
+```bash
+ferrix set-activity-monitoring on|off
+
+Command mode: :set-activity-monitoring on|off
+
+Activity indicators in status bar:
+  🔔  Bell triggered
+  ●   Recent output activity
+  ○   Silence detected (no output for threshold period)
+```
+
+## Session Lock Commands (v0.9.0)
+
+### lock-session
+Lock current session to prevent modifications (read-only mode)
+
+```bash
+ferrix lock-session
+
+Keybinding: Ctrl-b L
+
+Command mode: :lock-session
+```
+
+### unlock-session
+Unlock current session to allow modifications
+
+```bash
+ferrix unlock-session
+
+Command mode: :unlock-session
+```
+
+### set-session-lock
+Set session lock status
+
+```bash
+ferrix set-session-lock on|off
+
+Command mode: :set-session-lock on|off
+```
+
+## Keybinding Commands (v0.9.0)
+
+### list-keys
+List all current keybindings
+
+```bash
+ferrix list-keys
+
+Command mode: :list-keys
+
+Output format:
+  Ctrl-b c    new-window       Create new window
+  Ctrl-b %    split-vertical   Split pane vertically
+```
+
+### bind-key
+Bind a key combination to a command
+
+```bash
+ferrix bind-key <KEY> <COMMAND>
+
+Arguments:
+  <KEY>       Key combination (e.g., "Ctrl-b x")
+  <COMMAND>   Command to execute
+
+Examples:
+  ferrix bind-key "Ctrl-b r" "reload-config"
+  ferrix bind-key "Ctrl-b S" "save-snapshot"
+
+Command mode: :bind-key <KEY> <COMMAND>
+```
+
+### unbind-key
+Remove a key binding
+
+```bash
+ferrix unbind-key <KEY>
+
+Arguments:
+  <KEY>    Key combination to unbind
+
+Examples:
+  ferrix unbind-key "Ctrl-b x"
+
+Command mode: :unbind-key <KEY>
+```
+
+### reset-keys
+Reset all keybindings to defaults
+
+```bash
+ferrix reset-keys
+
+Command mode: :reset-keys
+
+Note: This removes all custom keybindings and restores factory defaults
+```
+
+### reload-keys
+Reload keybindings from configuration file
+
+```bash
+ferrix reload-keys
+
+Command mode: :reload-keys
+
+Note: Loads keybindings from ~/.ferrix/keybindings.toml
+```
+
+### export-keys
+Export current keybindings to a file
+
+```bash
+ferrix export-keys <PATH>
+
+Arguments:
+  <PATH>    Output file path
+
+Examples:
+  ferrix export-keys ~/my-keybindings.toml
+  ferrix export-keys /tmp/backup-keys.toml
+
+Command mode: :export-keys <PATH>
+```
+
+### import-keys
+Import keybindings from a file
+
+```bash
+ferrix import-keys <PATH>
+
+Arguments:
+  <PATH>    Input file path
+
+Examples:
+  ferrix import-keys ~/my-keybindings.toml
+
+Command mode: :import-keys <PATH>
+
+Note: Validates keybindings before applying
+```
+
+## Auto-Save Commands (v0.9.0)
+
+### enable-auto-save
+Enable automatic session snapshots
+
+```bash
+ferrix enable-auto-save [OPTIONS]
+
+Options:
+  -i, --interval <MINUTES>    Auto-save interval (default: 5)
+
+Examples:
+  ferrix enable-auto-save
+  ferrix enable-auto-save --interval 10
+
+Command mode: :enable-auto-save [interval]
+```
+
+### disable-auto-save
+Disable automatic session snapshots
+
+```bash
+ferrix disable-auto-save
+
+Command mode: :disable-auto-save
+```
+
+### auto-save-status
+Check auto-save status and last save time
+
+```bash
+ferrix auto-save-status
+
+Output format:
+  Auto-save: Enabled
+  Interval: 5 minutes
+  Last save: 2024-01-20 14:30:15 UTC
+  Next save: 2024-01-20 14:35:15 UTC
+
+Command mode: :auto-save-status
 ```
 
 ## Copy Mode Commands

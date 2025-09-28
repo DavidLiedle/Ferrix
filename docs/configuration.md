@@ -335,12 +335,25 @@ setw -g mode-style bg=yellow,fg=black
 set copy-mode-mouse-select on
 set copy-mode-clipboard on
 
-# Activity Monitoring
+# Activity Monitoring (v0.9.0)
 # ------------------
-set monitor-activity on
-set visual-activity off
-set visual-bell on
-set bell-action other
+set monitor-activity on              # Enable activity monitoring
+set visual-activity off               # Visual notification
+set visual-bell on                    # Visual bell
+set bell-action other                 # Bell in other windows
+set activity-silence-threshold 30    # Silence detection (seconds)
+set activity-indicators on           # Show 🔔 ● ○ indicators
+
+# Pane Synchronization (v0.9.0)
+# -----------------------------
+set synchronize-panes off             # Default sync state
+set synchronize-indicator on          # Show sync status
+
+# Session Locking (v0.9.0)
+# -----------------------
+set lock-after-time 0                # Auto-lock timeout (0=disabled)
+set lock-command "vlock"             # Lock command
+set lock-session off                  # Default lock state
 
 # Key Bindings
 # -----------
@@ -394,7 +407,10 @@ bind p paste-buffer
 # Toggle features
 bind m set mouse \; display "Mouse: #{?mouse,ON,OFF}"
 bind b set status \; display "Status bar: #{?status,ON,OFF}"
-bind z resize-pane -Z
+bind z resize-pane -Z                # Toggle pane zoom (v0.9.0)
+bind s toggle-pane-sync              # Toggle pane sync (v0.9.0)
+bind L lock-session                  # Lock session (v0.9.0)
+bind M toggle-activity-monitoring    # Toggle monitoring (v0.9.0)
 
 # Layouts
 bind M-1 select-layout even-horizontal
@@ -419,18 +435,35 @@ alias kp kill-pane
 alias ss save-snapshot
 alias ls list-sessions
 
-# Auto-save Settings
+# Auto-save Settings (v0.9.0)
 # -----------------
-set auto-save on
-set auto-save-interval 300
-set auto-save-on-detach on
-set auto-save-max-snapshots 20
+set auto-save on                     # Enable auto-save
+set auto-save-interval 300           # Interval in seconds (5 minutes)
+set auto-save-on-detach on           # Save on detach
+set auto-save-max-snapshots 20       # Maximum auto-saves to keep
+set auto-save-path ~/.ferrix/auto    # Auto-save directory
 
 # Startup Commands
 # ---------------
 run 'ferrix set-option -g @plugin_dir ~/.ferrix/plugins'
 run 'ferrix new-window -n system -d'
 run 'ferrix send-keys -t system "htop" C-m'
+
+# Keybinding Configuration (v0.9.0)
+# --------------------------------
+# Load custom keybindings from separate file
+source-file -q ~/.ferrix/keybindings.toml
+
+# Or define inline keybindings in TOML format:
+# [[keybindings]]
+# key = "Ctrl-b r"
+# command = "reload-config"
+# description = "Reload configuration"
+#
+# [[keybindings]]
+# key = "Ctrl-b S"
+# command = "save-snapshot"
+# description = "Save session snapshot"
 
 # Load local overrides if exists
 source-file -q ~/.ferrixrc.local
