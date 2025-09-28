@@ -7,6 +7,7 @@ use crate::error::Result;
 use crate::protocol::{WindowId, PaneId, SplitDirection};
 use super::pane::Pane;
 use super::layout::{Layout, NavigationDirection};
+use super::activity::{ActivityMonitor, ActivityType};
 
 pub struct Window {
     pub id: WindowId,
@@ -16,6 +17,8 @@ pub struct Window {
     pub layout: Layout,
     pub width: u16,
     pub height: u16,
+    pub zoomed_pane: Option<PaneId>,
+    pub activity_monitor: ActivityMonitor,
 }
 
 impl Window {
@@ -26,6 +29,9 @@ impl Window {
         let mut panes = HashMap::new();
         panes.insert(pane_id.clone(), Arc::new(RwLock::new(default_pane)));
 
+        let mut activity_monitor = ActivityMonitor::new();
+        activity_monitor.enable_monitoring(&pane_id);
+
         Self {
             id,
             name,
@@ -34,6 +40,8 @@ impl Window {
             layout: Layout::new(pane_id),
             width: 80,
             height: 24,
+            zoomed_pane: None,
+            activity_monitor,
         }
     }
 
@@ -44,6 +52,8 @@ impl Window {
         self.panes.insert(new_pane_id.clone(), Arc::new(RwLock::new(new_pane)));
 
         if self.layout.split(pane_id, direction, new_pane_id.clone()) {
+            // Enable activity monitoring for the new pane
+            self.activity_monitor.enable_monitoring(&new_pane_id);
             self.update_pane_dimensions().await?;
             Ok(new_pane_id)
         } else {
@@ -59,6 +69,9 @@ impl Window {
 
         if self.layout.remove_pane(pane_id) {
             self.panes.remove(pane_id);
+
+            // Clean up activity monitoring for the closed pane
+            self.activity_monitor.cleanup_pane(pane_id);
 
             // Update current pane if needed
             if self.current_pane.as_ref() == Some(pane_id) {
@@ -82,12 +95,21 @@ impl Window {
     }
 
     async fn update_pane_dimensions(&mut self) -> Result<()> {
-        let dimensions = self.layout.get_dimensions(self.width, self.height);
-
-        for (pane_id, _x, _y, width, height) in dimensions {
-            if let Some(pane) = self.panes.get(&pane_id) {
+        if let Some(zoomed_pane_id) = &self.zoomed_pane {
+            // When zoomed, the selected pane takes up the entire window
+            if let Some(pane) = self.panes.get(zoomed_pane_id) {
                 let mut pane_guard = pane.write().await;
-                pane_guard.resize(width, height).await?;
+                pane_guard.resize(self.width, self.height).await?;
+            }
+        } else {
+            // Normal layout - use the layout manager
+            let dimensions = self.layout.get_dimensions(self.width, self.height);
+
+            for (pane_id, _x, _y, width, height) in dimensions {
+                if let Some(pane) = self.panes.get(&pane_id) {
+                    let mut pane_guard = pane.write().await;
+                    pane_guard.resize(width, height).await?;
+                }
             }
         }
 
@@ -100,6 +122,15 @@ impl Window {
                 let mut pane_guard = pane.write().await;
                 pane_guard.handle_input(data).await?;
             }
+        }
+        Ok(())
+    }
+
+    pub async fn handle_input_broadcast(&mut self, data: Vec<u8>) -> Result<()> {
+        // Send input to all panes in this window
+        for pane in self.panes.values() {
+            let mut pane_guard = pane.write().await;
+            pane_guard.handle_input(data.clone()).await?;
         }
         Ok(())
     }
@@ -127,9 +158,19 @@ impl Window {
             let mut pane_guard = pane.write().await;
             if let Some(data) = pane_guard.get_output().await? {
                 if !data.is_empty() {
+                    // Record activity for panes that have output
+                    // Only record if it's not the current pane (focused pane)
+                    if self.current_pane.as_ref() != Some(pane_id) {
+                        self.activity_monitor.record_activity(pane_id, ActivityType::Output);
+                    }
                     outputs.push((pane_id.clone(), data));
                 }
             }
+        }
+
+        // Mark current pane as seen since user is viewing it
+        if let Some(current_pane) = &self.current_pane {
+            self.activity_monitor.mark_as_seen(current_pane);
         }
 
         Ok(outputs)
@@ -143,9 +184,105 @@ impl Window {
         self.current_pane.clone()
     }
 
-    pub async fn toggle_zoom(&mut self) -> Result<()> {
-        self.layout.toggle_zoom();
+    pub async fn toggle_zoom(&mut self) -> Result<bool> {
+        if self.zoomed_pane.is_some() {
+            self.unzoom_pane().await?;
+            Ok(false) // Not zoomed anymore
+        } else if let Some(current_pane) = self.current_pane.clone() {
+            self.zoom_pane(&current_pane).await?;
+            Ok(true) // Now zoomed
+        } else {
+            Ok(false) // No current pane to zoom
+        }
+    }
+
+    pub async fn zoom_pane(&mut self, pane_id: &PaneId) -> Result<()> {
+        if self.panes.contains_key(pane_id) {
+            self.zoomed_pane = Some(pane_id.clone());
+            self.update_pane_dimensions().await?;
+        }
+        Ok(())
+    }
+
+    pub async fn unzoom_pane(&mut self) -> Result<()> {
+        self.zoomed_pane = None;
         self.update_pane_dimensions().await
+    }
+
+    pub fn is_zoomed(&self) -> bool {
+        self.zoomed_pane.is_some()
+    }
+
+    pub fn get_zoomed_pane(&self) -> Option<PaneId> {
+        self.zoomed_pane.clone()
+    }
+
+    pub fn rename(&mut self, new_name: String) {
+        self.name = new_name;
+    }
+
+    // Activity monitoring methods
+    pub fn record_activity(&mut self, pane_id: &PaneId, activity_type: ActivityType) {
+        // Record activity for the pane
+        self.activity_monitor.record_activity(pane_id, activity_type);
+    }
+
+    pub fn mark_pane_as_seen(&mut self, pane_id: &PaneId) {
+        self.activity_monitor.mark_as_seen(pane_id);
+    }
+
+    pub fn get_activity_status(&self, pane_id: &PaneId) -> Option<String> {
+        self.activity_monitor.get_activity_status(pane_id)
+    }
+
+    pub fn get_window_activity_summary(&self) -> Option<String> {
+        // Check if any pane has activity
+        let mut has_bell = false;
+        let mut has_activity = false;
+        let mut has_silence = false;
+
+        for pane_id in self.panes.keys() {
+            if self.activity_monitor.has_bell(pane_id) {
+                has_bell = true;
+                break;
+            }
+            if self.activity_monitor.has_unseen_activity(pane_id) {
+                has_activity = true;
+            }
+            if self.activity_monitor.check_for_silence(pane_id) {
+                has_silence = true;
+            }
+        }
+
+        if has_bell {
+            return Some("🔔".to_string());
+        }
+        if has_activity {
+            return Some("●".to_string());
+        }
+        if has_silence {
+            return Some("○".to_string());
+        }
+
+        None
+    }
+
+    pub fn enable_activity_monitoring(&mut self, pane_id: &PaneId) {
+        self.activity_monitor.enable_monitoring(pane_id);
+    }
+
+    pub fn disable_activity_monitoring(&mut self, pane_id: &PaneId) {
+        self.activity_monitor.disable_monitoring(pane_id);
+    }
+
+    pub fn toggle_activity_monitoring(&mut self, pane_id: &PaneId) -> bool {
+        if self.activity_monitor.is_monitoring_enabled(pane_id) {
+            self.activity_monitor.disable_monitoring(pane_id);
+            false
+        } else {
+            self.activity_monitor.enable_monitoring(pane_id);
+            true
+        }
     }
 }
 
@@ -166,6 +303,7 @@ mod tests {
         assert!(window.current_pane.is_some());
         assert_eq!(window.width, 80);
         assert_eq!(window.height, 24);
+        assert_eq!(window.zoomed_pane, None);
     }
 
     #[tokio::test]
@@ -359,8 +497,17 @@ mod tests {
         let window_id = WindowId(Uuid::new_v4());
         let mut window = Window::new(window_id, "test".to_string());
 
+        // Test zoom toggle - should zoom in
         let result = window.toggle_zoom().await;
         assert!(result.is_ok());
+        assert!(result.unwrap()); // Should return true (zoomed)
+        assert!(window.is_zoomed());
+
+        // Test zoom toggle again - should zoom out
+        let result = window.toggle_zoom().await;
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // Should return false (not zoomed)
+        assert!(!window.is_zoomed());
     }
 
     #[tokio::test]
@@ -396,5 +543,38 @@ mod tests {
         assert!(window.panes.contains_key(&pane1));
         assert!(window.panes.contains_key(&pane2));
         assert!(window.panes.contains_key(&pane3));
+    }
+
+    #[tokio::test]
+    async fn test_window_zoom_specific_pane() {
+        let window_id = WindowId(Uuid::new_v4());
+        let mut window = Window::new(window_id, "test".to_string());
+
+        // Split to have multiple panes
+        let pane1 = window.current_pane.clone().unwrap();
+        let pane2 = window.split_pane(&pane1, SplitDirection::Horizontal).await.unwrap();
+
+        // Zoom specific pane
+        let result = window.zoom_pane(&pane2).await;
+        assert!(result.is_ok());
+        assert!(window.is_zoomed());
+        assert_eq!(window.get_zoomed_pane(), Some(pane2));
+
+        // Unzoom
+        let result = window.unzoom_pane().await;
+        assert!(result.is_ok());
+        assert!(!window.is_zoomed());
+        assert_eq!(window.get_zoomed_pane(), None);
+    }
+
+    #[tokio::test]
+    async fn test_window_zoom_nonexistent_pane() {
+        let window_id = WindowId(Uuid::new_v4());
+        let mut window = Window::new(window_id, "test".to_string());
+
+        let nonexistent_pane = PaneId(Uuid::new_v4());
+        let result = window.zoom_pane(&nonexistent_pane).await;
+        assert!(result.is_ok()); // Should not error, but should not zoom
+        assert!(!window.is_zoomed());
     }
 }

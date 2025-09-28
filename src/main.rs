@@ -575,6 +575,176 @@ async fn main() -> Result<()> {
             }
         }
 
+        Some(Commands::TogglePaneSync) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.toggle_pane_sync().await {
+                        Ok(enabled) => {
+                            println!("✓ Pane synchronization {}", if enabled { "enabled" } else { "disabled" });
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to toggle pane sync: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::SetPaneSync { enabled }) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.set_pane_sync(*enabled).await {
+                        Ok(actual_enabled) => {
+                            println!("✓ Pane synchronization {}", if actual_enabled { "enabled" } else { "disabled" });
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to set pane sync: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::LockSession) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.lock_session().await {
+                        Ok(locked) => {
+                            println!("✓ Session {}", if locked { "locked (read-only)" } else { "unlocked" });
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to lock session: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::UnlockSession) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.unlock_session().await {
+                        Ok(locked) => {
+                            println!("✓ Session {}", if locked { "locked (read-only)" } else { "unlocked" });
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to unlock session: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::SetSessionLock { locked }) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.set_session_lock(*locked).await {
+                        Ok(actual_locked) => {
+                            println!("✓ Session {}", if actual_locked { "locked (read-only)" } else { "unlocked" });
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to set session lock: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::ToggleZoom) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.toggle_zoom().await {
+                        Ok((zoomed, pane_id)) => {
+                            if zoomed {
+                                if let Some(pane_id) = pane_id {
+                                    println!("✓ Pane {} zoomed (expanded to full window)", pane_id.0);
+                                } else {
+                                    println!("✓ Pane zoomed");
+                                }
+                            } else {
+                                println!("✓ Pane unzoomed (restored to normal layout)");
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to toggle zoom: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::RenameWindow { window_id, new_name }) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    // Parse window_id if provided
+                    let parsed_window_id = if let Some(window_id_str) = window_id {
+                        use uuid::Uuid;
+                        use ferrix::protocol::WindowId;
+                        match Uuid::parse_str(&window_id_str) {
+                            Ok(uuid) => Some(WindowId(uuid)),
+                            Err(_) => {
+                                eprintln!("✗ Invalid window ID format: {}", window_id_str);
+                                std::process::exit(1);
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
+                    match client.rename_window(parsed_window_id, new_name.clone()).await {
+                        Ok(window_id) => {
+                            println!("✓ Window {} renamed to '{}'", window_id.0, new_name);
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to rename window: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
         None => {
             let mut client = Client::new(socket_path.clone())?;
 
@@ -606,6 +776,48 @@ async fn main() -> Result<()> {
                     client.attach_session(session_id).await?;
                 }
             }
+        }
+
+        // Activity monitoring commands
+        Some(Commands::ToggleActivityMonitoring { pane_id }) => {
+            println!("Activity monitoring commands not yet implemented");
+        }
+        Some(Commands::SetActivityMonitoring { pane_id, enabled }) => {
+            println!("Activity monitoring commands not yet implemented");
+        }
+
+        // Keybinding management commands
+        Some(Commands::ListKeys) => {
+            println!("Keybinding commands not yet implemented");
+        }
+        Some(Commands::BindKey { key, action }) => {
+            println!("Keybinding commands not yet implemented");
+        }
+        Some(Commands::UnbindKey { key }) => {
+            println!("Keybinding commands not yet implemented");
+        }
+        Some(Commands::ResetKeys) => {
+            println!("Keybinding commands not yet implemented");
+        }
+        Some(Commands::ReloadKeys) => {
+            println!("Keybinding commands not yet implemented");
+        }
+        Some(Commands::ExportKeys { path }) => {
+            println!("Keybinding export not yet implemented");
+        }
+        Some(Commands::ImportKeys { path }) => {
+            println!("Keybinding import not yet implemented");
+        }
+
+        // Auto-save commands
+        Some(Commands::EnableAutoSave { session, interval }) => {
+            println!("Auto-save commands not yet implemented");
+        }
+        Some(Commands::DisableAutoSave { session }) => {
+            println!("Auto-save commands not yet implemented");
+        }
+        Some(Commands::AutoSaveStatus { session }) => {
+            println!("Auto-save status not yet implemented");
         }
     }
 

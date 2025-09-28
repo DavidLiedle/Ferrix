@@ -1,5 +1,6 @@
 pub mod connection;
 pub mod renderer;
+pub mod ansi_parser;
 // #[cfg(test)]
 // mod tests;
 
@@ -33,6 +34,7 @@ pub struct Client {
     current_layout: Option<LayoutInfo>,
     terminal_size: (u16, u16), // (cols, rows)
     pane_buffers: HashMap<PaneId, Vec<u8>>, // Buffer terminal output per pane
+    pane_parsers: HashMap<PaneId, ansi_parser::AnsiParser>, // ANSI parser per pane
     copy_mode: CopyMode,
     command_mode: CommandMode,
     mouse_handler: MouseHandler,
@@ -69,6 +71,7 @@ impl Client {
             current_layout: None,
             terminal_size: (80, 24),
             pane_buffers: HashMap::new(),
+            pane_parsers: HashMap::new(),
             copy_mode: CopyMode::new(copy_mode_style),
             command_mode: CommandMode::new(),
             mouse_handler: MouseHandler::new(mouse_enabled),
@@ -794,13 +797,41 @@ impl Client {
             .or_insert_with(Vec::new)
             .extend(&data);
 
-        // Keep buffer size reasonable (last 1000 lines worth)
+        // Keep buffer size reasonable based on configuration
         if let Some(buffer) = self.pane_buffers.get_mut(&pane_id) {
-            const MAX_BUFFER_SIZE: usize = 100_000; // ~1000 lines
-            if buffer.len() > MAX_BUFFER_SIZE {
-                buffer.drain(0..buffer.len() - MAX_BUFFER_SIZE);
+            let config = self.config.read().await;
+            let max_buffer_size = config.general.scrollback_lines * 100; // ~100 chars per line estimate
+            drop(config); // Release lock early
+
+            if buffer.len() > max_buffer_size {
+                // More efficient than drain(0..) - keeps last portion
+                let keep_size = max_buffer_size / 2; // Keep half to avoid frequent resizing
+                let buffer_len = buffer.len();
+                buffer.copy_within(buffer_len - keep_size.., 0);
+                buffer.truncate(keep_size);
             }
         }
+
+        // Get or create ANSI parser for this pane with configured scrollback
+        let config = self.config.read().await;
+        let scrollback_lines = config.general.scrollback_lines;
+        drop(config);
+
+        let parser = self.pane_parsers.entry(pane_id.clone())
+            .or_insert_with(|| {
+                // Initialize parser with pane dimensions if available
+                if let Some(layout) = &self.current_layout {
+                    if let Some(pane) = layout.panes.iter().find(|p| p.id == pane_id) {
+                        let width = if pane.width > 2 { pane.width - 2 } else { 80 };
+                        let height = if pane.height > 2 { pane.height - 2 } else { 24 };
+                        return ansi_parser::AnsiParser::new_with_scrollback(width, height, scrollback_lines);
+                    }
+                }
+                ansi_parser::AnsiParser::new_with_scrollback(80, 24, scrollback_lines)
+            });
+
+        // Process the data through the ANSI parser
+        parser.process(&data);
 
         // In non-TTY mode, always write output to stdout
         if !is_tty {
@@ -932,6 +963,7 @@ impl Client {
 
     async fn draw_pane_content(&mut self, pane: &PaneInfo) -> Result<()> {
         use std::io::Write;
+        use crossterm::style::{SetForegroundColor, SetBackgroundColor, SetAttribute, ResetColor, Attribute as CrosstermAttribute};
         let mut stdout = stdout();
 
         // Calculate content area (inside borders)
@@ -944,9 +976,63 @@ impl Client {
             return Ok(());
         }
 
-        // Get pane buffer content
-        if let Some(buffer) = self.pane_buffers.get(&pane.id) {
-            // Convert buffer to string and split into lines
+        // Update parser dimensions if needed
+        if let Some(parser) = self.pane_parsers.get_mut(&pane.id) {
+            parser.resize(content_width, content_height);
+        }
+
+        // Get ANSI parser for this pane or use raw buffer fallback
+        if let Some(parser) = self.pane_parsers.get(&pane.id) {
+            // Render using ANSI parser
+            let rendered = parser.render();
+
+            for (row_idx, row) in rendered.iter().enumerate() {
+                if row_idx >= content_height as usize {
+                    break;
+                }
+
+                execute!(stdout, crossterm::cursor::MoveTo(content_x, content_y + row_idx as u16))?;
+
+                for cell in row.iter().take(content_width as usize) {
+                    // Apply text attributes
+                    for attr in &cell.attributes {
+                        use crossterm::style::Attribute as CrosstermAttr;
+                        let crossterm_attr = match attr {
+                            crossterm::style::Attribute::Bold => CrosstermAttr::Bold,
+                            crossterm::style::Attribute::Dim => CrosstermAttr::Dim,
+                            crossterm::style::Attribute::Italic => CrosstermAttr::Italic,
+                            crossterm::style::Attribute::Underlined => CrosstermAttr::Underlined,
+                            crossterm::style::Attribute::SlowBlink => CrosstermAttr::SlowBlink,
+                            crossterm::style::Attribute::Reverse => CrosstermAttr::Reverse,
+                            crossterm::style::Attribute::Hidden => CrosstermAttr::Hidden,
+                            crossterm::style::Attribute::CrossedOut => CrosstermAttr::CrossedOut,
+                            _ => continue,
+                        };
+                        execute!(stdout, SetAttribute(crossterm_attr))?;
+                    }
+
+                    // Apply colors (they're already crossterm::Color)
+                    execute!(stdout, SetForegroundColor(cell.fg))?;
+                    execute!(stdout, SetBackgroundColor(cell.bg))?;
+
+                    // Write the character
+                    write!(stdout, "{}", cell.ch)?;
+
+                    // Reset attributes for next cell
+                    execute!(stdout, ResetColor)?;
+                }
+            }
+
+            // Position cursor where the parser says it should be
+            let (cursor_x, cursor_y) = parser.get_cursor_position();
+            if cursor_x < content_width && cursor_y < content_height {
+                execute!(stdout, crossterm::cursor::MoveTo(
+                    content_x + cursor_x,
+                    content_y + cursor_y
+                ))?;
+            }
+        } else if let Some(buffer) = self.pane_buffers.get(&pane.id) {
+            // Fallback to raw buffer rendering
             let content = String::from_utf8_lossy(buffer);
             let lines: Vec<&str> = content.lines().collect();
 
@@ -1105,6 +1191,145 @@ impl Client {
         }
     }
 
+    pub async fn toggle_pane_sync(&mut self) -> Result<bool> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::TogglePaneSync).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::PaneSyncStatusUpdate { enabled } => Ok(enabled),
+                    ServerMessage::Error { message } => {
+                        Err(FerrixError::Other(message))
+                    }
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn set_pane_sync(&mut self, enabled: bool) -> Result<bool> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::SetPaneSync { enabled }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::PaneSyncStatusUpdate { enabled } => Ok(enabled),
+                    ServerMessage::Error { message } => {
+                        Err(FerrixError::Other(message))
+                    }
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn lock_session(&mut self) -> Result<bool> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::LockSession).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::SessionLockStatusUpdate { locked } => Ok(locked),
+                    ServerMessage::Error { message } => {
+                        Err(FerrixError::Other(message))
+                    }
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn unlock_session(&mut self) -> Result<bool> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::UnlockSession).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::SessionLockStatusUpdate { locked } => Ok(locked),
+                    ServerMessage::Error { message } => {
+                        Err(FerrixError::Other(message))
+                    }
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn set_session_lock(&mut self, locked: bool) -> Result<bool> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::SetSessionLock { locked }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::SessionLockStatusUpdate { locked } => Ok(locked),
+                    ServerMessage::Error { message } => {
+                        Err(FerrixError::Other(message))
+                    }
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn toggle_zoom(&mut self) -> Result<(bool, Option<crate::protocol::PaneId>)> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::ZoomPane).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::PaneZoomStatusUpdate { zoomed, pane_id } => Ok((zoomed, pane_id)),
+                    ServerMessage::Error { message } => {
+                        Err(FerrixError::Other(message))
+                    }
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn rename_window(&mut self, window_id: Option<crate::protocol::WindowId>, new_name: String) -> Result<crate::protocol::WindowId> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::RenameWindow { window_id, new_name }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::WindowRenamed { window_id, .. } => Ok(window_id),
+                    ServerMessage::Error { message } => {
+                        Err(FerrixError::Other(message))
+                    }
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
 
     #[allow(dead_code)]
     async fn session_loop(&mut self) -> Result<()> {

@@ -148,10 +148,115 @@ pub enum Commands {
         path: Option<String>,
     },
 
+    #[command(about = "Toggle pane synchronization (broadcast input to all panes)")]
+    TogglePaneSync,
+
+    #[command(about = "Set pane synchronization state")]
+    SetPaneSync {
+        #[arg(help = "Enable (true) or disable (false) pane synchronization")]
+        enabled: bool,
+    },
+
+    #[command(about = "Lock session (read-only mode)")]
+    LockSession,
+
+    #[command(about = "Unlock session")]
+    UnlockSession,
+
+    #[command(about = "Set session lock state")]
+    SetSessionLock {
+        #[arg(help = "Lock (true) or unlock (false) the session")]
+        locked: bool,
+    },
+
+    #[command(about = "Toggle pane zoom (expand current pane to full window)")]
+    ToggleZoom,
+
     #[command(about = "Manage remote users and authentication")]
     UserManagement {
         #[command(subcommand)]
         action: UserAction,
+    },
+
+    #[command(about = "Rename a window")]
+    RenameWindow {
+        #[arg(help = "Window ID (if not provided, renames current window)")]
+        window_id: Option<String>,
+
+        #[arg(help = "New name for the window")]
+        new_name: String,
+    },
+
+    #[command(about = "Toggle activity monitoring for a pane")]
+    ToggleActivityMonitoring {
+        #[arg(help = "Pane ID (optional, defaults to current pane)")]
+        pane_id: Option<String>,
+    },
+
+    #[command(about = "Set activity monitoring state")]
+    SetActivityMonitoring {
+        #[arg(help = "Pane ID (optional, defaults to current pane)")]
+        pane_id: Option<String>,
+
+        #[arg(help = "Enable or disable activity monitoring")]
+        enabled: bool,
+    },
+
+    #[command(about = "List all keybindings")]
+    ListKeys,
+
+    #[command(about = "Bind a key to an action")]
+    BindKey {
+        #[arg(help = "Key combination (e.g., 'x' for prefix+x, 'ctrl-x' for prefix+ctrl-x)")]
+        key: String,
+
+        #[arg(help = "Action to bind (e.g., 'kill-pane', 'new-window')")]
+        action: String,
+    },
+
+    #[command(about = "Unbind a key")]
+    UnbindKey {
+        #[arg(help = "Key combination to unbind")]
+        key: String,
+    },
+
+    #[command(about = "Reset keybindings to defaults")]
+    ResetKeys,
+
+    #[command(about = "Reload keybindings from config")]
+    ReloadKeys,
+
+    #[command(about = "Export keybindings to file")]
+    ExportKeys {
+        #[arg(help = "Path to export keybindings to")]
+        path: String,
+    },
+
+    #[command(about = "Import keybindings from file")]
+    ImportKeys {
+        #[arg(help = "Path to import keybindings from")]
+        path: String,
+    },
+
+    #[command(about = "Enable auto-save for a session")]
+    EnableAutoSave {
+        #[arg(help = "Session ID or name")]
+        session: Option<String>,
+
+        #[arg(short, long, default_value = "300", help = "Auto-save interval in seconds")]
+        interval: u64,
+    },
+
+    #[command(about = "Disable auto-save for a session")]
+    DisableAutoSave {
+        #[arg(help = "Session ID or name")]
+        session: Option<String>,
+    },
+
+    #[command(about = "Get auto-save status for a session")]
+    AutoSaveStatus {
+        #[arg(help = "Session ID or name")]
+        session: Option<String>,
     },
 }
 
@@ -295,6 +400,34 @@ mod tests {
                 }
             }
             _ => panic!("Expected UserManagement command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_rename_window() {
+        let args = vec!["ferrix", "rename-window", "new-window-name"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Some(Commands::RenameWindow { window_id, new_name }) => {
+                assert_eq!(window_id, None);
+                assert_eq!(new_name, "new-window-name");
+            }
+            _ => panic!("Expected RenameWindow command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_rename_window_with_id() {
+        let args = vec!["ferrix", "rename-window", "550e8400-e29b-41d4-a716-446655440000", "new-window-name"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Some(Commands::RenameWindow { window_id, new_name }) => {
+                assert_eq!(window_id, Some("550e8400-e29b-41d4-a716-446655440000".to_string()));
+                assert_eq!(new_name, "new-window-name");
+            }
+            _ => panic!("Expected RenameWindow command"),
         }
     }
 }

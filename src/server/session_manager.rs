@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
-use tokio::sync::{RwLock, mpsc, broadcast};
-use tracing::{info, warn, error};
+use tokio::sync::{RwLock, broadcast};
+use tokio::time::{interval, Duration};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::protocol::{SessionId, ClientId, PaneId, ServerMessage};
@@ -25,6 +26,9 @@ pub struct SessionManager {
 
     /// Session output polling tasks
     session_pollers: Arc<RwLock<HashMap<SessionId, tokio::task::JoinHandle<()>>>>,
+
+    /// Auto-save task handle
+    auto_save_task: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +57,7 @@ impl SessionManager {
             clients,
             update_sender,
             session_pollers: Arc::new(RwLock::new(HashMap::new())),
+            auto_save_task: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -241,5 +246,87 @@ impl SessionManager {
         clients_guard.remove(&client_id);
 
         info!("Cleaned up disconnected client {}", client_id.0);
+    }
+
+    /// Start auto-save task for all sessions
+    pub async fn start_auto_save(&self, check_interval: Duration) {
+        let sessions = self.sessions.clone();
+
+        let handle = tokio::spawn(async move {
+            let mut timer = interval(check_interval);
+
+            loop {
+                timer.tick().await;
+
+                let sessions_guard = sessions.read().await;
+                for (session_id, session_arc) in sessions_guard.iter() {
+                    let session = session_arc.read().await;
+
+                    if session.should_auto_save() {
+                        // Create a snapshot for auto-save
+                        let auto_save_name = format!("auto-save-{}", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+                        let snapshot = session.create_snapshot(Some(auto_save_name.clone()), Some("Automatic save".to_string()));
+
+                        // Create snapshot manager to save
+                        match super::snapshot::SnapshotManager::new() {
+                            Ok(snapshot_manager) => {
+                                match snapshot_manager.save_snapshot(&snapshot) {
+                                    Ok(path) => {
+                                        drop(session);
+                                        let mut session_mut = session_arc.write().await;
+                                        session_mut.mark_auto_saved();
+                                        info!("Auto-saved session {} to {:?}", session_id.0, path);
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to auto-save session {}: {}", session_id.0, e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Failed to create snapshot manager: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        let mut auto_save_task = self.auto_save_task.write().await;
+        *auto_save_task = Some(handle);
+    }
+
+    /// Stop auto-save task
+    pub async fn stop_auto_save(&self) {
+        let mut auto_save_task = self.auto_save_task.write().await;
+        if let Some(handle) = auto_save_task.take() {
+            handle.abort();
+            info!("Auto-save task stopped");
+        }
+    }
+
+    /// Enable auto-save for a specific session
+    pub async fn enable_session_auto_save(&self, session_id: SessionId, interval_seconds: u64) -> Result<()> {
+        let sessions_guard = self.sessions.read().await;
+        if let Some(session_arc) = sessions_guard.get(&session_id) {
+            let mut session = session_arc.write().await;
+            session.enable_auto_save(interval_seconds);
+            info!("Enabled auto-save for session {} with interval {}s", session_id.0, interval_seconds);
+            Ok(())
+        } else {
+            Err(crate::error::FerrixError::SessionNotFound(session_id.0.to_string()))
+        }
+    }
+
+    /// Disable auto-save for a specific session
+    pub async fn disable_session_auto_save(&self, session_id: SessionId) -> Result<()> {
+        let sessions_guard = self.sessions.read().await;
+        if let Some(session_arc) = sessions_guard.get(&session_id) {
+            let mut session = session_arc.write().await;
+            session.disable_auto_save();
+            info!("Disabled auto-save for session {}", session_id.0);
+            Ok(())
+        } else {
+            Err(crate::error::FerrixError::SessionNotFound(session_id.0.to_string()))
+        }
     }
 }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use crossterm::event::{KeyCode, KeyModifiers};
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +9,43 @@ use crate::error::{FerrixError, Result};
 pub struct KeyBinding {
     pub modifiers: KeyModifiers,
     pub code: KeyCode,
+}
+
+impl KeyBinding {
+    pub fn to_string(&self) -> String {
+        let mut parts = Vec::new();
+
+        if self.modifiers.contains(KeyModifiers::CONTROL) {
+            parts.push("ctrl");
+        }
+        if self.modifiers.contains(KeyModifiers::ALT) {
+            parts.push("alt");
+        }
+        if self.modifiers.contains(KeyModifiers::SHIFT) {
+            parts.push("shift");
+        }
+
+        let key_str = match self.code {
+            KeyCode::Char(c) => c.to_string(),
+            KeyCode::Up => "up".to_string(),
+            KeyCode::Down => "down".to_string(),
+            KeyCode::Left => "left".to_string(),
+            KeyCode::Right => "right".to_string(),
+            KeyCode::Enter => "enter".to_string(),
+            KeyCode::Tab => "tab".to_string(),
+            KeyCode::Backspace => "backspace".to_string(),
+            KeyCode::Delete => "delete".to_string(),
+            KeyCode::Home => "home".to_string(),
+            KeyCode::End => "end".to_string(),
+            KeyCode::PageUp => "pageup".to_string(),
+            KeyCode::PageDown => "pagedown".to_string(),
+            KeyCode::Esc => "esc".to_string(),
+            _ => "unknown".to_string(),
+        };
+
+        parts.push(&key_str);
+        parts.join("-")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,14 +96,103 @@ pub enum Action {
     Custom(String),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyBindingConfig {
+    pub prefix: String,
+    pub bindings: HashMap<String, String>,
+}
+
+impl Default for KeyBindingConfig {
+    fn default() -> Self {
+        Self {
+            prefix: "ctrl-b".to_string(),
+            bindings: HashMap::new(),
+        }
+    }
+}
+
 pub struct KeyBindingManager {
     prefix: KeyBinding,
     bindings: HashMap<KeyBinding, Action>,
+    custom_bindings: HashMap<KeyBinding, Action>,
+    config_path: Option<PathBuf>,
 }
 
 impl KeyBindingManager {
     pub fn new() -> Self {
-        Self::default()
+        let mut manager = Self::default();
+
+        // Try to load custom keybindings from config
+        if let Ok(config) = super::Config::load() {
+            manager.load_from_config(&config.keybindings);
+        }
+
+        manager
+    }
+
+    pub fn load_from_config(&mut self, config: &super::KeyBindings) {
+        // Update prefix if specified
+        if let Ok(prefix) = Self::parse_key_string(&config.prefix) {
+            self.prefix = prefix;
+        }
+
+        // Load custom bindings
+        for (key_str, action_str) in &config.custom {
+            if let Ok(key) = Self::parse_key_string(key_str) {
+                if let Ok(action) = self.parse_action_string(action_str) {
+                    self.custom_bindings.insert(key, action);
+                }
+            }
+        }
+    }
+
+    fn parse_action_string(&self, action_str: &str) -> Result<Action> {
+        let parts: Vec<&str> = action_str.split_whitespace().collect();
+        if parts.is_empty() {
+            return Err(FerrixError::Config("Empty action string".to_string()));
+        }
+
+        match parts[0] {
+            "new-session" => Ok(Action::NewSession),
+            "detach-session" => Ok(Action::DetachSession),
+            "list-sessions" => Ok(Action::ListSessions),
+            "kill-session" => Ok(Action::KillSession),
+            "new-window" => Ok(Action::NewWindow),
+            "next-window" => Ok(Action::NextWindow),
+            "previous-window" => Ok(Action::PreviousWindow),
+            "rename-window" => Ok(Action::RenameWindow),
+            "kill-window" => Ok(Action::KillWindow),
+            "select-window" => {
+                if parts.len() > 1 {
+                    if let Ok(n) = parts[1].parse::<u8>() {
+                        Ok(Action::SelectWindow(n))
+                    } else {
+                        Err(FerrixError::Config("Invalid window number".to_string()))
+                    }
+                } else {
+                    Err(FerrixError::Config("Window number required".to_string()))
+                }
+            }
+            "split-horizontal" => Ok(Action::SplitHorizontal),
+            "split-vertical" => Ok(Action::SplitVertical),
+            "navigate-up" => Ok(Action::NavigateUp),
+            "navigate-down" => Ok(Action::NavigateDown),
+            "navigate-left" => Ok(Action::NavigateLeft),
+            "navigate-right" => Ok(Action::NavigateRight),
+            "zoom-pane" => Ok(Action::ZoomPane),
+            "close-pane" => Ok(Action::ClosePane),
+            "resize-pane-up" => Ok(Action::ResizePaneUp),
+            "resize-pane-down" => Ok(Action::ResizePaneDown),
+            "resize-pane-left" => Ok(Action::ResizePaneLeft),
+            "resize-pane-right" => Ok(Action::ResizePaneRight),
+            "enter-copy-mode" => Ok(Action::EnterCopyMode),
+            "paste-buffer" => Ok(Action::PasteBuffer),
+            "enter-command-mode" => Ok(Action::EnterCommandMode),
+            "reload-config" => Ok(Action::ReloadConfig),
+            "save-snapshot" => Ok(Action::SaveSnapshot),
+            "restore-snapshot" => Ok(Action::RestoreSnapshot),
+            _ => Ok(Action::Custom(action_str.to_string())),
+        }
     }
 
     pub fn default() -> Self {
@@ -148,6 +275,10 @@ impl KeyBindingManager {
             KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('r') },
             Action::ReloadConfig,
         );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('?') },
+            Action::Custom("show-keys".to_string()),
+        );
 
         // Number keys for window selection
         for i in 0..=9 {
@@ -164,6 +295,8 @@ impl KeyBindingManager {
                 code: KeyCode::Char('b'),
             },
             bindings,
+            custom_bindings: HashMap::new(),
+            config_path: None,
         }
     }
 
@@ -217,7 +350,8 @@ impl KeyBindingManager {
     }
 
     pub fn get_action(&self, key: &KeyBinding) -> Option<&Action> {
-        self.bindings.get(key)
+        // Check custom bindings first, then default bindings
+        self.custom_bindings.get(key).or_else(|| self.bindings.get(key))
     }
 
     pub fn bind(&mut self, key: KeyBinding, action: Action) {
@@ -225,7 +359,99 @@ impl KeyBindingManager {
     }
 
     pub fn unbind(&mut self, key: &KeyBinding) -> Option<Action> {
-        self.bindings.remove(key)
+        // Remove from custom bindings first, then from default
+        self.custom_bindings.remove(key).or_else(|| self.bindings.remove(key))
+    }
+
+    pub fn bind_custom(&mut self, key: KeyBinding, action: Action) {
+        self.custom_bindings.insert(key, action);
+    }
+
+    pub fn list_all_bindings(&self) -> Vec<(String, String, bool)> {
+        let mut result = Vec::new();
+
+        // Add default bindings
+        for (key, action) in &self.bindings {
+            if !self.custom_bindings.contains_key(key) {
+                result.push((
+                    format!("prefix + {}", key.to_string()),
+                    format!("{:?}", action),
+                    false,
+                ));
+            }
+        }
+
+        // Add custom bindings (overrides)
+        for (key, action) in &self.custom_bindings {
+            result.push((
+                format!("prefix + {}", key.to_string()),
+                format!("{:?}", action),
+                true,
+            ));
+        }
+
+        result.sort_by(|a, b| a.0.cmp(&b.0));
+        result
+    }
+
+    pub fn save_to_config(&self) -> Result<()> {
+        let mut config = super::Config::load().unwrap_or_default();
+
+        // Save prefix
+        config.keybindings.prefix = self.prefix.to_string();
+
+        // Save custom bindings
+        config.keybindings.custom.clear();
+        for (key, action) in &self.custom_bindings {
+            let action_str = match action {
+                Action::NewSession => "new-session".to_string(),
+                Action::DetachSession => "detach-session".to_string(),
+                Action::ListSessions => "list-sessions".to_string(),
+                Action::KillSession => "kill-session".to_string(),
+                Action::NewWindow => "new-window".to_string(),
+                Action::NextWindow => "next-window".to_string(),
+                Action::PreviousWindow => "previous-window".to_string(),
+                Action::RenameWindow => "rename-window".to_string(),
+                Action::KillWindow => "kill-window".to_string(),
+                Action::SelectWindow(n) => format!("select-window {}", n),
+                Action::SplitHorizontal => "split-horizontal".to_string(),
+                Action::SplitVertical => "split-vertical".to_string(),
+                Action::NavigateUp => "navigate-up".to_string(),
+                Action::NavigateDown => "navigate-down".to_string(),
+                Action::NavigateLeft => "navigate-left".to_string(),
+                Action::NavigateRight => "navigate-right".to_string(),
+                Action::ZoomPane => "zoom-pane".to_string(),
+                Action::ClosePane => "close-pane".to_string(),
+                Action::ResizePaneUp => "resize-pane-up".to_string(),
+                Action::ResizePaneDown => "resize-pane-down".to_string(),
+                Action::ResizePaneLeft => "resize-pane-left".to_string(),
+                Action::ResizePaneRight => "resize-pane-right".to_string(),
+                Action::EnterCopyMode => "enter-copy-mode".to_string(),
+                Action::PasteBuffer => "paste-buffer".to_string(),
+                Action::EnterCommandMode => "enter-command-mode".to_string(),
+                Action::ReloadConfig => "reload-config".to_string(),
+                Action::SaveSnapshot => "save-snapshot".to_string(),
+                Action::RestoreSnapshot => "restore-snapshot".to_string(),
+                Action::Custom(s) => s.clone(),
+            };
+            config.keybindings.custom.insert(key.to_string(), action_str);
+        }
+
+        config.save()
+    }
+
+    pub fn reset_to_defaults(&mut self) {
+        self.custom_bindings.clear();
+        *self = Self::default();
+    }
+
+    pub fn reload_config(&mut self) -> Result<()> {
+        if let Ok(config) = super::Config::load() {
+            self.load_from_config(&config.keybindings);
+            Ok(())
+        } else {
+            Err(FerrixError::Config("Failed to load config".to_string()))
+        }
     }
 }
 #[cfg(test)]

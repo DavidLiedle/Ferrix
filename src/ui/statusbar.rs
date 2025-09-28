@@ -7,6 +7,7 @@ use ratatui::{
     Frame,
 };
 use sysinfo::System;
+use std::fs;
 
 use crate::config::{Config, StatusBarPosition};
 use crate::protocol::{SessionId, WindowId};
@@ -20,6 +21,9 @@ pub struct StatusBar {
     system: System,
     git_branch: Option<String>,
     battery_level: Option<f32>,
+    session_locked: bool,
+    pane_sync_enabled: bool,
+    current_pane_name: Option<String>,
 }
 
 #[derive(Clone)]
@@ -44,6 +48,9 @@ impl StatusBar {
             system,
             git_branch: Self::get_git_branch(),
             battery_level: Self::get_battery_level(),
+            session_locked: false,
+            pane_sync_enabled: false,
+            current_pane_name: None,
         }
     }
 
@@ -167,6 +174,12 @@ impl StatusBar {
             "battery" => self.format_battery(),
             "cpu" => self.format_cpu(),
             "memory" => self.format_memory(),
+            "session_locked" | "lock_status" => if self.session_locked { "🔒 LOCKED" } else { "🔓" }.to_string(),
+            "pane_sync" | "sync_status" => if self.pane_sync_enabled { "🔗 SYNC" } else { "🔗" }.to_string(),
+            "current_pane" => self.current_pane_name.clone().unwrap_or_else(|| "".to_string()),
+            "uptime" => self.format_uptime(),
+            "load" => self.format_load_average(),
+            "disk" => self.format_disk_usage(),
             _ => format!("{{{}}}", var_name), // Unknown variable
         }
     }
@@ -271,6 +284,62 @@ impl StatusBar {
             }
         }
         None
+    }
+
+    fn format_uptime(&self) -> String {
+        if let Ok(uptime_data) = fs::read_to_string("/proc/uptime") {
+            if let Some(uptime_str) = uptime_data.split_whitespace().next() {
+                if let Ok(uptime_seconds) = uptime_str.parse::<f64>() {
+                    let days = (uptime_seconds / 86400.0) as u32;
+                    let hours = ((uptime_seconds % 86400.0) / 3600.0) as u32;
+                    let minutes = ((uptime_seconds % 3600.0) / 60.0) as u32;
+
+                    if days > 0 {
+                        return format!("{}d {}h", days, hours);
+                    } else if hours > 0 {
+                        return format!("{}h {}m", hours, minutes);
+                    } else {
+                        return format!("{}m", minutes);
+                    }
+                }
+            }
+        }
+        "N/A".to_string()
+    }
+
+    fn format_load_average(&self) -> String {
+        let load_avg = System::load_average();
+        format!("{:.2}", load_avg.one)
+    }
+
+    fn format_disk_usage(&self) -> String {
+        // Use df command to get disk usage for root filesystem
+        use std::process::Command;
+
+        if let Ok(output) = Command::new("df")
+            .args(&["-h", "/"])
+            .output()
+        {
+            if let Ok(output_str) = String::from_utf8(output.stdout) {
+                let lines: Vec<&str> = output_str.lines().collect();
+                if lines.len() >= 2 {
+                    let parts: Vec<&str> = lines[1].split_whitespace().collect();
+                    if parts.len() >= 5 {
+                        let used = parts[2];
+                        let total = parts[1];
+                        let percent = parts[4];
+                        return format!("DISK: {}/{} ({})", used, total, percent);
+                    }
+                }
+            }
+        }
+        "DISK: N/A".to_string()
+    }
+
+    pub fn update_session_state(&mut self, locked: bool, pane_sync: bool, current_pane: Option<String>) {
+        self.session_locked = locked;
+        self.pane_sync_enabled = pane_sync;
+        self.current_pane_name = current_pane;
     }
 
     pub fn refresh(&mut self) {
@@ -409,6 +478,16 @@ mod tests {
         // Test host
         let host_val = statusbar.get_variable_value("host");
         assert!(!host_val.is_empty()); // Should be hostname or "unknown"
+
+        // Test session state variables
+        let lock_val = statusbar.get_variable_value("session_locked");
+        assert_eq!(lock_val, "🔓"); // Should be unlocked initially
+
+        let sync_val = statusbar.get_variable_value("pane_sync");
+        assert_eq!(sync_val, "🔗"); // Should be not synced initially
+
+        let pane_val = statusbar.get_variable_value("current_pane");
+        assert_eq!(pane_val, ""); // Should be empty initially
     }
 
     #[test]
@@ -429,6 +508,36 @@ mod tests {
 
         // Should either be empty or contain a percentage
         assert!(battery_str.is_empty() || battery_str.contains('%') || battery_str == "N/A");
+    }
+
+    #[test]
+    fn test_update_session_state() {
+        let mut statusbar = create_test_statusbar();
+
+        // Update session state
+        statusbar.update_session_state(true, true, Some("main".to_string()));
+
+        // Test that state changes are reflected
+        let lock_val = statusbar.get_variable_value("session_locked");
+        assert_eq!(lock_val, "🔒 LOCKED");
+
+        let sync_val = statusbar.get_variable_value("pane_sync");
+        assert_eq!(sync_val, "🔗 SYNC");
+
+        let pane_val = statusbar.get_variable_value("current_pane");
+        assert_eq!(pane_val, "main");
+
+        // Test state reset
+        statusbar.update_session_state(false, false, None);
+
+        let lock_val = statusbar.get_variable_value("session_locked");
+        assert_eq!(lock_val, "🔓");
+
+        let sync_val = statusbar.get_variable_value("pane_sync");
+        assert_eq!(sync_val, "🔗");
+
+        let pane_val = statusbar.get_variable_value("current_pane");
+        assert_eq!(pane_val, "");
     }
 
     #[test]

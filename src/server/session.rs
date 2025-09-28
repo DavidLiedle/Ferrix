@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use chrono::Utc;
 use uuid::Uuid;
@@ -26,6 +27,11 @@ pub struct Session {
     pub current_window: Option<WindowId>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub copy_mode: Option<crate::ui::copymode::CopyMode>,
+    pub pane_sync_enabled: bool,
+    pub locked: bool,
+    pub auto_save_enabled: bool,
+    pub auto_save_interval: Duration,
+    pub last_auto_save: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl Session {
@@ -40,10 +46,20 @@ impl Session {
             current_window: Some(window_id),
             created_at: Utc::now(),
             copy_mode: None,
+            pane_sync_enabled: false,
+            locked: false,
+            auto_save_enabled: false,
+            auto_save_interval: Duration::from_secs(300), // Default 5 minutes
+            last_auto_save: None,
         }
     }
 
     pub async fn handle_input(&mut self, data: Vec<u8>) -> Result<()> {
+        // If session is locked, don't pass input to the underlying panes
+        if self.locked {
+            return Ok(());
+        }
+
         // If copy mode is active, don't pass input to the underlying pane
         if self.copy_mode.is_some() {
             return Ok(());
@@ -55,7 +71,14 @@ impl Session {
                 if window_guard.id == *current_window_id {
                     drop(window_guard);
                     let mut window_guard = window.write().await;
-                    window_guard.handle_input(data).await?;
+
+                    if self.pane_sync_enabled {
+                        // Broadcast input to all panes in the current window
+                        window_guard.handle_input_broadcast(data).await?;
+                    } else {
+                        // Send input only to the focused pane
+                        window_guard.handle_input(data).await?;
+                    }
                     break;
                 }
             }
@@ -249,19 +272,40 @@ impl Session {
         Err(FerrixError::Other("No current window".to_string()))
     }
 
-    pub async fn zoom_pane(&mut self) -> Result<()> {
+    pub async fn zoom_pane(&mut self) -> Result<(bool, Option<PaneId>)> {
         if let Some(current_window_id) = &self.current_window {
             for window in &self.windows {
                 let window_guard = window.read().await;
                 if window_guard.id == *current_window_id {
                     drop(window_guard);
                     let mut window_guard = window.write().await;
-                    let _ = window_guard.toggle_zoom().await;
-                    return Ok(());
+                    let zoomed = window_guard.toggle_zoom().await?;
+                    let zoomed_pane = if zoomed {
+                        window_guard.get_zoomed_pane()
+                    } else {
+                        None
+                    };
+                    return Ok((zoomed, zoomed_pane));
                 }
             }
         }
         Err(FerrixError::Other("No current window".to_string()))
+    }
+
+    pub async fn rename_window(&mut self, window_id: Option<WindowId>, new_name: String) -> Result<WindowId> {
+        let target_window_id = window_id.unwrap_or_else(|| self.current_window.clone().unwrap_or_else(|| WindowId(Uuid::new_v4())));
+
+        for window in &self.windows {
+            let window_guard = window.read().await;
+            if window_guard.id == target_window_id {
+                drop(window_guard);
+                let mut window_guard = window.write().await;
+                window_guard.rename(new_name);
+                return Ok(target_window_id);
+            }
+        }
+
+        Err(FerrixError::WindowNotFound(format!("{:?}", target_window_id)))
     }
 
     pub fn list_windows(&self) -> Vec<crate::protocol::WindowInfo> {
@@ -273,6 +317,7 @@ impl Session {
                     name: window_guard.name.clone(),
                     panes: window_guard.get_pane_count(),
                     is_active: self.current_window.as_ref() == Some(&window_guard.id),
+                    activity_status: window_guard.get_window_activity_summary(),
                 });
             }
         }
@@ -406,7 +451,7 @@ impl Session {
             if let Some(current_pane_id) = &window_guard.current_pane {
                 if let Some(pane_arc) = window_guard.panes.get(current_pane_id) {
                     let pane_guard = pane_arc.read().await;
-                    return pane_guard.scrollback.clone();
+                    return pane_guard.scrollback.to_vec();
                 }
             }
         }
@@ -518,7 +563,7 @@ impl Session {
                             command: pane.command.clone(),
                             cols: pane.cols,
                             rows: pane.rows,
-                            scrollback: pane.scrollback.clone(),
+                            scrollback: pane.scrollback.to_vec(),
                             cursor_position: pane.cursor_position,
                         };
                         panes.push(pane_state);
@@ -569,7 +614,7 @@ impl Session {
                         pane.command = pane_state.command.clone();
                         pane.cols = pane_state.cols;
                         pane.rows = pane_state.rows;
-                        pane.scrollback = pane_state.scrollback.clone();
+                        pane.scrollback.from_vec(pane_state.scrollback.clone());
                         pane.cursor_position = pane_state.cursor_position;
 
                         window.panes.insert(pane_state.id.clone(), Arc::new(RwLock::new(pane)));
@@ -595,7 +640,79 @@ impl Session {
             current_window,
             created_at: snapshot.session.created_at,
             copy_mode: None,
+            pane_sync_enabled: false,
+            locked: false,
+            auto_save_enabled: false,
+            auto_save_interval: Duration::from_secs(300),
+            last_auto_save: None,
         }
+    }
+
+    pub fn toggle_pane_sync(&mut self) -> bool {
+        self.pane_sync_enabled = !self.pane_sync_enabled;
+        self.pane_sync_enabled
+    }
+
+    pub fn set_pane_sync(&mut self, enabled: bool) -> bool {
+        self.pane_sync_enabled = enabled;
+        self.pane_sync_enabled
+    }
+
+    pub fn is_pane_sync_enabled(&self) -> bool {
+        self.pane_sync_enabled
+    }
+
+    pub fn lock_session(&mut self) -> bool {
+        self.locked = true;
+        self.locked
+    }
+
+    pub fn unlock_session(&mut self) -> bool {
+        self.locked = false;
+        self.locked
+    }
+
+    pub fn set_session_lock(&mut self, locked: bool) -> bool {
+        self.locked = locked;
+        self.locked
+    }
+
+    pub fn is_session_locked(&self) -> bool {
+        self.locked
+    }
+    pub fn enable_auto_save(&mut self, interval_seconds: u64) {
+        self.auto_save_enabled = true;
+        self.auto_save_interval = Duration::from_secs(interval_seconds);
+    }
+
+    pub fn disable_auto_save(&mut self) {
+        self.auto_save_enabled = false;
+    }
+
+    pub fn should_auto_save(&self) -> bool {
+        if !self.auto_save_enabled {
+            return false;
+        }
+
+        match self.last_auto_save {
+            None => true,
+            Some(last_save) => {
+                let elapsed = Utc::now() - last_save;
+                elapsed.num_seconds() as u64 >= self.auto_save_interval.as_secs()
+            }
+        }
+    }
+
+    pub fn mark_auto_saved(&mut self) {
+        self.last_auto_save = Some(Utc::now());
+    }
+
+    pub fn get_auto_save_interval(&self) -> Duration {
+        self.auto_save_interval
+    }
+
+    pub fn is_auto_save_enabled(&self) -> bool {
+        self.auto_save_enabled
     }
 }
 
@@ -807,5 +924,53 @@ mod tests {
         assert_eq!(restored_session.windows.len(), 1);
         assert!(restored_session.current_window.is_some());
         assert!(restored_session.copy_mode.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_session_rename_window() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        // Get the default window ID
+        let window_id = session.current_window.clone().unwrap();
+
+        // Rename the window
+        let result = session.rename_window(Some(window_id.clone()), "new-name".to_string()).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), window_id);
+
+        // Check that the window was actually renamed
+        let window_list = session.list_windows();
+        assert_eq!(window_list.len(), 1);
+        assert_eq!(window_list[0].name, "new-name");
+    }
+
+    #[tokio::test]
+    async fn test_session_rename_current_window() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        let original_window_id = session.current_window.clone().unwrap();
+
+        // Rename current window (no window_id specified)
+        let result = session.rename_window(None, "current-renamed".to_string()).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), original_window_id);
+
+        // Check that the current window was renamed
+        let window_list = session.list_windows();
+        assert_eq!(window_list.len(), 1);
+        assert_eq!(window_list[0].name, "current-renamed");
+    }
+
+    #[tokio::test]
+    async fn test_session_rename_nonexistent_window() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        // Try to rename a non-existent window
+        let fake_window_id = WindowId(Uuid::new_v4());
+        let result = session.rename_window(Some(fake_window_id), "should-fail".to_string()).await;
+        assert!(result.is_err());
     }
 }

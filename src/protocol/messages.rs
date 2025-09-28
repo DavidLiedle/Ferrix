@@ -42,6 +42,10 @@ pub enum ClientMessage {
     CloseWindow {
         window_id: WindowId,
     },
+    RenameWindow {
+        window_id: Option<WindowId>,
+        new_name: String,
+    },
     SplitPane {
         direction: SplitDirection,
     },
@@ -80,8 +84,40 @@ pub enum ClientMessage {
     DeleteSnapshot {
         path: std::path::PathBuf,
     },
+    TogglePaneSync,
+    SetPaneSync {
+        enabled: bool,
+    },
+    LockSession,
+    UnlockSession,
+    SetSessionLock {
+        locked: bool,
+    },
+    ToggleActivityMonitoring {
+        pane_id: Option<PaneId>,
+    },
+    SetActivityMonitoring {
+        pane_id: Option<PaneId>,
+        enabled: bool,
+    },
     Ping,
     Authenticate(AuthCredentials),
+    ListKeys,
+    BindKey {
+        key: String,
+        action: String,
+    },
+    UnbindKey {
+        key: String,
+    },
+    ResetKeys,
+    ReloadKeys,
+    ExportKeys {
+        path: std::path::PathBuf,
+    },
+    ImportKeys {
+        path: std::path::PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +160,10 @@ pub enum ServerMessage {
     },
     WindowClosed {
         window_id: WindowId,
+    },
+    WindowRenamed {
+        window_id: WindowId,
+        new_name: String,
     },
     PaneCreated {
         pane_id: PaneId,
@@ -170,6 +210,45 @@ pub enum ServerMessage {
     LayoutUpdate {
         layout: LayoutInfo,
     },
+    PaneSyncStatusUpdate {
+        enabled: bool,
+    },
+    SessionLockStatusUpdate {
+        locked: bool,
+    },
+    PaneZoomStatusUpdate {
+        zoomed: bool,
+        pane_id: Option<PaneId>,
+    },
+    ActivityStatusUpdate {
+        pane_id: PaneId,
+        activity_status: Option<String>,
+        enabled: bool,
+    },
+    ActivityAlert {
+        window_id: WindowId,
+        pane_id: PaneId,
+        activity_type: String,
+        message: String,
+    },
+    KeyList {
+        bindings: Vec<KeyBindingInfo>,
+    },
+    KeyBound {
+        key: String,
+        action: String,
+    },
+    KeyUnbound {
+        key: String,
+    },
+    KeysReset,
+    KeysReloaded,
+    KeysExported {
+        path: std::path::PathBuf,
+    },
+    KeysImported {
+        count: usize,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,6 +257,7 @@ pub struct WindowInfo {
     pub name: String,
     pub panes: usize,
     pub is_active: bool,
+    pub activity_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,6 +316,14 @@ pub struct SnapshotInfo {
     pub session_name: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyBindingInfo {
+    pub key: String,
+    pub action: String,
+    pub description: String,
+    pub is_custom: bool,
 }
 #[cfg(test)]
 mod tests {

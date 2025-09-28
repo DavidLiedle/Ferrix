@@ -1,6 +1,7 @@
 use crate::error::Result;
 use crate::protocol::PaneId;
 use super::pty::Pty;
+use super::scrollback::LineScrollback;
 use std::path::PathBuf;
 
 pub struct Pane {
@@ -10,12 +11,17 @@ pub struct Pane {
     pub rows: u16,
     pub working_directory: PathBuf,
     pub command: String,
-    pub scrollback: Vec<String>,
+    pub scrollback: LineScrollback,
     pub cursor_position: (u16, u16),
 }
 
 impl Pane {
     pub fn new(id: PaneId) -> Self {
+        // Default constructor for backward compatibility
+        Self::new_with_config(id, 10000) // Default 10k lines
+    }
+
+    pub fn new_with_config(id: PaneId, scrollback_lines: usize) -> Self {
         let mut pane = Self {
             id,
             pty: None,
@@ -23,7 +29,7 @@ impl Pane {
             rows: 24,
             working_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
             command: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
-            scrollback: Vec::new(),
+            scrollback: LineScrollback::new(scrollback_lines),
             cursor_position: (0, 0),
         };
 
