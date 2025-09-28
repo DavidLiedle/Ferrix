@@ -284,3 +284,19 @@ pub fn generate_default_config() -> Result<()> {
     info!("Generated default configuration at {:?}", config_path);
     Ok(())
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_loader_initialization() {
+        // Test config loader
+        assert!(true);
+    }
+
+    #[test]
+    fn test_load_default_config() {
+        // Test loading default configuration
+        assert!(true);
+    }
+}

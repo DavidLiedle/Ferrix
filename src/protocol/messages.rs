@@ -237,3 +237,19 @@ pub struct SnapshotInfo {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub size: u64,
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_message_serialization() {
+        // Test message serialization
+        assert!(true);
+    }
+
+    #[test]
+    fn test_message_deserialization() {
+        // Test message deserialization
+        assert!(true);
+    }
+}

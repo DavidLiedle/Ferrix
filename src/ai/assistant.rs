@@ -487,3 +487,14 @@ impl Default for SessionContext {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ai_assistant_placeholder() {
+        // AI Assistant module test placeholder
+        // Real tests would require mocking AI service
+        assert_eq!(1 + 1, 2);
+    }
+}

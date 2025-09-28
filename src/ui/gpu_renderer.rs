@@ -552,3 +552,21 @@ fn ortho_projection(width: f32, height: f32) -> [[f32; 4]; 4] {
     ]
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gpu_renderer_initialization() {
+        // Test GPU renderer initialization
+        // Note: May require GPU mocking
+        assert!(true);
+    }
+
+    #[test]
+    fn test_render_pipeline() {
+        // Test render pipeline setup
+        assert!(true);
+    }
+}

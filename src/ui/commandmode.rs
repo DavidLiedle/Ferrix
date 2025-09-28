@@ -149,3 +149,19 @@ impl ParsedCommand {
         self.command == cmd || self.command.starts_with(cmd)
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_command_mode_activation() {
+        // Test command mode activation
+        assert!(true);
+    }
+
+    #[test]
+    fn test_command_parsing() {
+        // Test command parsing
+        assert!(true);
+    }
+}

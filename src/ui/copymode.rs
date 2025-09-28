@@ -401,3 +401,267 @@ impl CopyMode {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_copymode() -> CopyMode {
+        CopyMode::new(CopyModeStyle::Vi)
+    }
+
+    fn create_test_buffer() -> Vec<String> {
+        vec![
+            "Line 1: Hello, world!".to_string(),
+            "Line 2: This is a test".to_string(),
+            "Line 3: Copy mode testing".to_string(),
+            "Line 4: Final line".to_string(),
+        ]
+    }
+
+    #[test]
+    fn test_copy_mode_initialization() {
+        let copymode = create_test_copymode();
+
+        assert_eq!(copymode.active, false);
+        assert_eq!(copymode.state, CopyModeState::Normal);
+        assert_eq!(copymode.cursor_row, 0);
+        assert_eq!(copymode.cursor_col, 0);
+        assert!(copymode.selection_start.is_none());
+        assert!(copymode.selection_end.is_none());
+        assert!(copymode.yanked_text.is_none());
+    }
+
+    #[test]
+    fn test_copy_mode_activation() {
+        let mut copymode = create_test_copymode();
+        let buffer = create_test_buffer();
+
+        // Initially inactive
+        assert!(!copymode.is_active());
+
+        // Enter copy mode
+        copymode.enter(buffer.clone());
+        assert!(copymode.is_active());
+        assert_eq!(copymode.buffer.len(), 4);
+        assert_eq!(copymode.cursor_row, 0);
+        assert_eq!(copymode.cursor_col, 0);
+
+        // Exit copy mode
+        copymode.exit();
+        assert!(!copymode.is_active());
+        assert!(copymode.selection_start.is_none());
+        assert!(copymode.selection_end.is_none());
+    }
+
+    #[test]
+    fn test_cursor_movement() {
+        let mut copymode = create_test_copymode();
+        let buffer = create_test_buffer();
+        copymode.enter(buffer);
+
+        // Initial position
+        assert_eq!(copymode.cursor_row, 0);
+        assert_eq!(copymode.cursor_col, 0);
+
+        // Move down
+        copymode.move_cursor_down();
+        assert_eq!(copymode.cursor_row, 1);
+
+        // Move right
+        copymode.move_cursor_right();
+        assert_eq!(copymode.cursor_col, 1);
+
+        // Move down to last line
+        copymode.move_cursor_down();
+        copymode.move_cursor_down();
+        assert_eq!(copymode.cursor_row, 3);
+
+        // Try to move beyond last line (should stay at last line)
+        copymode.move_cursor_down();
+        assert_eq!(copymode.cursor_row, 3);
+
+        // Move up
+        copymode.move_cursor_up();
+        assert_eq!(copymode.cursor_row, 2);
+
+        // Move left
+        copymode.move_cursor_left();
+        assert_eq!(copymode.cursor_col, 0);
+
+        // Try to move left at column 0 (should stay at 0)
+        copymode.move_cursor_left();
+        assert_eq!(copymode.cursor_col, 0);
+
+        // Try to move up at row 0
+        copymode.cursor_row = 0;
+        copymode.move_cursor_up();
+        assert_eq!(copymode.cursor_row, 0);
+    }
+
+    #[test]
+    fn test_text_selection() {
+        let mut copymode = create_test_copymode();
+        let buffer = create_test_buffer();
+        copymode.enter(buffer);
+
+        // Start selection at (0, 0)
+        copymode.start_selection();
+        assert_eq!(copymode.selection_start, Some((0, 0)));
+
+        // Move cursor to create selection
+        copymode.move_cursor_down();
+        copymode.move_cursor_right();
+        copymode.move_cursor_right();
+
+        // Update selection as we move
+        copymode.update_selection();
+        // Note: selection_end is managed internally by update_selection
+    }
+
+    #[test]
+    fn test_visual_mode_transitions() {
+        let mut copymode = create_test_copymode();
+        let buffer = create_test_buffer();
+        copymode.enter(buffer);
+
+        // Start in normal mode
+        assert_eq!(copymode.state, CopyModeState::Normal);
+
+        // Enter visual mode
+        copymode.enter_visual_mode();
+        assert_eq!(copymode.state, CopyModeState::Visual);
+        assert!(copymode.selection_start.is_some());
+
+        // Enter visual line mode
+        copymode.enter_visual_line_mode();
+        assert_eq!(copymode.state, CopyModeState::VisualLine);
+
+        // Note: enter_visual_block_mode doesn't exist - only Visual and VisualLine modes
+
+        // Exit visual mode
+        copymode.exit_visual_mode();
+        assert_eq!(copymode.state, CopyModeState::Normal);
+        assert!(copymode.selection_start.is_none());
+        assert!(copymode.selection_end.is_none());
+    }
+
+    #[test]
+    fn test_yank_text() {
+        let mut copymode = create_test_copymode();
+        let buffer = create_test_buffer();
+        copymode.enter(buffer);
+
+        // Select text from (0, 0) to (0, 5)
+        copymode.start_selection();
+        copymode.cursor_col = 5;
+        copymode.update_selection();
+
+        // Yank the selected text
+        copymode.yank_selection();
+        let yanked = copymode.get_yanked_text();
+        assert!(yanked.is_some());
+        // The actual yanked text depends on get_selected_text implementation
+    }
+
+    #[test]
+    fn test_search_forward() {
+        let mut copymode = create_test_copymode();
+        let buffer = create_test_buffer();
+        copymode.enter(buffer);
+
+        // Start search
+        copymode.start_search(SearchDirection::Forward);
+        assert_eq!(copymode.state, CopyModeState::Search(SearchDirection::Forward));
+
+        // Search for "test"
+        copymode.update_search("test".to_string());
+
+        // Should find matches
+        assert!(!copymode.search_matches.is_empty());
+
+        // Navigate to first match
+        copymode.jump_to_next_match();
+        // Note: current_match is managed internally
+    }
+
+    #[test]
+    fn test_jump_list() {
+        let mut copymode = create_test_copymode();
+        let buffer = create_test_buffer();
+        copymode.enter(buffer);
+
+        // Jump list starts empty
+        assert_eq!(copymode.jump_list.len(), 0);
+
+        // Move to different position manually to set up test
+        copymode.cursor_row = 0;
+        copymode.cursor_col = 0;
+        copymode.jump_list.push((0, 0));  // Manually add to jump list for test
+        copymode.jump_index = 0;
+
+        // Move to different position
+        copymode.cursor_row = 2;
+        copymode.cursor_col = 5;
+        copymode.jump_list.push((2, 5));  // Add new position
+        copymode.jump_index = 1;
+
+        // Jump back
+        copymode.jump_backward();
+        assert_eq!((copymode.cursor_row, copymode.cursor_col), (0, 0));
+
+        // Jump forward
+        copymode.jump_forward();
+        assert_eq!((copymode.cursor_row, copymode.cursor_col), (2, 5));
+    }
+
+    #[test]
+    fn test_page_movement() {
+        let mut copymode = create_test_copymode();
+
+        // Create larger buffer
+        let mut large_buffer = Vec::new();
+        for i in 0..100 {
+            large_buffer.push(format!("Line {}", i));
+        }
+        copymode.enter(large_buffer);
+
+        // Move half page down
+        copymode.move_half_page_down();
+        assert!(copymode.cursor_row > 0);
+
+        // Move half page up
+        copymode.move_half_page_up();
+
+        // Move to top
+        copymode.move_to_first_line();
+        assert_eq!(copymode.cursor_row, 0);
+
+        // Move to bottom
+        copymode.move_to_last_line();
+        assert_eq!(copymode.cursor_row, 99);
+    }
+
+    #[test]
+    fn test_word_movement() {
+        let mut copymode = create_test_copymode();
+        let buffer = vec!["Hello world this is test".to_string()];
+        copymode.enter(buffer);
+
+        // Start at beginning
+        assert_eq!(copymode.cursor_col, 0);
+
+        // Move to next word
+        copymode.move_word_forward();
+        // The exact position depends on word boundary detection
+        assert!(copymode.cursor_col > 0);
+
+        // Move to next word again
+        let prev_col = copymode.cursor_col;
+        copymode.move_word_forward();
+        assert!(copymode.cursor_col > prev_col);
+
+        // Move to previous word
+        copymode.move_word_backward();
+        assert!(copymode.cursor_col < 20); // Should have moved back
+    }
+}

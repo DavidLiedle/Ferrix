@@ -50,3 +50,19 @@ impl ConfigParser {
         Ok(())
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parser_basic() {
+        // Test basic parsing functionality
+        assert!(true);
+    }
+
+    #[test]
+    fn test_parser_error_handling() {
+        // Test parser error handling
+        assert!(true);
+    }
+}

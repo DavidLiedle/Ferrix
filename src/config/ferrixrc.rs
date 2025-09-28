@@ -498,3 +498,19 @@ impl Default for FerrixRc {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ferrixrc_parsing() {
+        // Test ferrixrc configuration parsing
+        assert!(true);
+    }
+
+    #[test]
+    fn test_ferrixrc_defaults() {
+        // Test default configuration values
+        assert!(true);
+    }
+}

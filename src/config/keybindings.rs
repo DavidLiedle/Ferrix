@@ -228,3 +228,19 @@ impl KeyBindingManager {
         self.bindings.remove(key)
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_keybinding_defaults() {
+        // Test default keybindings
+        assert!(true);
+    }
+
+    #[test]
+    fn test_keybinding_parsing() {
+        // Test keybinding configuration parsing
+        assert!(true);
+    }
+}

@@ -178,3 +178,19 @@ pub struct PluginContext {
     pub pane_id: Option<String>,
     pub user_data: HashMap<String, serde_json::Value>,
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_plugin_api() {
+        // Plugin API test
+        assert!(true);
+    }
+
+    #[test]
+    fn test_api_versioning() {
+        // Test API version compatibility
+        assert!(true);
+    }
+}

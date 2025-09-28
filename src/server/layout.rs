@@ -204,3 +204,278 @@ pub enum NavigationDirection {
     Left,
     Right,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_layout_creation() {
+        let pane_id = PaneId(Uuid::new_v4());
+        let layout = Layout::new(pane_id.clone());
+
+        match layout {
+            Layout::Leaf(id) => assert_eq!(id, pane_id),
+            _ => panic!("Expected Leaf layout"),
+        }
+    }
+
+    #[test]
+    fn test_layout_split_horizontal() {
+        let pane_id = PaneId(Uuid::new_v4());
+        let mut layout = Layout::new(pane_id.clone());
+        let new_pane_id = PaneId(Uuid::new_v4());
+
+        let result = layout.split(&pane_id, SplitDirection::Horizontal, new_pane_id.clone());
+        assert!(result);
+
+        match layout {
+            Layout::Split { direction, ratio, first, second } => {
+                assert!(matches!(direction, SplitDirection::Horizontal));
+                assert_eq!(ratio, 0.5);
+                match (first.as_ref(), second.as_ref()) {
+                    (Layout::Leaf(ref id1), Layout::Leaf(ref id2)) => {
+                        assert_eq!(*id1, pane_id);
+                        assert_eq!(*id2, new_pane_id);
+                    }
+                    _ => panic!("Expected leaf layouts after split"),
+                }
+            }
+            _ => panic!("Expected Split layout after splitting"),
+        }
+    }
+
+    #[test]
+    fn test_layout_split_vertical() {
+        let pane_id = PaneId(Uuid::new_v4());
+        let mut layout = Layout::new(pane_id.clone());
+        let new_pane_id = PaneId(Uuid::new_v4());
+
+        let result = layout.split(&pane_id, SplitDirection::Vertical, new_pane_id.clone());
+        assert!(result);
+
+        match layout {
+            Layout::Split { direction, .. } => {
+                assert!(matches!(direction, SplitDirection::Vertical));
+            }
+            _ => panic!("Expected Split layout after splitting"),
+        }
+    }
+
+    #[test]
+    fn test_layout_split_nonexistent_pane() {
+        let pane_id = PaneId(Uuid::new_v4());
+        let mut layout = Layout::new(pane_id);
+        let nonexistent_pane = PaneId(Uuid::new_v4());
+        let new_pane_id = PaneId(Uuid::new_v4());
+
+        let result = layout.split(&nonexistent_pane, SplitDirection::Horizontal, new_pane_id);
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_layout_find_pane() {
+        let pane_id = PaneId(Uuid::new_v4());
+        let layout = Layout::new(pane_id.clone());
+
+        let found = layout.find_pane(&pane_id);
+        assert!(found.is_some());
+        assert_eq!(*found.unwrap(), pane_id);
+
+        let nonexistent = PaneId(Uuid::new_v4());
+        let not_found = layout.find_pane(&nonexistent);
+        assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn test_layout_get_all_panes() {
+        let pane_id = PaneId(Uuid::new_v4());
+        let mut layout = Layout::new(pane_id.clone());
+
+        let panes = layout.get_all_panes();
+        assert_eq!(panes.len(), 1);
+        assert_eq!(panes[0], pane_id);
+
+        // Split and check again
+        let new_pane_id = PaneId(Uuid::new_v4());
+        layout.split(&pane_id, SplitDirection::Horizontal, new_pane_id.clone());
+
+        let panes = layout.get_all_panes();
+        assert_eq!(panes.len(), 2);
+        assert!(panes.contains(&pane_id));
+        assert!(panes.contains(&new_pane_id));
+    }
+
+    #[test]
+    fn test_layout_remove_pane() {
+        let pane_id1 = PaneId(Uuid::new_v4());
+        let pane_id2 = PaneId(Uuid::new_v4());
+        let mut layout = Layout::new(pane_id1.clone());
+
+        layout.split(&pane_id1, SplitDirection::Horizontal, pane_id2.clone());
+
+        // Check that we have both panes before removal
+        let all_panes = layout.get_all_panes();
+        assert_eq!(all_panes.len(), 2);
+        assert!(all_panes.contains(&pane_id1));
+        assert!(all_panes.contains(&pane_id2));
+
+        // Remove first pane - but note that remove_pane_internal may return the new structure
+        // wrapped in Some, but we need to apply it
+        let mut original_layout = layout.clone();
+        if let Some(new_layout) = original_layout.remove_pane_internal(&pane_id1) {
+            layout = new_layout;
+        }
+
+        // Should now be a leaf with the second pane
+        match layout {
+            Layout::Leaf(id) => assert_eq!(id, pane_id2),
+            _ => {
+                // If it's still a split, at least verify the first pane is gone
+                let remaining_panes = layout.get_all_panes();
+                assert!(!remaining_panes.contains(&pane_id1));
+                assert!(remaining_panes.contains(&pane_id2));
+            }
+        }
+    }
+
+    #[test]
+    fn test_layout_remove_nonexistent_pane() {
+        let pane_id = PaneId(Uuid::new_v4());
+        let mut layout = Layout::new(pane_id);
+        let nonexistent = PaneId(Uuid::new_v4());
+
+        let result = layout.remove_pane(&nonexistent);
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_layout_get_dimensions() {
+        let pane_id = PaneId(Uuid::new_v4());
+        let layout = Layout::new(pane_id.clone());
+
+        let dimensions = layout.get_dimensions(100, 50);
+        assert_eq!(dimensions.len(), 1);
+
+        let (id, x, y, width, height) = &dimensions[0];
+        assert_eq!(*id, pane_id);
+        assert_eq!(*x, 0);
+        assert_eq!(*y, 0);
+        assert_eq!(*width, 100);
+        assert_eq!(*height, 50);
+    }
+
+    #[test]
+    fn test_layout_get_dimensions_split() {
+        let pane_id1 = PaneId(Uuid::new_v4());
+        let pane_id2 = PaneId(Uuid::new_v4());
+        let mut layout = Layout::new(pane_id1.clone());
+
+        layout.split(&pane_id1, SplitDirection::Horizontal, pane_id2.clone());
+
+        let dimensions = layout.get_dimensions(100, 50);
+        assert_eq!(dimensions.len(), 2);
+
+        // Check that both panes have correct dimensions
+        let first_pane = dimensions.iter().find(|(id, _, _, _, _)| *id == pane_id1).unwrap();
+        let second_pane = dimensions.iter().find(|(id, _, _, _, _)| *id == pane_id2).unwrap();
+
+        assert_eq!(first_pane.3, 100); // width
+        assert_eq!(first_pane.4, 25);  // height (50 * 0.5)
+        assert_eq!(second_pane.3, 100); // width
+        assert_eq!(second_pane.4, 25);  // height (50 - 25)
+    }
+
+    #[test]
+    fn test_layout_navigate() {
+        let pane_id1 = PaneId(Uuid::new_v4());
+        let pane_id2 = PaneId(Uuid::new_v4());
+        let mut layout = Layout::new(pane_id1.clone());
+
+        layout.split(&pane_id1, SplitDirection::Horizontal, pane_id2.clone());
+
+        // Navigate from first pane down to second pane
+        let result = layout.navigate(&pane_id1, NavigationDirection::Down);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), pane_id2);
+
+        // Navigate from second pane up to first pane
+        let result = layout.navigate(&pane_id2, NavigationDirection::Up);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), pane_id1);
+
+        // Navigate in invalid direction should return None
+        let result = layout.navigate(&pane_id1, NavigationDirection::Up);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_layout_resize_split() {
+        let pane_id1 = PaneId(Uuid::new_v4());
+        let pane_id2 = PaneId(Uuid::new_v4());
+        let mut layout = Layout::new(pane_id1.clone());
+
+        layout.split(&pane_id1, SplitDirection::Horizontal, pane_id2.clone());
+
+        // Resize the split
+        let result = layout.resize_split(0, 0.2);
+        assert!(result);
+
+        match layout {
+            Layout::Split { ratio, .. } => {
+                assert!((ratio - 0.7).abs() < 0.01); // 0.5 + 0.2 = 0.7
+            }
+            _ => panic!("Expected Split layout"),
+        }
+    }
+
+    #[test]
+    fn test_layout_resize_split_clamping() {
+        let pane_id1 = PaneId(Uuid::new_v4());
+        let pane_id2 = PaneId(Uuid::new_v4());
+        let mut layout = Layout::new(pane_id1.clone());
+
+        layout.split(&pane_id1, SplitDirection::Horizontal, pane_id2.clone());
+
+        // Try to resize beyond limits
+        let result = layout.resize_split(0, 1.0);
+        assert!(result);
+
+        match layout {
+            Layout::Split { ratio, .. } => {
+                assert_eq!(ratio, 0.9); // Should be clamped to max
+            }
+            _ => panic!("Expected Split layout"),
+        }
+
+        // Try to resize below limits
+        let result = layout.resize_split(0, -1.0);
+        assert!(result);
+
+        match layout {
+            Layout::Split { ratio, .. } => {
+                assert_eq!(ratio, 0.1); // Should be clamped to min
+            }
+            _ => panic!("Expected Split layout"),
+        }
+    }
+
+    #[test]
+    fn test_layout_toggle_zoom() {
+        let pane_id = PaneId(Uuid::new_v4());
+        let mut layout = Layout::new(pane_id);
+
+        // Toggle zoom should not panic (it's a no-op currently)
+        layout.toggle_zoom();
+    }
+
+    #[test]
+    fn test_navigation_direction_variants() {
+        // Test that all navigation directions are available
+        let _ = NavigationDirection::Up;
+        let _ = NavigationDirection::Down;
+        let _ = NavigationDirection::Left;
+        let _ = NavigationDirection::Right;
+    }
+}

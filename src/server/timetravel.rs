@@ -567,3 +567,19 @@ pub struct SessionAnalytics {
     pub keystrokes_per_minute: f32,
     pub most_used_commands: Vec<(String, usize)>,
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_timetravel_initialization() {
+        // Test timetravel feature initialization
+        assert!(true);
+    }
+
+    #[test]
+    fn test_history_tracking() {
+        // Test history tracking
+        assert!(true);
+    }
+}

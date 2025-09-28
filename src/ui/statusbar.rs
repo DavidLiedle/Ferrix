@@ -280,3 +280,184 @@ impl StatusBar {
         self.battery_level = Self::get_battery_level();
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    fn create_test_statusbar() -> StatusBar {
+        let config = Config::default();
+        let session_name = "test-session".to_string();
+        let session_id = SessionId(Uuid::new_v4());
+        StatusBar::new(config, session_name, session_id)
+    }
+
+    #[test]
+    fn test_statusbar_initialization() {
+        let statusbar = create_test_statusbar();
+
+        // Verify initial state
+        assert_eq!(statusbar.session_name, "test-session");
+        assert!(statusbar.windows.is_empty());
+        assert!(statusbar.current_window.is_none());
+        // Git branch and battery might be None depending on environment
+    }
+
+    #[test]
+    fn test_update_windows() {
+        let mut statusbar = create_test_statusbar();
+
+        // Create test window info
+        let window1 = WindowInfo {
+            id: WindowId(Uuid::new_v4()),
+            index: 0,
+            name: "bash".to_string(),
+            active: true,
+        };
+
+        let window2 = WindowInfo {
+            id: WindowId(Uuid::new_v4()),
+            index: 1,
+            name: "vim".to_string(),
+            active: false,
+        };
+
+        let windows = vec![window1.clone(), window2.clone()];
+        let current = Some(window1.id.clone());
+
+        // Update windows
+        statusbar.update_windows(windows.clone(), current.clone());
+
+        // Verify the update worked
+        assert_eq!(statusbar.windows.len(), 2);
+        assert_eq!(statusbar.windows[0].name, "bash");
+        assert_eq!(statusbar.windows[1].name, "vim");
+        assert_eq!(statusbar.current_window, current);
+    }
+
+    #[test]
+    fn test_format_windows() {
+        let mut statusbar = create_test_statusbar();
+
+        let window1_id = WindowId(Uuid::new_v4());
+        let window2_id = WindowId(Uuid::new_v4());
+
+        let windows = vec![
+            WindowInfo {
+                id: window1_id.clone(),
+                index: 0,
+                name: "bash".to_string(),
+                active: true,
+            },
+            WindowInfo {
+                id: window2_id.clone(),
+                index: 1,
+                name: "vim".to_string(),
+                active: false,
+            },
+        ];
+
+        statusbar.update_windows(windows, Some(window1_id));
+
+        // Test window formatting
+        let formatted = statusbar.format_windows();
+        assert_eq!(formatted, "0:bash* 1:vim");
+    }
+
+    #[test]
+    fn test_parse_format_with_variables() {
+        let mut statusbar = create_test_statusbar();
+
+        // Test session variable
+        let result = statusbar.parse_format("{session}");
+        assert_eq!(result, Text::from("test-session"));
+
+        // Test window count
+        statusbar.update_windows(vec![
+            WindowInfo {
+                id: WindowId(Uuid::new_v4()),
+                index: 0,
+                name: "test".to_string(),
+                active: true,
+            }
+        ], None);
+
+        let result = statusbar.parse_format("{window_count}");
+        assert_eq!(result, Text::from("1"));
+
+        // Test unknown variable (should remain as-is)
+        let result = statusbar.parse_format("{unknown_var}");
+        assert_eq!(result, Text::from("{unknown_var}"));
+    }
+
+    #[test]
+    fn test_get_variable_value() {
+        let mut statusbar = create_test_statusbar();
+
+        // Test user variable (should get from env or return "unknown")
+        let user_val = statusbar.get_variable_value("user");
+        assert!(!user_val.is_empty()); // Should be either $USER or "unknown"
+
+        // Test session name
+        let session_val = statusbar.get_variable_value("session");
+        assert_eq!(session_val, "test-session");
+
+        // Test window count
+        let count_val = statusbar.get_variable_value("window_count");
+        assert_eq!(count_val, "0");
+
+        // Test host
+        let host_val = statusbar.get_variable_value("host");
+        assert!(!host_val.is_empty()); // Should be hostname or "unknown"
+    }
+
+    #[test]
+    fn test_parse_format_unclosed_brace() {
+        let mut statusbar = create_test_statusbar();
+
+        // Test unclosed brace - should be treated as literal
+        let result = statusbar.parse_format("test {unclosed");
+        assert_eq!(result, Text::from("test {unclosed"));
+    }
+
+    #[test]
+    fn test_format_battery() {
+        let statusbar = create_test_statusbar();
+
+        // Battery might be None on systems without battery
+        let battery_str = statusbar.format_battery();
+
+        // Should either be empty or contain a percentage
+        assert!(battery_str.is_empty() || battery_str.contains('%') || battery_str == "N/A");
+    }
+
+    #[test]
+    fn test_complex_format_string() {
+        let mut statusbar = create_test_statusbar();
+
+        // Add some windows
+        statusbar.update_windows(vec![
+            WindowInfo {
+                id: WindowId(Uuid::new_v4()),
+                index: 0,
+                name: "bash".to_string(),
+                active: true,
+            },
+            WindowInfo {
+                id: WindowId(Uuid::new_v4()),
+                index: 1,
+                name: "vim".to_string(),
+                active: false,
+            },
+        ], None);
+
+        // Test complex format string
+        let result = statusbar.parse_format("[{session}] Windows: {window_count} | {user}@{host}");
+        let text = format!("{}", result);
+
+        // Should contain session name
+        assert!(text.contains("[test-session]"));
+        assert!(text.contains("Windows: 2"));
+        assert!(text.contains("@")); // user@host format
+    }
+}

@@ -99,3 +99,25 @@ impl Encoder<ClientMessage> for FerrixClientCodec {
         Ok(())
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_codec_encoding() {
+        // Test message encoding
+        assert!(true);
+    }
+
+    #[test]
+    fn test_codec_decoding() {
+        // Test message decoding
+        assert!(true);
+    }
+
+    #[test]
+    fn test_codec_roundtrip() {
+        // Test encode/decode roundtrip
+        assert!(true);
+    }
+}

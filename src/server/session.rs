@@ -598,3 +598,214 @@ impl Session {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn test_session_creation() {
+        let session_id = SessionId(Uuid::new_v4());
+        let session_name = "test_session".to_string();
+        let session = Session::new(session_id.clone(), session_name.clone());
+
+        assert_eq!(session.id, session_id);
+        assert_eq!(session.name, session_name);
+        assert_eq!(session.windows.len(), 1);
+        assert!(session.current_window.is_some());
+        assert!(session.copy_mode.is_none());
+        assert!(session.created_at <= Utc::now());
+    }
+
+    #[tokio::test]
+    async fn test_session_create_window() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        let initial_window_count = session.windows.len();
+        let new_window_id = session.create_window(Some("new_window".to_string())).await.unwrap();
+
+        assert_eq!(session.windows.len(), initial_window_count + 1);
+        assert_eq!(session.current_window, Some(new_window_id));
+    }
+
+    #[tokio::test]
+    async fn test_session_switch_window() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        let initial_window = session.current_window.clone().unwrap();
+        let new_window_id = session.create_window(None).await.unwrap();
+
+        // Switch back to initial window
+        let result = session.switch_window(initial_window.clone()).await;
+        assert!(result.is_ok());
+        assert_eq!(session.current_window, Some(initial_window));
+
+        // Switch to invalid window should fail
+        let invalid_id = WindowId(Uuid::new_v4());
+        let result = session.switch_window(invalid_id).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_session_close_window() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        // Cannot close last window
+        let current_window = session.current_window.clone().unwrap();
+        let result = session.close_window(current_window).await;
+        assert!(result.is_err());
+
+        // Create another window and try closing
+        let new_window_id = session.create_window(None).await.unwrap();
+        let result = session.close_window(new_window_id).await;
+        assert!(result.is_ok());
+        assert_eq!(session.windows.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_session_next_previous_window() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        // With single window, next/previous should work but not change anything
+        let initial_window = session.current_window.clone();
+        session.next_window().await.unwrap();
+        assert_eq!(session.current_window, initial_window);
+        session.previous_window().await.unwrap();
+        assert_eq!(session.current_window, initial_window);
+
+        // Create additional windows
+        let window2 = session.create_window(None).await.unwrap();
+        let window3 = session.create_window(None).await.unwrap();
+
+        // Current should be window3, go to next (should wrap to first)
+        session.next_window().await.unwrap();
+        assert_ne!(session.current_window, Some(window3.clone()));
+
+        // Test previous
+        session.previous_window().await.unwrap();
+        assert_eq!(session.current_window, Some(window3));
+    }
+
+    #[tokio::test]
+    async fn test_session_split_pane() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        let result = session.split_pane(SplitDirection::Horizontal).await;
+        assert!(result.is_ok());
+
+        let result = session.split_pane(SplitDirection::Vertical).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_session_handle_input_without_copy_mode() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        let test_input = b"test input".to_vec();
+        let result = session.handle_input(test_input).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_session_handle_input_with_copy_mode() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        // Enter copy mode first
+        let result = session.enter_copy_mode().await;
+        assert!(result.is_ok());
+        assert!(session.copy_mode.is_some());
+
+        // Input should be ignored in copy mode
+        let test_input = b"test input".to_vec();
+        let result = session.handle_input(test_input).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_session_copy_mode_lifecycle() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        // Initially not in copy mode
+        assert!(session.copy_mode.is_none());
+
+        // Enter copy mode
+        let result = session.enter_copy_mode().await;
+        assert!(result.is_ok());
+        assert!(session.copy_mode.is_some());
+
+        // Cannot enter copy mode twice
+        let result = session.enter_copy_mode().await;
+        assert!(result.is_err());
+
+        // Exit copy mode
+        let result = session.exit_copy_mode().await;
+        assert!(result.is_ok());
+        assert!(session.copy_mode.is_none());
+
+        // Cannot exit copy mode when not in it
+        let result = session.exit_copy_mode().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_session_resize() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        let result = session.resize(100, 50).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_session_list_windows() {
+        let session_id = SessionId(Uuid::new_v4());
+        let session = Session::new(session_id, "test".to_string());
+
+        let window_list = session.list_windows();
+        assert_eq!(window_list.len(), 1);
+        assert!(window_list[0].is_active);
+        assert_eq!(window_list[0].name, "bash");
+    }
+
+    #[tokio::test]
+    async fn test_session_snapshot_creation() {
+        let session_id = SessionId(Uuid::new_v4());
+        let session = Session::new(session_id, "test_session".to_string());
+
+        let snapshot = session.create_snapshot(
+            Some("test_snapshot".to_string()),
+            Some("Test snapshot description".to_string())
+        );
+
+        assert_eq!(snapshot.metadata.name, "test_snapshot");
+        assert_eq!(snapshot.metadata.description, "Test snapshot description");
+        assert_eq!(snapshot.session.id, session.id);
+        assert_eq!(snapshot.session.name, session.name);
+        assert_eq!(snapshot.windows.len(), 1);
+        assert_eq!(snapshot.panes.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_session_from_snapshot() {
+        let session_id = SessionId(Uuid::new_v4());
+        let original_session = Session::new(session_id, "original".to_string());
+
+        let snapshot = original_session.create_snapshot(None, None);
+        let restored_session = Session::from_snapshot(snapshot);
+
+        assert_eq!(restored_session.id, original_session.id);
+        assert_eq!(restored_session.name, original_session.name);
+        assert_eq!(restored_session.windows.len(), 1);
+        assert!(restored_session.current_window.is_some());
+        assert!(restored_session.copy_mode.is_none());
+    }
+}
