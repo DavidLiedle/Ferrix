@@ -812,6 +812,18 @@ impl Client {
     }
 
     async fn handle_output(&mut self, data: Vec<u8>) -> Result<()> {
+        // Legacy single-pane output handling
+        // In TUI mode, route this through pane rendering
+        // In non-TUI mode, write directly to stdout
+
+        if let Some(layout) = &self.current_layout {
+            // Find the first/focused pane and route output there
+            if let Some(pane) = layout.panes.first() {
+                return self.handle_pane_output(pane.id.clone(), data).await;
+            }
+        }
+
+        // Fallback: direct output (for non-TUI mode or no layout)
         use std::io::Write;
         let mut stdout = stdout();
         stdout.write_all(&data)?;
@@ -873,21 +885,19 @@ impl Client {
             return Ok(());
         }
 
-        // In TTY mode, handle focused pane
-        if let Some(layout) = &self.current_layout {
-            for pane_info in &layout.panes {
-                if pane_info.id == pane_id && pane_info.is_focused {
-                    // Write the data directly to stdout for immediate display
-                    let mut stdout = stdout();
-                    stdout.write_all(&data)?;
-                    stdout.flush()?;
-                    return Ok(());
-                }
+        // In TTY mode with TUI, render only the updated pane to avoid flicker
+        // This ensures ANSI codes are properly parsed and displayed within pane borders
+        if let Some(layout) = self.current_layout.clone() {
+            // Find the pane that was updated and render just that pane
+            if let Some(pane_info) = layout.panes.iter().find(|p| p.id == pane_id).cloned() {
+                self.draw_pane_border(&pane_info).await?;
+                self.draw_pane_content(&pane_info).await?;
+                self.render_status_bar().await?;
+                use std::io::Write;
+                std::io::stdout().flush()?;
             }
         }
 
-        // Otherwise re-render the full layout (only if in TTY)
-        self.render_layout().await?;
         Ok(())
     }
 
@@ -1018,6 +1028,12 @@ impl Client {
             parser.resize(content_width, content_height);
         }
 
+        // Clear the pane content area to prevent ghosting
+        for row in 0..content_height {
+            execute!(stdout, crossterm::cursor::MoveTo(content_x, content_y + row))?;
+            write!(stdout, "{}", " ".repeat(content_width as usize))?;
+        }
+
         // Get ANSI parser for this pane or use raw buffer fallback
         if let Some(parser) = self.pane_parsers.get(&pane.id) {
             // Render using ANSI parser
@@ -1067,6 +1083,8 @@ impl Client {
                     content_x + cursor_x,
                     content_y + cursor_y
                 ))?;
+                // Show cursor in normal mode
+                execute!(stdout, crossterm::cursor::Show)?;
             }
         } else if let Some(buffer) = self.pane_buffers.get(&pane.id) {
             // Fallback to raw buffer rendering
@@ -1415,8 +1433,8 @@ impl Client {
                         match message_result? {
                             ServerMessage::Output { data } => {
                                 // Handle single-pane output (legacy)
-                                std::io::Write::write_all(&mut stdout, &data)?;
-                                std::io::Write::flush(&mut stdout)?;
+                                // Route through handle_output which handles TUI mode properly
+                                self.handle_output(data).await?;
                             }
                             ServerMessage::PaneOutput { pane_id, data } => {
                                 self.handle_pane_output(pane_id, data).await?;
