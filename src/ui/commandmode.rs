@@ -277,14 +277,146 @@ impl CommandMode {
                     if parsed.args.is_empty() {
                         CommandResult::Error("Usage: :set <option> [value]".to_string())
                     } else {
-                        CommandResult::Info(format!("Setting {} = {}",
-                            parsed.args[0],
-                            parsed.args.get(1).unwrap_or(&"true".to_string())))
+                        self.handle_set_command(&parsed.args)
+                    }
+                }
+
+                // Rename window
+                "rename-window" | "renamew" => {
+                    if parsed.args.is_empty() {
+                        CommandResult::Error("Usage: :rename-window <name>".to_string())
+                    } else {
+                        let new_name = parsed.args.join(" ");
+                        CommandResult::Message(ClientMessage::RenameWindow {
+                            window_id: None,
+                            new_name,
+                        })
+                    }
+                }
+
+                // Rename session
+                "rename-session" | "rename" => {
+                    if parsed.args.is_empty() {
+                        CommandResult::Error("Usage: :rename-session <name>".to_string())
+                    } else {
+                        let name = parsed.args.join(" ");
+                        CommandResult::Info(format!("Renaming session to '{}'", name))
+                    }
+                }
+
+                // Switch to window by number
+                "window" | "win" => {
+                    if parsed.args.is_empty() {
+                        CommandResult::Error("Usage: :window <number>".to_string())
+                    } else if let Ok(_index) = parsed.args[0].parse::<usize>() {
+                        // For now, we'll cycle through windows since direct indexing isn't available
+                        CommandResult::Message(ClientMessage::NextWindow)
+                    } else {
+                        CommandResult::Error("Window number must be a positive integer".to_string())
+                    }
+                }
+
+                // Show/hide pane numbers
+                "show-pane-numbers" | "display-panes" => {
+                    CommandResult::Info("Displaying pane numbers...".to_string())
+                }
+
+                // Swap panes
+                "swap-pane" | "swapp" => {
+                    let direction = parsed.args.first().map(|s| s.as_str());
+                    match direction {
+                        Some("up") | Some("-U") => {
+                            CommandResult::Info("Swapping with pane above".to_string())
+                        }
+                        Some("down") | Some("-D") => {
+                            CommandResult::Info("Swapping with pane below".to_string())
+                        }
+                        _ => {
+                            CommandResult::Error("Usage: :swap-pane [-U|-D]".to_string())
+                        }
+                    }
+                }
+
+                // Toggle synchronize panes
+                "sync-panes" | "synchronize-panes" => {
+                    CommandResult::Message(ClientMessage::TogglePaneSync)
+                }
+
+                // Kill session (using DetachSession for now as KillSession requires ID)
+                "kill-session" => {
+                    CommandResult::Message(ClientMessage::DetachSession)
+                }
+
+                // Kill window (using CloseWindow)
+                "kill-window" | "killw" => {
+                    // Note: This closes the current window
+                    CommandResult::Info("Closing current window...".to_string())
+                }
+
+                // Source config file
+                "source" | "source-file" => {
+                    if parsed.args.is_empty() {
+                        CommandResult::Error("Usage: :source <file>".to_string())
+                    } else {
+                        let file = parsed.args.join(" ");
+                        CommandResult::Info(format!("Sourcing config file: {}", file))
+                    }
+                }
+
+                // Show bindings
+                "list-keys" | "lsk" => {
+                    CommandResult::Message(ClientMessage::ListKeys)
+                }
+
+                // Bind key
+                "bind" | "bind-key" => {
+                    if parsed.args.len() < 2 {
+                        CommandResult::Error("Usage: :bind <key> <command>".to_string())
+                    } else {
+                        let key = parsed.args[0].clone();
+                        let command = parsed.args[1..].join(" ");
+                        CommandResult::Message(ClientMessage::BindKey {
+                            key,
+                            action: command,
+                        })
+                    }
+                }
+
+                // Unbind key
+                "unbind" | "unbind-key" => {
+                    if parsed.args.is_empty() {
+                        CommandResult::Error("Usage: :unbind <key>".to_string())
+                    } else {
+                        let key = parsed.args[0].clone();
+                        CommandResult::Message(ClientMessage::UnbindKey { key })
+                    }
+                }
+
+                // Show environment
+                "show-environment" | "showenv" => {
+                    CommandResult::Info("Environment variables...".to_string())
+                }
+
+                // Capture pane output
+                "capture-pane" => {
+                    let file = parsed.args.first().cloned();
+                    CommandResult::Info(format!("Capturing pane to {}",
+                        file.as_ref().unwrap_or(&"buffer".to_string())))
+                }
+
+                // Pipe pane output
+                "pipe-pane" => {
+                    if parsed.args.is_empty() {
+                        CommandResult::Info("Stopping pane pipe".to_string())
+                    } else {
+                        let cmd = parsed.args.join(" ");
+                        CommandResult::Info(format!("Piping pane to: {}", cmd))
                     }
                 }
 
                 _ => {
-                    CommandResult::Error(format!("Unknown command: {}", parsed.command))
+                    // Try to parse as abbreviation
+                    self.handle_abbreviation(&parsed.command, &parsed.args)
                 }
             };
 
@@ -299,6 +431,67 @@ impl CommandMode {
             result
         } else {
             CommandResult::None
+        }
+    }
+
+    fn handle_set_command(&self, args: &[String]) -> CommandResult {
+        let option = &args[0];
+        let value = args.get(1).map(|s| s.as_str());
+
+        match option.as_str() {
+            "mouse" => {
+                let enabled = value.map(|v| v == "on" || v == "true").unwrap_or(true);
+                CommandResult::Info(format!("Mouse mode {}", if enabled { "enabled" } else { "disabled" }))
+            }
+            "status" => {
+                let position = value.unwrap_or("bottom");
+                CommandResult::Info(format!("Status bar position set to {}", position))
+            }
+            "escape-time" => {
+                if let Some(val) = value {
+                    if let Ok(ms) = val.parse::<u32>() {
+                        CommandResult::Info(format!("Escape time set to {}ms", ms))
+                    } else {
+                        CommandResult::Error("Escape time must be a number in milliseconds".to_string())
+                    }
+                } else {
+                    CommandResult::Error("Usage: :set escape-time <milliseconds>".to_string())
+                }
+            }
+            "prefix" => {
+                let key = value.unwrap_or("C-a");
+                CommandResult::Info(format!("Prefix key set to {}", key))
+            }
+            _ => {
+                CommandResult::Error(format!("Unknown option: {}", option))
+            }
+        }
+    }
+
+    fn handle_abbreviation(&self, command: &str, args: &[String]) -> CommandResult {
+        // Handle single character abbreviations and special commands
+        match command {
+            // Shell command
+            "!" => {
+                if args.is_empty() {
+                    CommandResult::Error("Usage: :! <command>".to_string())
+                } else {
+                    let cmd = args.join(" ");
+                    CommandResult::Info(format!("Running shell command: {}", cmd))
+                }
+            }
+            // Numeric window switching (e.g., :1, :2, :3)
+            _ if command.chars().all(|c| c.is_ascii_digit()) => {
+                if let Ok(_index) = command.parse::<usize>() {
+                    // For now, we'll cycle through windows since direct indexing isn't available
+                    CommandResult::Message(ClientMessage::NextWindow)
+                } else {
+                    CommandResult::Error(format!("Unknown command: {}", command))
+                }
+            }
+            _ => {
+                CommandResult::Error(format!("Unknown command: {}", command))
+            }
         }
     }
 

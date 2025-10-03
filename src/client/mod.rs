@@ -20,7 +20,7 @@ use tracing::{debug, error, info, warn};
 use crate::error::{FerrixError, Result};
 use crate::protocol::{ClientMessage, ServerMessage, SessionId, codec::FerrixClientCodec, LayoutInfo, PaneInfo, PaneId};
 use crate::config::{Config, keybindings::{KeyBindingManager, KeyBinding, Action}, CopyModeStyle};
-use crate::ui::copymode::CopyMode;
+use crate::ui::copymode::{CopyMode, CopyModeState, SearchDirection};
 use crate::ui::mouse::{MouseHandler, MouseAction};
 use crate::ui::commandmode::{CommandMode, CommandResult};
 use std::collections::HashMap;
@@ -627,7 +627,7 @@ impl Client {
     }
 
     async fn render_copy_mode(&mut self) -> Result<()> {
-        use crossterm::{cursor, terminal, ExecutableCommand};
+        use crossterm::{cursor, terminal, ExecutableCommand, style::{SetForegroundColor, SetBackgroundColor, Color as CrosstermColor, ResetColor}};
         use std::io::Write;
 
         let mut stdout = stdout();
@@ -637,8 +637,8 @@ impl Client {
         stdout.execute(cursor::MoveTo(0, 0))?;
 
         // Get terminal dimensions
-        let (_term_width, term_height) = self.terminal_size;
-        let display_height = (term_height - 2) as usize; // Leave room for status
+        let (term_width, term_height) = self.terminal_size;
+        let display_height = (term_height - 3) as usize; // Leave room for status and help line
 
         // Set viewport height
         self.copy_mode.set_viewport_height(display_height);
@@ -646,55 +646,130 @@ impl Client {
         // Get buffer and viewport from copy mode
         let buffer = self.copy_mode.buffer();
         let viewport_offset = self.copy_mode.viewport_offset();
+        let cursor_row = self.copy_mode.cursor_row();
+        let cursor_col = self.copy_mode.cursor_col();
 
-        // Render visible lines
+        // Render visible lines with line numbers
         for i in 0..display_height {
             let line_idx = viewport_offset + i;
+
+            // Move to start of line
+            stdout.execute(cursor::MoveTo(0, i as u16))?;
+
             if let Some(line) = buffer.get(line_idx) {
+                // Line number (dim gray)
+                stdout.execute(SetForegroundColor(CrosstermColor::DarkGrey))?;
+                write!(stdout, "{:4} ", line_idx + 1)?;
+                stdout.execute(ResetColor)?;
+
                 // Highlight selection if in visual mode
                 if let (Some(start), Some(end)) = (self.copy_mode.selection_start(), self.copy_mode.selection_end()) {
-                    // Simple highlight by inverting colors for selected text
-                    let mut output = String::new();
+                    // Render line with selection highlighting
                     for (col_idx, ch) in line.chars().enumerate() {
                         let is_selected = self.is_char_selected(line_idx, col_idx, start, end);
+                        let is_cursor = line_idx == cursor_row && col_idx == cursor_col;
+
                         if is_selected {
-                            output.push_str("\x1b[7m"); // Reverse video
+                            stdout.execute(SetBackgroundColor(CrosstermColor::DarkBlue))?;
+                            stdout.execute(SetForegroundColor(CrosstermColor::White))?;
                         }
-                        output.push(ch);
-                        if is_selected {
-                            output.push_str("\x1b[0m"); // Reset
+                        if is_cursor && !is_selected {
+                            stdout.execute(SetBackgroundColor(CrosstermColor::DarkGrey))?;
+                        }
+
+                        write!(stdout, "{}", ch)?;
+
+                        if is_selected || is_cursor {
+                            stdout.execute(ResetColor)?;
                         }
                     }
-                    writeln!(stdout, "{}", output)?;
+
+                    // Highlight cursor at end of line if needed
+                    if line_idx == cursor_row && cursor_col == line.len() {
+                        stdout.execute(SetBackgroundColor(CrosstermColor::DarkGrey))?;
+                        write!(stdout, " ")?;
+                        stdout.execute(ResetColor)?;
+                    }
                 } else {
-                    writeln!(stdout, "{}", line)?;
+                    // Normal rendering with cursor highlight
+                    for (col_idx, ch) in line.chars().enumerate() {
+                        if line_idx == cursor_row && col_idx == cursor_col {
+                            stdout.execute(SetBackgroundColor(CrosstermColor::DarkGrey))?;
+                            write!(stdout, "{}", ch)?;
+                            stdout.execute(ResetColor)?;
+                        } else {
+                            write!(stdout, "{}", ch)?;
+                        }
+                    }
+
+                    // Show cursor at end of line
+                    if line_idx == cursor_row && cursor_col == line.len() {
+                        stdout.execute(SetBackgroundColor(CrosstermColor::DarkGrey))?;
+                        write!(stdout, " ")?;
+                        stdout.execute(ResetColor)?;
+                    }
                 }
             } else {
-                writeln!(stdout, "~")?; // Empty line indicator
+                // Empty line indicator
+                stdout.execute(SetForegroundColor(CrosstermColor::DarkBlue))?;
+                write!(stdout, "   ~ ")?;
+                stdout.execute(ResetColor)?;
             }
+
+            // Clear to end of line
+            stdout.execute(terminal::Clear(terminal::ClearType::UntilNewLine))?;
         }
 
         // Status line
-        stdout.execute(cursor::MoveTo(0, term_height - 1))?;
-        let mode = match self.copy_mode.state() {
-            crate::ui::copymode::CopyModeState::Normal => "COPY",
-            crate::ui::copymode::CopyModeState::Visual => "VISUAL",
-            crate::ui::copymode::CopyModeState::VisualLine => "VISUAL LINE",
-            crate::ui::copymode::CopyModeState::VisualBlock => "VISUAL BLOCK",
-            crate::ui::copymode::CopyModeState::Search(_) => "SEARCH",
+        stdout.execute(cursor::MoveTo(0, term_height - 2))?;
+        stdout.execute(SetBackgroundColor(CrosstermColor::DarkCyan))?;
+        stdout.execute(SetForegroundColor(CrosstermColor::Black))?;
+
+        let mode_str = match self.copy_mode.state() {
+            CopyModeState::Normal => "COPY",
+            CopyModeState::Visual => "VISUAL",
+            CopyModeState::VisualLine => "VISUAL LINE",
+            CopyModeState::VisualBlock => "VISUAL BLOCK",
+            CopyModeState::Search(SearchDirection::Forward) => "SEARCH /",
+            CopyModeState::Search(SearchDirection::Backward) => "SEARCH ?",
         };
-        write!(stdout, "\x1b[7m-- {} MODE -- Line {}/{} Col {}\x1b[0m",
-               mode,
-               self.copy_mode.cursor_row() + 1,
-               buffer.len(),
-               self.copy_mode.cursor_col() + 1)?;
 
-        // Position cursor
-        let cursor_screen_row = (self.copy_mode.cursor_row() - viewport_offset) as u16;
-        let cursor_screen_col = self.copy_mode.cursor_col() as u16;
-        stdout.execute(cursor::MoveTo(cursor_screen_col, cursor_screen_row))?;
+        // Build status line
+        let status_left = format!(" -- {} MODE -- ", mode_str);
+        let status_right = format!(" {}:{} ({}/{}) ",
+               cursor_row + 1,
+               cursor_col + 1,
+               cursor_row + 1,
+               buffer.len());
+        let padding = " ".repeat((term_width as usize).saturating_sub(status_left.len() + status_right.len()));
+
+        write!(stdout, "{}{}{}", status_left, padding, status_right)?;
+        stdout.execute(ResetColor)?;
+
+        // Help line
+        stdout.execute(cursor::MoveTo(0, term_height - 1))?;
+        stdout.execute(SetForegroundColor(CrosstermColor::DarkGrey))?;
+
+        let help_text = match self.copy_mode.state() {
+            CopyModeState::Normal => {
+                " [h/j/k/l] move  [v] visual  [V] line  [y] yank line  [/] search  [q] quit"
+            }
+            CopyModeState::Visual |
+            CopyModeState::VisualLine |
+            CopyModeState::VisualBlock => {
+                " [h/j/k/l] move  [y] yank  [Ctrl-c] copy  [Esc] cancel  [q] quit"
+            }
+            CopyModeState::Search(_) => {
+                " Type to search  [Enter] find  [n/N] next/prev  [Esc] cancel"
+            }
+        };
+
+        write!(stdout, "{}", help_text)?;
+        stdout.execute(terminal::Clear(terminal::ClearType::UntilNewLine))?;
+        stdout.execute(ResetColor)?;
+
+        // Show cursor (for visual feedback)
         stdout.execute(cursor::Show)?;
-
         stdout.flush()?;
         Ok(())
     }
