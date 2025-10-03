@@ -15,7 +15,7 @@ use crossterm::{
     cursor,
 };
 use std::io::{stdout, IsTerminal};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::error::{FerrixError, Result};
 use crate::protocol::{ClientMessage, ServerMessage, SessionId, codec::FerrixClientCodec, LayoutInfo, PaneInfo, PaneId};
@@ -540,10 +540,42 @@ impl Client {
             }
             Action::SelectWindow(num) => {
                 // Handle window selection (0-9)
-                // For now, we'll just log this as window selection isn't directly supported
-                // In a full implementation, you'd need to get the list of windows first
-                // and then switch to the nth window
-                info!("Window selection {} requested (not yet implemented)", num);
+                if let Some(framed) = &mut self.framed {
+                    // Request window list
+                    framed.send(ClientMessage::ListWindows).await?;
+
+                    if let Some(response) = framed.next().await {
+                        match response? {
+                            ServerMessage::WindowList { windows } => {
+                                // Select window by index (0-9)
+                                if let Some(window) = windows.get(num as usize) {
+                                    // Switch to this window
+                                    framed.send(ClientMessage::SwitchWindow {
+                                        window_id: window.id.clone(),
+                                    }).await?;
+
+                                    // Wait for confirmation
+                                    if let Some(confirm_response) = framed.next().await {
+                                        match confirm_response? {
+                                            ServerMessage::WindowSwitched { .. } => {
+                                                info!("Switched to window {}", num);
+                                            }
+                                            ServerMessage::Error { message } => {
+                                                warn!("Failed to switch window: {}", message);
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                } else {
+                                    info!("Window {} does not exist", num);
+                                }
+                            }
+                            _ => {
+                                warn!("Unexpected response to ListWindows");
+                            }
+                        }
+                    }
+                }
             }
             Action::Custom(command) => {
                 // Handle custom commands
@@ -890,7 +922,12 @@ impl Client {
                     MouseAction::UpdateSelection { start, end } => {
                         // Update visual selection in copy mode
                         if self.copy_mode.is_active() {
-                            // TODO: Update copy mode selection based on mouse selection
+                            // Send update to server to reflect changes in copy mode
+                            if let Some(framed) = &mut self.framed {
+                                let input = format!("select:{},{} {},{}", start.0, start.1, end.0, end.1);
+                                let _ = framed.send(ClientMessage::CopyModeInput { key: input }).await;
+                            }
+
                             debug!("Mouse selection: {:?} to {:?}", start, end);
                         }
                     }
@@ -1594,6 +1631,236 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    // Activity Monitoring Methods
+    pub async fn toggle_activity_monitoring(&mut self, pane_id: Option<crate::protocol::PaneId>) -> Result<(crate::protocol::PaneId, bool)> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::ToggleActivityMonitoring { pane_id }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::ActivityStatusUpdate { pane_id, enabled, .. } => Ok((pane_id, enabled)),
+                    ServerMessage::Error { message } => Err(FerrixError::Other(message)),
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn set_activity_monitoring(&mut self, pane_id: Option<crate::protocol::PaneId>, enabled: bool) -> Result<(crate::protocol::PaneId, bool)> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::SetActivityMonitoring { pane_id, enabled }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::ActivityStatusUpdate { pane_id, enabled, .. } => Ok((pane_id, enabled)),
+                    ServerMessage::Error { message } => Err(FerrixError::Other(message)),
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    // Keybinding Management Methods
+    pub async fn list_keys(&mut self) -> Result<Vec<crate::protocol::KeyBindingInfo>> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::ListKeys).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::KeyList { bindings } => Ok(bindings),
+                    ServerMessage::Error { message } => Err(FerrixError::Other(message)),
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn bind_key(&mut self, key: String, action: String) -> Result<()> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::BindKey { key, action }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::KeyBound { .. } => Ok(()),
+                    ServerMessage::Error { message } => Err(FerrixError::Other(message)),
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn unbind_key(&mut self, key: String) -> Result<()> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::UnbindKey { key }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::KeyUnbound { .. } => Ok(()),
+                    ServerMessage::Error { message } => Err(FerrixError::Other(message)),
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn reset_keys(&mut self) -> Result<()> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::ResetKeys).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::KeysReset => Ok(()),
+                    ServerMessage::Error { message } => Err(FerrixError::Other(message)),
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn reload_keys(&mut self) -> Result<()> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::ReloadKeys).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::KeysReloaded => Ok(()),
+                    ServerMessage::Error { message } => Err(FerrixError::Other(message)),
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn export_keys(&mut self, path: std::path::PathBuf) -> Result<std::path::PathBuf> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::ExportKeys { path }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::KeysExported { path } => Ok(path),
+                    ServerMessage::Error { message } => Err(FerrixError::Other(message)),
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn import_keys(&mut self, path: std::path::PathBuf) -> Result<usize> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::ImportKeys { path }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::KeysImported { count } => Ok(count),
+                    ServerMessage::Error { message } => Err(FerrixError::Other(message)),
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn send_keys(&mut self, data: Vec<u8>) -> Result<()> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::Input { data }).await?;
+            Ok(())
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    // Auto-Save Methods
+    pub async fn enable_auto_save(&mut self, session_id: Option<crate::protocol::SessionId>, interval_minutes: Option<u64>) -> Result<u64> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::EnableAutoSave { session_id, interval_minutes }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::AutoSaveEnabled { interval_minutes } => Ok(interval_minutes),
+                    ServerMessage::Error { message } => Err(FerrixError::Other(message)),
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn disable_auto_save(&mut self, session_id: Option<crate::protocol::SessionId>) -> Result<()> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::DisableAutoSave { session_id }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::AutoSaveDisabled => Ok(()),
+                    ServerMessage::Error { message } => Err(FerrixError::Other(message)),
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
+    pub async fn auto_save_status(&mut self, session_id: Option<crate::protocol::SessionId>) -> Result<(bool, u64, Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>)> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::AutoSaveStatus { session_id }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::AutoSaveStatusInfo { enabled, interval_minutes, last_save, next_save } => {
+                        Ok((enabled, interval_minutes, last_save, next_save))
+                    }
+                    ServerMessage::Error { message } => Err(FerrixError::Other(message)),
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
     }
 
 }

@@ -208,10 +208,49 @@ impl PluginManager {
 
     // Helper functions
 
-    async fn download_plugin(&self, _url: &str) -> Result<PathBuf> {
-        // Implementation would download plugin from URL
-        // For now, return a placeholder
-        Err(FerrixError::Plugin("Plugin download not yet implemented".to_string()))
+    async fn download_plugin(&self, url: &str) -> Result<PathBuf> {
+        use std::fs::File;
+        use std::io::Write;
+
+        // Extract filename from URL
+        let filename = url.split('/').last()
+            .ok_or_else(|| FerrixError::Plugin("Invalid URL: cannot extract filename".to_string()))?;
+
+        let plugin_path = self.plugin_dir.join(filename);
+
+        // Download the file
+        let response = reqwest::get(url)
+            .await
+            .map_err(|e| FerrixError::Plugin(format!("Failed to download plugin: {}", e)))?;
+
+        if !response.status().is_success() {
+            return Err(FerrixError::Plugin(format!("Download failed with status: {}", response.status())));
+        }
+
+        let bytes = response.bytes()
+            .await
+            .map_err(|e| FerrixError::Plugin(format!("Failed to read response: {}", e)))?;
+
+        // Write to file
+        let mut file = File::create(&plugin_path)
+            .map_err(|e| FerrixError::Plugin(format!("Failed to create plugin file: {}", e)))?;
+
+        file.write_all(&bytes)
+            .map_err(|e| FerrixError::Plugin(format!("Failed to write plugin file: {}", e)))?;
+
+        // Make executable (on Unix systems)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&plugin_path)
+                .map_err(|e| FerrixError::Plugin(format!("Failed to read file metadata: {}", e)))?
+                .permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&plugin_path, perms)
+                .map_err(|e| FerrixError::Plugin(format!("Failed to set file permissions: {}", e)))?;
+        }
+
+        Ok(plugin_path)
     }
 
     fn verify_plugin(&self, path: &Path) -> Result<()> {

@@ -714,6 +714,116 @@ impl Session {
     pub fn is_auto_save_enabled(&self) -> bool {
         self.auto_save_enabled
     }
+
+    // Activity monitoring methods
+    pub async fn toggle_activity_monitoring(&mut self, pane_id: Option<PaneId>) -> Result<(PaneId, bool)> {
+        if let Some(current_window_id) = &self.current_window {
+            for window in &self.windows {
+                let window_guard = window.read().await;
+                if window_guard.id == *current_window_id {
+                    drop(window_guard);
+                    let mut window_guard = window.write().await;
+
+                    let target_pane = pane_id.unwrap_or_else(|| {
+                        window_guard.current_pane.clone().unwrap_or_else(|| {
+                            window_guard.panes.keys().next().cloned().unwrap()
+                        })
+                    });
+
+                    let currently_enabled = window_guard.activity_monitor.is_monitoring_enabled(&target_pane);
+                    if currently_enabled {
+                        window_guard.activity_monitor.disable_monitoring(&target_pane);
+                    } else {
+                        window_guard.activity_monitor.enable_monitoring(&target_pane);
+                    }
+
+                    return Ok((target_pane, !currently_enabled));
+                }
+            }
+        }
+        Err(FerrixError::Other("No current window".to_string()))
+    }
+
+    pub async fn set_activity_monitoring(&mut self, pane_id: Option<PaneId>, enabled: bool) -> Result<(PaneId, bool)> {
+        if let Some(current_window_id) = &self.current_window {
+            for window in &self.windows {
+                let window_guard = window.read().await;
+                if window_guard.id == *current_window_id {
+                    drop(window_guard);
+                    let mut window_guard = window.write().await;
+
+                    let target_pane = pane_id.unwrap_or_else(|| {
+                        window_guard.current_pane.clone().unwrap_or_else(|| {
+                            window_guard.panes.keys().next().cloned().unwrap()
+                        })
+                    });
+
+                    if enabled {
+                        window_guard.activity_monitor.enable_monitoring(&target_pane);
+                    } else {
+                        window_guard.activity_monitor.disable_monitoring(&target_pane);
+                    }
+
+                    return Ok((target_pane, enabled));
+                }
+            }
+        }
+        Err(FerrixError::Other("No current window".to_string()))
+    }
+
+    pub async fn get_activity_status(&self, pane_id: &PaneId) -> Option<String> {
+        if let Some(current_window_id) = &self.current_window {
+            for window in &self.windows {
+                let window_guard = window.read().await;
+                if window_guard.id == *current_window_id {
+                    return window_guard.activity_monitor.get_activity_status(pane_id);
+                }
+            }
+        }
+        None
+    }
+
+    // Pane resizing methods
+    pub async fn resize_pane(&mut self, direction: crate::protocol::ResizeDirection, amount: i16) -> Result<()> {
+        if let Some(current_window_id) = &self.current_window {
+            for window in &self.windows {
+                let window_guard = window.read().await;
+                if window_guard.id == *current_window_id {
+                    if let Some(current_pane_id) = &window_guard.current_pane {
+                        let pane_id = current_pane_id.clone();
+                        drop(window_guard);
+
+                        let window_guard = window.write().await;
+                        if let Some(pane_arc) = window_guard.panes.get(&pane_id) {
+                            let mut pane = pane_arc.write().await;
+
+                            // Calculate new dimensions based on direction
+                            let (new_cols, new_rows) = match direction {
+                                crate::protocol::ResizeDirection::Up => {
+                                    (pane.cols, pane.rows.saturating_add(amount as u16))
+                                }
+                                crate::protocol::ResizeDirection::Down => {
+                                    (pane.cols, pane.rows.saturating_sub(amount as u16).max(1))
+                                }
+                                crate::protocol::ResizeDirection::Left => {
+                                    (pane.cols.saturating_sub(amount as u16).max(1), pane.rows)
+                                }
+                                crate::protocol::ResizeDirection::Right => {
+                                    (pane.cols.saturating_add(amount as u16), pane.rows)
+                                }
+                            };
+
+                            // Resize the pane
+                            pane.resize(new_cols, new_rows).await?;
+                            return Ok(());
+                        }
+                    }
+                    return Err(FerrixError::Other("No current pane".to_string()));
+                }
+            }
+        }
+        Err(FerrixError::Other("No current window".to_string()))
+    }
 }
 
 #[cfg(test)]

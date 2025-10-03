@@ -307,8 +307,57 @@ async fn main() -> Result<()> {
             println!("Snapshot imported to: {:?}", path);
         }
 
-        Some(Commands::SendKeys { .. }) => {
-            eprintln!("SendKeys command not yet implemented");
+        Some(Commands::SendKeys { target, keys }) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    // Parse target (session name or ID)
+                    let sessions = client.list_sessions().await?;
+                    let session_id = if let Ok(uuid) = uuid::Uuid::parse_str(target) {
+                        Some(ferrix::protocol::SessionId(uuid))
+                    } else {
+                        sessions
+                            .iter()
+                            .find(|s| s.name == *target)
+                            .map(|s| s.id.clone())
+                    };
+
+                    if let Some(sid) = session_id {
+                        // Attach to the session
+                        match client.attach_session(sid.clone()).await {
+                            Ok(_) => {
+                                // Send the keys
+                                let keys_string = keys.join(" ");
+                                let data = keys_string.as_bytes().to_vec();
+
+                                match client.send_keys(data).await {
+                                    Ok(_) => {
+                                        println!("✓ Keys sent to session");
+                                    }
+                                    Err(e) => {
+                                        eprintln!("✗ Failed to send keys: {}", e);
+                                        std::process::exit(1);
+                                    }
+                                }
+
+                                // Detach from session
+                                let _ = client.detach_session().await;
+                            }
+                            Err(e) => {
+                                eprintln!("✗ Failed to attach to session: {}", e);
+                                std::process::exit(1);
+                            }
+                        }
+                    } else {
+                        eprintln!("✗ Session not found: {}", target);
+                        std::process::exit(1);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
 
         Some(Commands::ReloadConfig) => {
@@ -780,44 +829,332 @@ async fn main() -> Result<()> {
 
         // Activity monitoring commands
         Some(Commands::ToggleActivityMonitoring { pane_id }) => {
-            println!("Activity monitoring commands not yet implemented");
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    let parsed_pane_id = pane_id.as_ref().and_then(|id_str| {
+                        use uuid::Uuid;
+                        Uuid::parse_str(id_str).ok().map(ferrix::protocol::PaneId)
+                    });
+
+                    match client.toggle_activity_monitoring(parsed_pane_id).await {
+                        Ok((pane_id, enabled)) => {
+                            println!("✓ Activity monitoring {} for pane {}",
+                                if enabled { "enabled" } else { "disabled" },
+                                pane_id.0
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to toggle activity monitoring: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Some(Commands::SetActivityMonitoring { pane_id, enabled }) => {
-            println!("Activity monitoring commands not yet implemented");
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    let parsed_pane_id = pane_id.as_ref().and_then(|id_str| {
+                        use uuid::Uuid;
+                        Uuid::parse_str(id_str).ok().map(ferrix::protocol::PaneId)
+                    });
+
+                    match client.set_activity_monitoring(parsed_pane_id, *enabled).await {
+                        Ok((pane_id, actual_enabled)) => {
+                            println!("✓ Activity monitoring {} for pane {}",
+                                if actual_enabled { "enabled" } else { "disabled" },
+                                pane_id.0
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to set activity monitoring: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
 
         // Keybinding management commands
         Some(Commands::ListKeys) => {
-            println!("Keybinding commands not yet implemented");
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.list_keys().await {
+                        Ok(bindings) => {
+                            if bindings.is_empty() {
+                                println!("No keybindings configured");
+                            } else {
+                                println!("Current keybindings:");
+                                println!("{:<20} {:<30} {:<10} {}", "Key", "Action", "Type", "Description");
+                                println!("{}", "-".repeat(80));
+                                for binding in bindings {
+                                    println!("{:<20} {:<30} {:<10} {}",
+                                        binding.key,
+                                        binding.action,
+                                        if binding.is_custom { "custom" } else { "default" },
+                                        binding.description
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to list keybindings: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Some(Commands::BindKey { key, action }) => {
-            println!("Keybinding commands not yet implemented");
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.bind_key(key.clone(), action.clone()).await {
+                        Ok(_) => {
+                            println!("✓ Key '{}' bound to action '{}'", key, action);
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to bind key: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Some(Commands::UnbindKey { key }) => {
-            println!("Keybinding commands not yet implemented");
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.unbind_key(key.clone()).await {
+                        Ok(_) => {
+                            println!("✓ Key '{}' unbound", key);
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to unbind key: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Some(Commands::ResetKeys) => {
-            println!("Keybinding commands not yet implemented");
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.reset_keys().await {
+                        Ok(_) => {
+                            println!("✓ All keybindings reset to defaults");
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to reset keybindings: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Some(Commands::ReloadKeys) => {
-            println!("Keybinding commands not yet implemented");
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.reload_keys().await {
+                        Ok(_) => {
+                            println!("✓ Keybindings reloaded from configuration");
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to reload keybindings: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Some(Commands::ExportKeys { path }) => {
-            println!("Keybinding export not yet implemented");
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.export_keys(PathBuf::from(path)).await {
+                        Ok(export_path) => {
+                            println!("✓ Keybindings exported to: {}", export_path.display());
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to export keybindings: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Some(Commands::ImportKeys { path }) => {
-            println!("Keybinding import not yet implemented");
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    match client.import_keys(PathBuf::from(path)).await {
+                        Ok(count) => {
+                            println!("✓ Successfully imported {} keybindings from: {}", count, path);
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to import keybindings: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
 
         // Auto-save commands
         Some(Commands::EnableAutoSave { session, interval }) => {
-            println!("Auto-save commands not yet implemented");
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    let session_id = if let Some(session_str) = session {
+                        let sessions = client.list_sessions().await?;
+                        if let Ok(uuid) = uuid::Uuid::parse_str(session_str) {
+                            Some(ferrix::protocol::SessionId(uuid))
+                        } else {
+                            sessions
+                                .iter()
+                                .find(|s| s.name == *session_str)
+                                .map(|s| s.id.clone())
+                        }
+                    } else {
+                        None
+                    };
+
+                    match client.enable_auto_save(session_id, Some(*interval)).await {
+                        Ok(interval_minutes) => {
+                            println!("✓ Auto-save enabled with {} minute interval", interval_minutes);
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to enable auto-save: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Some(Commands::DisableAutoSave { session }) => {
-            println!("Auto-save commands not yet implemented");
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    let session_id = if let Some(session_str) = session {
+                        let sessions = client.list_sessions().await?;
+                        if let Ok(uuid) = uuid::Uuid::parse_str(session_str) {
+                            Some(ferrix::protocol::SessionId(uuid))
+                        } else {
+                            sessions
+                                .iter()
+                                .find(|s| s.name == *session_str)
+                                .map(|s| s.id.clone())
+                        }
+                    } else {
+                        None
+                    };
+
+                    match client.disable_auto_save(session_id).await {
+                        Ok(_) => {
+                            println!("✓ Auto-save disabled");
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to disable auto-save: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Some(Commands::AutoSaveStatus { session }) => {
-            println!("Auto-save status not yet implemented");
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    let session_id = if let Some(session_str) = session {
+                        let sessions = client.list_sessions().await?;
+                        if let Ok(uuid) = uuid::Uuid::parse_str(session_str) {
+                            Some(ferrix::protocol::SessionId(uuid))
+                        } else {
+                            sessions
+                                .iter()
+                                .find(|s| s.name == *session_str)
+                                .map(|s| s.id.clone())
+                        }
+                    } else {
+                        None
+                    };
+
+                    match client.auto_save_status(session_id).await {
+                        Ok((enabled, interval_minutes, last_save, next_save)) => {
+                            println!("Auto-save status:");
+                            println!("  Enabled: {}", if enabled { "Yes" } else { "No" });
+                            if enabled {
+                                println!("  Interval: {} minutes", interval_minutes);
+                                if let Some(last) = last_save {
+                                    println!("  Last save: {}", last.format("%Y-%m-%d %H:%M:%S UTC"));
+                                } else {
+                                    println!("  Last save: Never");
+                                }
+                                if let Some(next) = next_save {
+                                    println!("  Next save: {}", next.format("%Y-%m-%d %H:%M:%S UTC"));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to get auto-save status: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
     }
 

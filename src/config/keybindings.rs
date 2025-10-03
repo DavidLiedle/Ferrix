@@ -146,7 +146,7 @@ impl KeyBindingManager {
         }
     }
 
-    fn parse_action_string(&self, action_str: &str) -> Result<Action> {
+    pub fn parse_action_string(&self, action_str: &str) -> Result<Action> {
         let parts: Vec<&str> = action_str.split_whitespace().collect();
         if parts.is_empty() {
             return Err(FerrixError::Config("Empty action string".to_string()));
@@ -452,6 +452,101 @@ impl KeyBindingManager {
         } else {
             Err(FerrixError::Config("Failed to load config".to_string()))
         }
+    }
+
+    pub fn export_to_file(&self, path: &std::path::Path) -> Result<()> {
+        use std::fs::File;
+        use std::io::Write;
+
+        let mut content = String::new();
+        content.push_str("# Ferrix Keybindings Export\n");
+        content.push_str(&format!("prefix = \"{}\"\n\n", self.prefix.to_string()));
+        content.push_str("[custom]\n");
+
+        for (key, action) in &self.custom_bindings {
+            let action_str = match action {
+                Action::NewSession => "new-session",
+                Action::DetachSession => "detach-session",
+                Action::ListSessions => "list-sessions",
+                Action::KillSession => "kill-session",
+                Action::NewWindow => "new-window",
+                Action::NextWindow => "next-window",
+                Action::PreviousWindow => "previous-window",
+                Action::RenameWindow => "rename-window",
+                Action::KillWindow => "kill-window",
+                Action::SelectWindow(n) => &format!("select-window {}", n),
+                Action::SplitHorizontal => "split-horizontal",
+                Action::SplitVertical => "split-vertical",
+                Action::NavigateUp => "navigate-up",
+                Action::NavigateDown => "navigate-down",
+                Action::NavigateLeft => "navigate-left",
+                Action::NavigateRight => "navigate-right",
+                Action::ZoomPane => "zoom-pane",
+                Action::ClosePane => "close-pane",
+                Action::ResizePaneUp => "resize-pane-up",
+                Action::ResizePaneDown => "resize-pane-down",
+                Action::ResizePaneLeft => "resize-pane-left",
+                Action::ResizePaneRight => "resize-pane-right",
+                Action::EnterCopyMode => "enter-copy-mode",
+                Action::PasteBuffer => "paste-buffer",
+                Action::EnterCommandMode => "enter-command-mode",
+                Action::ReloadConfig => "reload-config",
+                Action::SaveSnapshot => "save-snapshot",
+                Action::RestoreSnapshot => "restore-snapshot",
+                Action::Custom(s) => s,
+            };
+            content.push_str(&format!("{} = \"{}\"\n", key.to_string(), action_str));
+        }
+
+        let mut file = File::create(path)
+            .map_err(|e| FerrixError::Config(format!("Failed to create file: {}", e)))?;
+        file.write_all(content.as_bytes())
+            .map_err(|e| FerrixError::Config(format!("Failed to write file: {}", e)))?;
+
+        Ok(())
+    }
+
+    pub fn import_from_file(&mut self, path: &std::path::Path) -> Result<usize> {
+        use std::fs;
+
+        let content = fs::read_to_string(path)
+            .map_err(|e| FerrixError::Config(format!("Failed to read file: {}", e)))?;
+
+        let mut count = 0;
+        self.custom_bindings.clear();
+
+        // Simple TOML-like parsing
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with('#') || line.is_empty() || line.starts_with('[') {
+                continue;
+            }
+
+            if line.starts_with("prefix") {
+                if let Some(prefix_str) = line.split('=').nth(1) {
+                    let prefix_str = prefix_str.trim().trim_matches('"');
+                    if let Ok(prefix) = Self::parse_key_string(prefix_str) {
+                        self.prefix = prefix;
+                    }
+                }
+                continue;
+            }
+
+            // Parse key = "action" format
+            if let Some((key_str, action_str)) = line.split_once('=') {
+                let key_str = key_str.trim();
+                let action_str = action_str.trim().trim_matches('"');
+
+                if let Ok(key) = Self::parse_key_string(key_str) {
+                    if let Ok(action) = self.parse_action_string(action_str) {
+                        self.custom_bindings.insert(key, action);
+                        count += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(count)
     }
 }
 #[cfg(test)]

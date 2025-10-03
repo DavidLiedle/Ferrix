@@ -40,6 +40,7 @@ use recovery::RecoveryManager;
 pub struct Server {
     sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
     clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
+    keybinding_manager: Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
     socket_path: PathBuf,
 }
 
@@ -54,6 +55,7 @@ impl Server {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             clients: Arc::new(RwLock::new(HashMap::new())),
+            keybinding_manager: Arc::new(RwLock::new(crate::config::keybindings::KeyBindingManager::new())),
             socket_path,
         }
     }
@@ -106,10 +108,11 @@ impl Server {
                     let client_id = ClientId(Uuid::new_v4());
                     let sessions = self.sessions.clone();
                     let clients = self.clients.clone();
+                    let keybinding_manager = self.keybinding_manager.clone();
                     let client_id_log = client_id.clone();
 
                     tokio::spawn(async move {
-                        if let Err(e) = handle_client(stream, client_id, sessions, clients).await {
+                        if let Err(e) = handle_client(stream, client_id, sessions, clients, keybinding_manager).await {
                             error!("Error handling client {}: {}", client_id_log.0, e);
                         }
                     });
@@ -127,6 +130,7 @@ async fn handle_client(
     client_id: ClientId,
     sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
     clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
+    keybinding_manager: Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
 ) -> Result<()> {
     info!("New client connected: {}", client_id.0);
 
@@ -156,6 +160,7 @@ async fn handle_client(
                             &client_id,
                             &sessions,
                             &clients,
+                            &keybinding_manager,
                         ).await?;
 
                         if let Some(resp) = response {
@@ -188,6 +193,7 @@ async fn handle_message(
     client_id: &ClientId,
     sessions: &Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
     clients: &Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
+    keybinding_manager: &Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
 ) -> Result<Option<ServerMessage>> {
     match message {
         ClientMessage::CreateSession { name } => {
@@ -701,9 +707,39 @@ async fn handle_message(
         }
 
         ClientMessage::ResizePane { direction, amount } => {
-            Ok(Some(ServerMessage::Error {
-                message: format!("Pane resizing not yet implemented (direction: {:?}, amount: {})", direction, amount),
-            }))
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+                        match session_guard.resize_pane(direction, amount).await {
+                            Ok(()) => {
+                                // Send layout update after resizing
+                                if let Some(layout) = session_guard.get_layout_info().await {
+                                    Ok(Some(ServerMessage::LayoutUpdate { layout }))
+                                } else {
+                                    Ok(Some(ServerMessage::Success))
+                                }
+                            }
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to resize pane: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
         }
 
         ClientMessage::NextWindow => {
@@ -1146,6 +1182,273 @@ async fn handle_message(
             } else {
                 Ok(Some(ServerMessage::Error {
                     message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::ToggleActivityMonitoring { pane_id } => {
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+                        match session_guard.toggle_activity_monitoring(pane_id).await {
+                            Ok((target_pane, enabled)) => {
+                                let activity_status = session_guard.get_activity_status(&target_pane).await;
+                                Ok(Some(ServerMessage::ActivityStatusUpdate {
+                                    pane_id: target_pane,
+                                    activity_status,
+                                    enabled,
+                                }))
+                            }
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to toggle activity monitoring: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::SetActivityMonitoring { pane_id, enabled } => {
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+                        match session_guard.set_activity_monitoring(pane_id, enabled).await {
+                            Ok((target_pane, actual_enabled)) => {
+                                let activity_status = session_guard.get_activity_status(&target_pane).await;
+                                Ok(Some(ServerMessage::ActivityStatusUpdate {
+                                    pane_id: target_pane,
+                                    activity_status,
+                                    enabled: actual_enabled,
+                                }))
+                            }
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to set activity monitoring: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::ListKeys => {
+            use crate::protocol::KeyBindingInfo;
+
+            let manager = keybinding_manager.read().await;
+            let all_bindings = manager.list_all_bindings();
+
+            let bindings: Vec<KeyBindingInfo> = all_bindings.iter().map(|(key, action, is_custom)| {
+                KeyBindingInfo {
+                    key: key.clone(),
+                    action: action.clone(),
+                    description: String::new(),  // Could add descriptions later
+                    is_custom: *is_custom,
+                }
+            }).collect();
+
+            Ok(Some(ServerMessage::KeyList { bindings }))
+        }
+
+        ClientMessage::BindKey { key, action } => {
+            use crate::config::keybindings::KeyBindingManager;
+
+            match KeyBindingManager::parse_key_string(&key) {
+                Ok(key_binding) => {
+                    let mut manager = keybinding_manager.write().await;
+                    let action_enum = manager.parse_action_string(&action)
+                        .unwrap_or(crate::config::keybindings::Action::Custom(action.clone()));
+
+                    manager.bind_custom(key_binding, action_enum);
+
+                    // Try to save to config
+                    let _ = manager.save_to_config();
+
+                    Ok(Some(ServerMessage::KeyBound { key, action }))
+                }
+                Err(_) => {
+                    Ok(Some(ServerMessage::Error {
+                        message: format!("Invalid key format: {}", key),
+                    }))
+                }
+            }
+        }
+
+        ClientMessage::UnbindKey { key } => {
+            use crate::config::keybindings::KeyBindingManager;
+
+            match KeyBindingManager::parse_key_string(&key) {
+                Ok(key_binding) => {
+                    let mut manager = keybinding_manager.write().await;
+                    manager.unbind(&key_binding);
+
+                    // Try to save to config
+                    let _ = manager.save_to_config();
+
+                    Ok(Some(ServerMessage::KeyUnbound { key }))
+                }
+                Err(_) => {
+                    Ok(Some(ServerMessage::Error {
+                        message: format!("Invalid key format: {}", key),
+                    }))
+                }
+            }
+        }
+
+        ClientMessage::ResetKeys => {
+            let mut manager = keybinding_manager.write().await;
+            manager.reset_to_defaults();
+
+            // Try to save to config
+            let _ = manager.save_to_config();
+
+            Ok(Some(ServerMessage::KeysReset))
+        }
+
+        ClientMessage::ReloadKeys => {
+            let mut manager = keybinding_manager.write().await;
+            match manager.reload_config() {
+                Ok(_) => Ok(Some(ServerMessage::KeysReloaded)),
+                Err(e) => Ok(Some(ServerMessage::Error {
+                    message: format!("Failed to reload keybindings: {}", e),
+                }))
+            }
+        }
+
+        ClientMessage::ExportKeys { path } => {
+            let manager = keybinding_manager.read().await;
+
+            match manager.export_to_file(&path) {
+                Ok(_) => Ok(Some(ServerMessage::KeysExported { path })),
+                Err(e) => Ok(Some(ServerMessage::Error {
+                    message: format!("Failed to export keybindings: {}", e),
+                }))
+            }
+        }
+
+        ClientMessage::ImportKeys { path } => {
+            let mut manager = keybinding_manager.write().await;
+            match manager.import_from_file(&path) {
+                Ok(count) => Ok(Some(ServerMessage::KeysImported { count })),
+                Err(e) => Ok(Some(ServerMessage::Error {
+                    message: format!("Failed to import keybindings: {}", e),
+                }))
+            }
+        }
+
+        ClientMessage::EnableAutoSave { session_id, interval_minutes } => {
+            let target_session_id = if let Some(sid) = session_id {
+                Some(sid)
+            } else {
+                clients.read().await.get(&client_id)
+                    .and_then(|c| c.attached_session.clone())
+            };
+
+            if let Some(sid) = target_session_id {
+                let mut sessions_guard = sessions.write().await;
+                if let Some(session) = sessions_guard.get_mut(&sid) {
+                    let mut session_guard = session.write().await;
+                    let interval = interval_minutes.unwrap_or(5);
+                    session_guard.auto_save_enabled = true;
+                    session_guard.auto_save_interval = std::time::Duration::from_secs(interval * 60);
+
+                    Ok(Some(ServerMessage::AutoSaveEnabled { interval_minutes: interval }))
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Session not found".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "No session specified".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::DisableAutoSave { session_id } => {
+            let target_session_id = if let Some(sid) = session_id {
+                Some(sid)
+            } else {
+                clients.read().await.get(&client_id)
+                    .and_then(|c| c.attached_session.clone())
+            };
+
+            if let Some(sid) = target_session_id {
+                let mut sessions_guard = sessions.write().await;
+                if let Some(session) = sessions_guard.get_mut(&sid) {
+                    let mut session_guard = session.write().await;
+                    session_guard.auto_save_enabled = false;
+
+                    Ok(Some(ServerMessage::AutoSaveDisabled))
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Session not found".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "No session specified".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::AutoSaveStatus { session_id } => {
+            let target_session_id = if let Some(sid) = session_id {
+                Some(sid)
+            } else {
+                clients.read().await.get(&client_id)
+                    .and_then(|c| c.attached_session.clone())
+            };
+
+            if let Some(sid) = target_session_id {
+                let sessions_guard = sessions.read().await;
+                if let Some(session) = sessions_guard.get(&sid) {
+                    let session_guard = session.read().await;
+                    let interval_minutes = session_guard.auto_save_interval.as_secs() / 60;
+                    let next_save = session_guard.last_auto_save.map(|last| {
+                        last + chrono::Duration::from_std(session_guard.auto_save_interval).unwrap()
+                    });
+
+                    Ok(Some(ServerMessage::AutoSaveStatusInfo {
+                        enabled: session_guard.auto_save_enabled,
+                        interval_minutes,
+                        last_save: session_guard.last_auto_save,
+                        next_save,
+                    }))
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Session not found".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "No session specified".to_string(),
                 }))
             }
         }

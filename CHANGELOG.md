@@ -5,6 +5,35 @@ All notable changes to Ferrix will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2025-10-03
+
+### Added
+- **Pane Resizing**: Full directional resize functionality (Up/Down/Left/Right) with PTY integration
+- **SendKeys Command**: Send keys to target session by name or ID with proper attach/detach workflow
+- **Window Selection by Number**: Select windows 0-9 via keybindings with full integration
+- **Custom Path Export/Import for Keybindings**: Export and import keybindings to/from custom file paths
+- **Copy Mode Mouse Selection**: Mouse-based text selection in copy mode with server communication
+- **Plugin Download**: HTTP-based plugin download with reqwest, including executable permissions
+
+### Changed
+- All stub implementations replaced with real, production-ready code
+- KeyBindingManager now supports file I/O with TOML format parsing
+- Client now has `send_keys()` method for programmatic input sending
+- Server handlers fully integrated with session management for all new features
+- Added `reqwest` dependency for HTTP downloads
+
+### Fixed
+- Removed all TODO comments requiring implementation
+- Eliminated all "not yet implemented" error messages
+- Added missing `warn` import in client module
+- Fixed async/await patterns in server message handlers
+
+### Technical
+- Zero compilation errors, only minor warnings
+- Enhanced error handling across all new features
+- Improved documentation for all v0.9.0-0.9.2 features
+- Production-ready codebase with no remaining stubs
+
 ## [0.9.1] - 2025-09-28
 
 ### Changed

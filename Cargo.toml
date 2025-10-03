@@ -1,6 +1,6 @@
 [package]
 name = "ferrix"
-version = "0.9.1"
+version = "0.9.2"
 edition = "2021"
 authors = ["David Liedle", "Claude <noreply@anthropic.com>"]
 description = "A new Rust-based terminal multiplexer"
@@ -57,6 +57,7 @@ hostname = "0.4"
 # Plugin system
 wasmtime = "27.0"
 wasmtime-wasi = "27.0"
+reqwest = { version = "0.12", features = ["blocking"] }
 
 # Clipboard
 arboard = "3.4"

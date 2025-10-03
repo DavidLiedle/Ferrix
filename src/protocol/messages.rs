@@ -118,6 +118,16 @@ pub enum ClientMessage {
     ImportKeys {
         path: std::path::PathBuf,
     },
+    EnableAutoSave {
+        session_id: Option<SessionId>,
+        interval_minutes: Option<u64>,
+    },
+    DisableAutoSave {
+        session_id: Option<SessionId>,
+    },
+    AutoSaveStatus {
+        session_id: Option<SessionId>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -248,6 +258,16 @@ pub enum ServerMessage {
     },
     KeysImported {
         count: usize,
+    },
+    AutoSaveEnabled {
+        interval_minutes: u64,
+    },
+    AutoSaveDisabled,
+    AutoSaveStatusInfo {
+        enabled: bool,
+        interval_minutes: u64,
+        last_save: Option<chrono::DateTime<chrono::Utc>>,
+        next_save: Option<chrono::DateTime<chrono::Utc>>,
     },
 }
 
