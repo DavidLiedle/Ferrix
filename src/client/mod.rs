@@ -138,6 +138,7 @@ impl Client {
                     ServerMessage::SessionAttached { .. } => {
                         self.attached_session = Some(session_id.clone());
                         info!("Attached to session: {}", session_id.0);
+                        // Layout will be sent automatically by server
                     }
                     ServerMessage::Error { message } => {
                         return Err(FerrixError::Other(message));

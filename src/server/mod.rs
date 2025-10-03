@@ -261,16 +261,20 @@ async fn handle_message(
 
                 info!("Client {} attached to session {}", client_id.0, session_id.0);
 
-                // Send initial layout info
+                // Send layout info immediately after attach
                 let session_guard = session.read().await;
-                if let Some(_layout) = session_guard.get_layout_info().await {
-                    drop(session_guard);
-                    // For now, we'll send the SessionAttached message first
-                    // In a full implementation, we'd want to batch these or use a different approach
-                    Ok(Some(ServerMessage::SessionAttached { session_id }))
-                } else {
-                    Ok(Some(ServerMessage::SessionAttached { session_id }))
+                if let Some(layout) = session_guard.get_layout_info().await {
+                    // Get the client's sender channel
+                    let clients_guard = clients.read().await;
+                    if let Some(client) = clients_guard.get(client_id) {
+                        // Send layout update asynchronously
+                        let _ = client.sender.send(ServerMessage::LayoutUpdate { layout }).await;
+                    }
                 }
+                drop(session_guard);
+
+                // Send SessionAttached response
+                Ok(Some(ServerMessage::SessionAttached { session_id }))
             } else {
                 Ok(Some(ServerMessage::Error {
                     message: format!("Session not found: {}", session_id.0),
