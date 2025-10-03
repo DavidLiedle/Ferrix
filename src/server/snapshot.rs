@@ -232,9 +232,17 @@ impl SnapshotManager {
         }
 
         if let Some(home) = dirs::home_dir() {
-            Ok(home.join(".ferrix").join("snapshots"))
+            let ferrix_dir = home.join(".ferrix");
+            // Ensure .ferrix directory exists
+            fs::create_dir_all(&ferrix_dir)
+                .map_err(|e| FerrixError::Other(format!("Failed to create .ferrix directory: {}", e)))?;
+            Ok(ferrix_dir.join("snapshots"))
         } else {
-            Ok(PathBuf::from("/tmp/ferrix/snapshots"))
+            // For fallback, ensure /tmp/ferrix exists
+            let tmp_dir = PathBuf::from("/tmp/ferrix");
+            fs::create_dir_all(&tmp_dir)
+                .map_err(|e| FerrixError::Other(format!("Failed to create /tmp/ferrix directory: {}", e)))?;
+            Ok(tmp_dir.join("snapshots"))
         }
     }
 

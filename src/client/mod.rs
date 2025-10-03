@@ -109,7 +109,16 @@ impl Client {
     pub async fn connect(&mut self) -> Result<()> {
         let stream = UnixStream::connect(&self.socket_path)
             .await
-            .map_err(|e| FerrixError::Ipc(format!("Failed to connect to server: {}", e)))?;
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound || e.kind() == std::io::ErrorKind::ConnectionRefused {
+                    FerrixError::Ipc(format!(
+                        "Failed to connect to server at {:?}: {}. Is the server running? Try: ferrix server",
+                        self.socket_path, e
+                    ))
+                } else {
+                    FerrixError::Ipc(format!("Failed to connect to server: {}", e))
+                }
+            })?;
 
         self.framed = Some(Framed::new(stream, FerrixClientCodec::new()));
         info!("Connected to server at {:?}", self.socket_path);

@@ -5,7 +5,7 @@ use tokio::time::{Duration, interval};
 use tracing::{info, error, warn};
 use chrono::Utc;
 
-use crate::error::Result;
+use crate::error::{FerrixError, Result};
 use crate::protocol::SessionId;
 use super::snapshot::{SnapshotManager, SessionSnapshot};
 use super::session::Session;
@@ -154,7 +154,11 @@ impl RecoveryManager {
 
     fn get_recovery_file_path() -> Result<PathBuf> {
         if let Some(home) = dirs::home_dir() {
-            Ok(home.join(".ferrix").join(RECOVERY_FILE))
+            let ferrix_dir = home.join(".ferrix");
+            // Ensure .ferrix directory exists
+            std::fs::create_dir_all(&ferrix_dir)
+                .map_err(|e| FerrixError::Other(format!("Failed to create .ferrix directory: {}", e)))?;
+            Ok(ferrix_dir.join(RECOVERY_FILE))
         } else {
             Ok(PathBuf::from("/tmp").join(RECOVERY_FILE))
         }

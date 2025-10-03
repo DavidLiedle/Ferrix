@@ -27,7 +27,7 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 
 ## ✨ Features
 
-### Currently Working (v0.10.0)
+### Currently Working (v0.10.1)
 - ✅ **Session Management** - Create, attach, detach, list, and kill sessions
 - ✅ **Client-Server Architecture** - Robust separation with async Rust
 - ✅ **Multiple Windows & Panes** - Split panes, navigate between them, and manage layouts
