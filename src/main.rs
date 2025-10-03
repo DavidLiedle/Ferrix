@@ -96,7 +96,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                     }
                 }
 
-                println!("The prophecy has been fulfilled! (https://github.com/cloudstreet-dev/GNU-Screen-vs-Tmux)\n");
+                println!("The prophecy has been fulfilled! (https://cloudstreet-dev.github.io/GNU-Screen-vs-Tmux/)\n");
             }
             // Note: daemonization already handled in main() before async runtime creation
 
