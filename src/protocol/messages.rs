@@ -128,6 +128,38 @@ pub enum ClientMessage {
     AutoSaveStatus {
         session_id: Option<SessionId>,
     },
+    StartRecording {
+        session_id: Option<SessionId>,
+        output_path: Option<std::path::PathBuf>,
+    },
+    StopRecording {
+        session_id: Option<SessionId>,
+    },
+    PauseRecording {
+        session_id: Option<SessionId>,
+    },
+    ResumeRecording {
+        session_id: Option<SessionId>,
+    },
+    RecordingStatus {
+        session_id: Option<SessionId>,
+    },
+    PlayRecording {
+        path: std::path::PathBuf,
+        speed: Option<f32>,
+    },
+    ExportRecording {
+        path: std::path::PathBuf,
+        format: RecordingExportFormat,
+        output_path: std::path::PathBuf,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RecordingExportFormat {
+    Asciinema,
+    Text,
+    Html,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -268,6 +300,38 @@ pub enum ServerMessage {
         interval_minutes: u64,
         last_save: Option<chrono::DateTime<chrono::Utc>>,
         next_save: Option<chrono::DateTime<chrono::Utc>>,
+    },
+    RecordingStarted {
+        session_id: SessionId,
+        output_path: std::path::PathBuf,
+    },
+    RecordingStopped {
+        session_id: SessionId,
+        duration_secs: u64,
+        file_size: u64,
+    },
+    RecordingPaused {
+        session_id: SessionId,
+    },
+    RecordingResumed {
+        session_id: SessionId,
+    },
+    RecordingStatus {
+        session_id: SessionId,
+        is_recording: bool,
+        is_paused: bool,
+        output_path: Option<std::path::PathBuf>,
+        duration_secs: u64,
+        event_count: u64,
+    },
+    RecordingPlaybackStarted {
+        path: std::path::PathBuf,
+    },
+    RecordingPlaybackFinished,
+    RecordingExported {
+        input_path: std::path::PathBuf,
+        output_path: std::path::PathBuf,
+        format: RecordingExportFormat,
     },
 }
 

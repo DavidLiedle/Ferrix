@@ -27,7 +27,7 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 
 ## ✨ Features
 
-### Currently Working (v0.9.0)
+### Currently Working (v0.10.0)
 - ✅ **Session Management** - Create, attach, detach, list, and kill sessions
 - ✅ **Client-Server Architecture** - Robust separation with async Rust
 - ✅ **Multiple Windows & Panes** - Split panes, navigate between them, and manage layouts
@@ -36,8 +36,8 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 - ✅ **Visual Pane Rendering** - Borders, focus indication, and content display
 - ✅ **Session Snapshots** - Save and restore complete session state including layouts
 - ✅ **Enhanced Status Bar** - Shows session info, window/pane counts, activity indicators, and time
-- ✅ **Copy Mode** - Enter copy mode for text selection (UI in progress)
-- ✅ **Configuration System** - Generate and validate TOML configuration
+- ✅ **Copy Mode** - Visual selection, yank to clipboard, search functionality
+- ✅ **Configuration System** - Generate and validate TOML configuration with hot reload
 - ✅ **Scrollback Buffer** - Optimized scrollback with configurable capacity
 - ✅ **Pane Synchronization** - Broadcast input to all panes in a window
 - ✅ **Session Locking** - Read-only mode for secure session viewing
@@ -46,19 +46,20 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 - ✅ **Pane Zoom** - Focus on a single pane by zooming it to full window
 - ✅ **Keybinding Customization** - Load custom keybindings from config, runtime modification
 - ✅ **Auto-Save Intervals** - Automatic session snapshots at configurable intervals
+- ✅ **Full ANSI/VT100 Terminal Emulation** - Complete support for vim, less, htop, and other TUI apps
+- ✅ **Command Mode** - 30+ tmux-compatible commands for advanced control
+- ✅ **Plugin System** - WASM-based plugin architecture with hot loading
+- ✅ **Session Recording & Replay** - Record and replay terminal sessions with compression
+- ✅ **Remote Sessions** - TCP/TLS support for remote multiplexing
+- ✅ **Performance Optimizations** - Adaptive batching, delta compression, backpressure handling
+- ✅ **Comprehensive Test Suite** - 250+ tests covering unit, integration, protocol, and E2E testing
 
-### Partially Implemented
-- 🔧 **Enhanced Copy Mode** - Vi-style navigation framework (needs UI completion)
-- 🔧 **Command Mode** - Architecture ready, needs command parser
-- 🔧 **Session Versioning** - Core implementation exists, needs integration
-- 🔧 **Remote Sessions** - TCP/TLS framework ready, needs testing
-- 🔧 **Plugin System** - WASM architecture complete, needs activation
-
-### Planned
-- 📋 **Native Clipboard** - Cross-platform clipboard integration
-- 📋 **GPU Acceleration** - Optional wgpu-based rendering
-- 📋 **Hot Reload Config** - Live configuration updates
-- 📋 **Advanced Scripting** - Lua or Rhai scripting support
+### Future Enhancements
+- 📋 **GPU Acceleration** - Optional wgpu-based rendering for better performance
+- 📋 **Advanced Scripting** - Lua or Rhai scripting support for automation
+- 📋 **Multi-User Collaboration** - Real-time collaborative editing
+- 📋 **Advanced Layout Management** - Custom layout presets and templates
+- 📋 **Extended Protocol Support** - SSH, Mosh integration
 
 ## 🚀 Quick Start
 

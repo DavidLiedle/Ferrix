@@ -13,6 +13,8 @@ pub mod versioning;
 pub mod session_manager;
 pub mod scrollback;
 pub mod activity;
+pub mod recording;
+pub mod performance;
 // #[cfg(test)]
 // mod pty_tests;
 // #[cfg(test)]
@@ -1461,6 +1463,304 @@ async fn handle_message(
                 Ok(Some(ServerMessage::Error {
                     message: "No session specified".to_string(),
                 }))
+            }
+        }
+
+        ClientMessage::StartRecording { session_id, output_path } => {
+            let sid = session_id.or_else(|| {
+                let clients_guard = futures::executor::block_on(clients.read());
+                clients_guard.get(client_id).and_then(|c| c.attached_session.clone())
+            });
+
+            if let Some(sid) = sid {
+                let sessions_guard = sessions.read().await;
+                if let Some(session_arc) = sessions_guard.get(&sid) {
+                    let mut session_guard = session_arc.write().await;
+
+                    let path = output_path.unwrap_or_else(|| {
+                        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+                        let recordings_dir = dirs::home_dir()
+                            .map(|h| h.join(".ferrix/recordings"))
+                            .unwrap_or_else(|| PathBuf::from("./recordings"));
+                        std::fs::create_dir_all(&recordings_dir).ok();
+                        recordings_dir.join(format!("session_{}_{}.ferrix-rec", sid.0, timestamp))
+                    });
+
+                    match session_guard.start_recording(path.clone()).await {
+                        Ok(_) => {
+                            info!("Started recording session {} to {:?}", sid.0, path);
+                            Ok(Some(ServerMessage::RecordingStarted {
+                                session_id: sid,
+                                output_path: path
+                            }))
+                        }
+                        Err(e) => {
+                            Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to start recording: {}", e),
+                            }))
+                        }
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: format!("Session not found: {:?}", sid),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "No session specified or attached".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::StopRecording { session_id } => {
+            let sid = session_id.or_else(|| {
+                let clients_guard = futures::executor::block_on(clients.read());
+                clients_guard.get(client_id).and_then(|c| c.attached_session.clone())
+            });
+
+            if let Some(sid) = sid {
+                let sessions_guard = sessions.read().await;
+                if let Some(session_arc) = sessions_guard.get(&sid) {
+                    let mut session_guard = session_arc.write().await;
+
+                    match session_guard.stop_recording().await {
+                        Ok((duration_secs, file_size)) => {
+                            info!("Stopped recording session {} (duration: {}s, size: {} bytes)",
+                                  sid.0, duration_secs, file_size);
+                            Ok(Some(ServerMessage::RecordingStopped {
+                                session_id: sid,
+                                duration_secs,
+                                file_size
+                            }))
+                        }
+                        Err(e) => {
+                            Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to stop recording: {}", e),
+                            }))
+                        }
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: format!("Session not found: {:?}", sid),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "No session specified or attached".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::PauseRecording { session_id } => {
+            let sid = session_id.or_else(|| {
+                let clients_guard = futures::executor::block_on(clients.read());
+                clients_guard.get(client_id).and_then(|c| c.attached_session.clone())
+            });
+
+            if let Some(sid) = sid {
+                let sessions_guard = sessions.read().await;
+                if let Some(session_arc) = sessions_guard.get(&sid) {
+                    let mut session_guard = session_arc.write().await;
+
+                    match session_guard.pause_recording().await {
+                        Ok(_) => {
+                            info!("Paused recording for session {}", sid.0);
+                            Ok(Some(ServerMessage::RecordingPaused { session_id: sid }))
+                        }
+                        Err(e) => {
+                            Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to pause recording: {}", e),
+                            }))
+                        }
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: format!("Session not found: {:?}", sid),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "No session specified or attached".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::ResumeRecording { session_id } => {
+            let sid = session_id.or_else(|| {
+                let clients_guard = futures::executor::block_on(clients.read());
+                clients_guard.get(client_id).and_then(|c| c.attached_session.clone())
+            });
+
+            if let Some(sid) = sid {
+                let sessions_guard = sessions.read().await;
+                if let Some(session_arc) = sessions_guard.get(&sid) {
+                    let mut session_guard = session_arc.write().await;
+
+                    match session_guard.resume_recording().await {
+                        Ok(_) => {
+                            info!("Resumed recording for session {}", sid.0);
+                            Ok(Some(ServerMessage::RecordingResumed { session_id: sid }))
+                        }
+                        Err(e) => {
+                            Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to resume recording: {}", e),
+                            }))
+                        }
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: format!("Session not found: {:?}", sid),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "No session specified or attached".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::RecordingStatus { session_id } => {
+            let sid = session_id.or_else(|| {
+                let clients_guard = futures::executor::block_on(clients.read());
+                clients_guard.get(client_id).and_then(|c| c.attached_session.clone())
+            });
+
+            if let Some(sid) = sid {
+                let sessions_guard = sessions.read().await;
+                if let Some(session_arc) = sessions_guard.get(&sid) {
+                    let session_guard = session_arc.read().await;
+
+                    let status = session_guard.get_recording_status().await;
+                    Ok(Some(ServerMessage::RecordingStatus {
+                        session_id: sid,
+                        is_recording: status.is_recording,
+                        is_paused: status.is_paused,
+                        output_path: status.output_path,
+                        duration_secs: status.duration_secs,
+                        event_count: status.event_count,
+                    }))
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: format!("Session not found: {:?}", sid),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "No session specified or attached".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::PlayRecording { path, speed } => {
+            use crate::server::recording::SessionPlayer;
+
+            let speed = speed.unwrap_or(1.0);
+            let clients_clone = clients.clone();
+            let client_id_clone = client_id.clone();
+
+            tokio::spawn(async move {
+                match SessionPlayer::load(&path) {
+                    Ok(mut player) => {
+                        info!("Starting playback of recording: {:?}", path);
+
+                        // Notify client playback has started
+                        let clients_guard = clients_clone.read().await;
+                        if let Some(client) = clients_guard.get(&client_id_clone) {
+                            let _ = client.sender.send(ServerMessage::RecordingPlaybackStarted {
+                                path: path.clone()
+                            }).await;
+                        }
+                        drop(clients_guard);
+
+                        // Play the recording
+                        if let Err(e) = player.play(speed, |event| {
+                            let clients_clone2 = clients_clone.clone();
+                            let client_id_clone2 = client_id_clone.clone();
+
+                            Box::pin(async move {
+                                use crate::server::recording::RecordingEvent;
+
+                                let clients_guard = clients_clone2.read().await;
+                                if let Some(client) = clients_guard.get(&client_id_clone2) {
+                                    match event {
+                                        RecordingEvent::Output { data, .. } => {
+                                            let _ = client.sender.send(ServerMessage::Output { data }).await;
+                                        }
+                                        RecordingEvent::Input { .. } => {
+                                            // Optionally show input events during playback
+                                        }
+                                        RecordingEvent::Resize { cols, rows, .. } => {
+                                            // Handle resize events during playback
+                                            // This would need a new server message type
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            })
+                        }).await {
+                            error!("Playback error: {}", e);
+                        }
+
+                        // Notify client playback has finished
+                        let clients_guard = clients_clone.read().await;
+                        if let Some(client) = clients_guard.get(&client_id_clone) {
+                            let _ = client.sender.send(ServerMessage::RecordingPlaybackFinished).await;
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to load recording: {}", e);
+                        let clients_guard = clients_clone.read().await;
+                        if let Some(client) = clients_guard.get(&client_id_clone) {
+                            let _ = client.sender.send(ServerMessage::Error {
+                                message: format!("Failed to load recording: {}", e),
+                            }).await;
+                        }
+                    }
+                }
+            });
+
+            Ok(None) // Response is sent asynchronously
+        }
+
+        ClientMessage::ExportRecording { path, format, output_path } => {
+            use crate::server::recording::SessionPlayer;
+
+            match SessionPlayer::load(&path) {
+                Ok(player) => {
+                    let export_result = match format {
+                        crate::protocol::RecordingExportFormat::Asciinema => {
+                            player.export_asciinema(&output_path)
+                        }
+                        crate::protocol::RecordingExportFormat::Text => {
+                            player.export_text(&output_path)
+                        }
+                        crate::protocol::RecordingExportFormat::Html => {
+                            // HTML export not yet implemented
+                            Err(crate::error::FerrixError::Other("HTML export not yet implemented".to_string()))
+                        }
+                    };
+
+                    match export_result {
+                        Ok(_) => {
+                            info!("Exported recording to {:?} as {:?}", output_path, format);
+                            Ok(Some(ServerMessage::RecordingExported {
+                                input_path: path,
+                                output_path,
+                                format,
+                            }))
+                        }
+                        Err(e) => {
+                            Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to export recording: {}", e),
+                            }))
+                        }
+                    }
+                }
+                Err(e) => {
+                    Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to load recording: {}", e),
+                    }))
+                }
             }
         }
 

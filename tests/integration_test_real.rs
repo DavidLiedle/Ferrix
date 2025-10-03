@@ -10,9 +10,9 @@ async fn test_basic_session_operations() {
 
     // Start server
     let mut server = Command::new("./target/release/ferrix")
-        .arg("server")
         .arg("--socket")
         .arg(&socket_path)
+        .arg("server")
         .arg("--foreground")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -24,11 +24,11 @@ async fn test_basic_session_operations() {
 
     // Create a session
     let output = Command::new("./target/release/ferrix")
+        .arg("--socket")
+        .arg(&socket_path)
         .arg("new")
         .arg("-s")
         .arg("test-session")
-        .arg("--socket")
-        .arg(&socket_path)
         .arg("--detached")
         .output()
         .expect("Failed to create session");
@@ -38,9 +38,9 @@ async fn test_basic_session_operations() {
 
     // List sessions
     let output = Command::new("./target/release/ferrix")
-        .arg("list")
         .arg("--socket")
         .arg(&socket_path)
+        .arg("list")
         .output()
         .expect("Failed to list sessions");
 
@@ -50,11 +50,11 @@ async fn test_basic_session_operations() {
 
     // Kill the session
     let output = Command::new("./target/release/ferrix")
+        .arg("--socket")
+        .arg(&socket_path)
         .arg("kill")
         .arg("-t")
         .arg("test-session")
-        .arg("--socket")
-        .arg(&socket_path)
         .output()
         .expect("Failed to kill session");
 
@@ -71,9 +71,9 @@ async fn test_window_pane_operations() {
 
     // Start server
     let mut server = Command::new("./target/release/ferrix")
-        .arg("server")
         .arg("--socket")
         .arg(&socket_path)
+        .arg("server")
         .arg("--foreground")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -84,11 +84,11 @@ async fn test_window_pane_operations() {
 
     // Create a session
     Command::new("./target/release/ferrix")
+        .arg("--socket")
+        .arg(&socket_path)
         .arg("new")
         .arg("-s")
         .arg("window-test")
-        .arg("--socket")
-        .arg(&socket_path)
         .arg("--detached")
         .output()
         .expect("Failed to create session");
@@ -98,11 +98,11 @@ async fn test_window_pane_operations() {
 
     // Clean up
     Command::new("./target/release/ferrix")
+        .arg("--socket")
+        .arg(&socket_path)
         .arg("kill")
         .arg("-t")
         .arg("window-test")
-        .arg("--socket")
-        .arg(&socket_path)
         .output()
         .expect("Failed to kill session");
 
@@ -118,9 +118,9 @@ async fn test_session_persistence() {
 
     // Start server
     let mut server = Command::new("./target/release/ferrix")
-        .arg("server")
         .arg("--socket")
         .arg(&socket_path)
+        .arg("server")
         .arg("--foreground")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -131,23 +131,23 @@ async fn test_session_persistence() {
 
     // Create a session
     Command::new("./target/release/ferrix")
+        .arg("--socket")
+        .arg(&socket_path)
         .arg("new")
         .arg("-s")
         .arg("persist-test")
-        .arg("--socket")
-        .arg(&socket_path)
         .arg("--detached")
         .output()
         .expect("Failed to create session");
 
     // Save snapshot
     let output = Command::new("./target/release/ferrix")
+        .arg("--socket")
+        .arg(&socket_path)
         .arg("save-snapshot")
         .arg("persist-test")
         .arg("--name")
         .arg("test-snapshot")
-        .arg("--socket")
-        .arg(&socket_path)
         .output()
         .expect("Failed to save snapshot");
 
@@ -158,9 +158,9 @@ async fn test_session_persistence() {
 
     // List snapshots
     let output = Command::new("./target/release/ferrix")
-        .arg("list-snapshots")
         .arg("--socket")
         .arg(&socket_path)
+        .arg("list-snapshots")
         .output()
         .expect("Failed to list snapshots");
 
@@ -172,11 +172,11 @@ async fn test_session_persistence() {
 
     // Clean up
     Command::new("./target/release/ferrix")
+        .arg("--socket")
+        .arg(&socket_path)
         .arg("kill")
         .arg("-t")
         .arg("persist-test")
-        .arg("--socket")
-        .arg(&socket_path)
         .output()
         .expect("Failed to kill session");
 
@@ -190,9 +190,9 @@ async fn test_detach_reattach() {
 
     // Start server
     let mut server = Command::new("./target/release/ferrix")
-        .arg("server")
         .arg("--socket")
         .arg(&socket_path)
+        .arg("server")
         .arg("--foreground")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -203,11 +203,11 @@ async fn test_detach_reattach() {
 
     // Create a detached session
     let output = Command::new("./target/release/ferrix")
+        .arg("--socket")
+        .arg(&socket_path)
         .arg("new")
         .arg("-s")
         .arg("detach-test")
-        .arg("--socket")
-        .arg(&socket_path)
         .arg("--detached")
         .output()
         .expect("Failed to create session");
@@ -216,9 +216,9 @@ async fn test_detach_reattach() {
 
     // Verify session exists
     let output = Command::new("./target/release/ferrix")
-        .arg("list")
         .arg("--socket")
         .arg(&socket_path)
+        .arg("list")
         .output()
         .expect("Failed to list sessions");
 
@@ -227,11 +227,11 @@ async fn test_detach_reattach() {
 
     // Clean up
     Command::new("./target/release/ferrix")
+        .arg("--socket")
+        .arg(&socket_path)
         .arg("kill")
         .arg("-t")
         .arg("detach-test")
-        .arg("--socket")
-        .arg(&socket_path)
         .output()
         .expect("Failed to kill session");
 

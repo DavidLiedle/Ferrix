@@ -5,6 +5,66 @@ All notable changes to Ferrix will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2025-10-03
+
+### Added
+- **Full ANSI/VT100 Terminal Emulation**: Complete support for vim, less, htop, and other TUI applications
+  - DEC Private Modes support (?25h/l, ?1049h/l, ?2004h/l, etc.)
+  - 256-color and RGB color support
+  - Alternate screen buffer for full-screen applications
+  - Complete SGR (Select Graphic Rendition) implementation
+  - Line drawing and special characters support
+- **Enhanced Copy Mode**: Visual selection with clipboard integration
+  - Visual mode for text selection
+  - Yank to system clipboard via arboard
+  - Search functionality with highlighting
+  - Vi-style navigation commands
+- **Command Mode**: 30+ tmux-compatible commands
+  - Session, window, and pane management commands
+  - Configuration commands (set-option, show-options)
+  - Recording and snapshot commands
+  - Plugin management commands
+- **Plugin System**: WASM-based plugin architecture
+  - Hot loading and reloading of plugins
+  - Plugin API for extending functionality
+  - Event system for plugin communication
+  - Isolated execution with wasmtime 27.0
+- **Session Recording & Replay**: Record terminal sessions for later playback
+  - Compression support with gzip
+  - Metadata tracking (duration, terminal size, etc.)
+  - Recording events: input, output, resize
+  - Playback with timing preservation
+- **Hot Configuration Reload**: Live configuration updates without restart
+  - File watching with debouncing
+  - Automatic validation and rollback on error
+  - Supports all configuration options
+- **Remote Sessions**: TCP/TLS support for remote multiplexing
+  - Secure TLS connections with rustls
+  - Authentication system with user management
+  - Remote attach/detach capabilities
+- **Performance Optimizations**: Enhanced for large outputs
+  - Adaptive batching based on throughput
+  - Delta compression for screen updates
+  - Backpressure handling to prevent buffer overflow
+  - Optimized PTY reading with larger buffers
+- **Comprehensive Test Suite**: 250+ tests
+  - Unit tests for all core components
+  - Integration tests for component interaction
+  - Protocol tests for message handling
+  - End-to-end tests for real workflows
+
+### Changed
+- Improved pane resizing with layout-aware algorithms
+- Enhanced search functionality with regex support
+- Better error handling and recovery mechanisms
+- Updated dependencies to latest versions
+
+### Fixed
+- Fixed CSI parameter parsing for DEC Private Mode sequences
+- Fixed protocol message mismatches in command mode
+- Fixed test compilation errors for internal types
+- Fixed CLI argument ordering in tests
+
 ## [0.9.3] - 2025-10-03
 
 ### Fixed

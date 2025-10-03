@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
+use std::path::PathBuf;
 use tokio::sync::RwLock;
 use chrono::Utc;
 use uuid::Uuid;
@@ -9,6 +10,7 @@ use crate::protocol::{SessionId, WindowId, PaneId, SplitDirection};
 use super::window::Window;
 use super::snapshot::{SessionSnapshot, SnapshotMetadata, SessionState, WindowState, PaneState};
 use super::layout::NavigationDirection;
+use super::recording::SessionRecorder;
 
 #[derive(Debug, Clone)]
 pub struct CopyModeState {
@@ -32,8 +34,19 @@ pub struct Session {
     pub auto_save_enabled: bool,
     pub auto_save_interval: Duration,
     pub last_auto_save: Option<chrono::DateTime<chrono::Utc>>,
+    pub recorder: Option<SessionRecorder>,
 }
 
+#[derive(Debug, Clone)]
+pub struct RecordingStatus {
+    pub is_recording: bool,
+    pub is_paused: bool,
+    pub output_path: Option<PathBuf>,
+    pub duration_secs: u64,
+    pub event_count: u64,
+}
+
+// Move these methods to proper location
 impl Session {
     pub fn new(id: SessionId, name: String) -> Self {
         let window_id = WindowId(Uuid::new_v4());
@@ -51,6 +64,7 @@ impl Session {
             auto_save_enabled: false,
             auto_save_interval: Duration::from_secs(300), // Default 5 minutes
             last_auto_save: None,
+            recorder: None,
         }
     }
 
@@ -64,6 +78,9 @@ impl Session {
         if self.copy_mode.is_some() {
             return Ok(());
         }
+
+        // Record input if recording is active
+        self.record_input(data.clone()).await;
 
         if let Some(current_window_id) = &self.current_window {
             for window in &self.windows {
@@ -87,6 +104,9 @@ impl Session {
     }
 
     pub async fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
+        // Record resize if recording is active
+        self.record_resize(cols, rows).await;
+
         if let Some(current_window_id) = &self.current_window {
             for window in &self.windows {
                 let window_guard = window.read().await;
@@ -128,6 +148,13 @@ impl Session {
                     outputs.extend(pane_outputs);
                     break;
                 }
+            }
+        }
+
+        // Record output after the borrow is released
+        for (_, ref output) in &outputs {
+            if !output.is_empty() {
+                self.record_output(output.clone()).await;
             }
         }
 
@@ -645,6 +672,7 @@ impl Session {
             auto_save_enabled: false,
             auto_save_interval: Duration::from_secs(300),
             last_auto_save: None,
+            recorder: None,
         }
     }
 
@@ -1037,25 +1065,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_session_rename_window() {
-        let session_id = SessionId(Uuid::new_v4());
-        let mut session = Session::new(session_id, "test".to_string());
-
-        // Get the default window ID
-        let window_id = session.current_window.clone().unwrap();
-
-        // Rename the window
-        let result = session.rename_window(Some(window_id.clone()), "new-name".to_string()).await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), window_id);
-
-        // Check that the window was actually renamed
-        let window_list = session.list_windows();
-        assert_eq!(window_list.len(), 1);
-        assert_eq!(window_list[0].name, "new-name");
-    }
-
-    #[tokio::test]
     async fn test_session_rename_current_window() {
         let session_id = SessionId(Uuid::new_v4());
         let mut session = Session::new(session_id, "test".to_string());
@@ -1082,5 +1091,125 @@ mod tests {
         let fake_window_id = WindowId(Uuid::new_v4());
         let result = session.rename_window(Some(fake_window_id), "should-fail".to_string()).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_session_rename_window() {
+        let session_id = SessionId(Uuid::new_v4());
+        let mut session = Session::new(session_id, "test".to_string());
+
+        // Get the default window ID
+        let window_id = session.current_window.clone().unwrap();
+
+        // Rename the window
+        let result = session.rename_window(Some(window_id.clone()), "new-name".to_string()).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), window_id);
+
+        // Check that the window was actually renamed
+        let window_list = session.list_windows();
+        assert_eq!(window_list.len(), 1);
+        assert_eq!(window_list[0].name, "new-name");
+    }
+}
+
+impl Session {
+    // Recording methods
+    pub async fn start_recording(&mut self, output_path: PathBuf) -> Result<()> {
+        if self.recorder.is_some() {
+            return Err(FerrixError::Other("Recording already in progress".to_string()));
+        }
+
+        let metadata = super::recording::RecordingMetadata {
+            version: 1,
+            session_id: self.id.clone(),
+            session_name: self.name.clone(),
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            duration_ms: None,
+            terminal_size: (80, 24), // Will be updated on first resize
+            shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
+            user: std::env::var("USER").unwrap_or_else(|_| "unknown".to_string()),
+            hostname: hostname::get()
+                .ok()
+                .and_then(|h| h.into_string().ok())
+                .unwrap_or_else(|| "unknown".to_string()),
+            compressed: output_path.extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext == "gz")
+                .unwrap_or(false),
+        };
+
+        self.recorder = Some(SessionRecorder::new(metadata, output_path)?);
+        Ok(())
+    }
+
+    pub async fn stop_recording(&mut self) -> Result<(u64, u64)> {
+        if let Some(mut recorder) = self.recorder.take() {
+            recorder.stop().await
+        } else {
+            Err(FerrixError::Other("No recording in progress".to_string()))
+        }
+    }
+
+    pub async fn pause_recording(&mut self) -> Result<()> {
+        if let Some(recorder) = &mut self.recorder {
+            recorder.pause();
+            Ok(())
+        } else {
+            Err(FerrixError::Other("No recording in progress".to_string()))
+        }
+    }
+
+    pub async fn resume_recording(&mut self) -> Result<()> {
+        if let Some(recorder) = &mut self.recorder {
+            recorder.resume();
+            Ok(())
+        } else {
+            Err(FerrixError::Other("No recording in progress".to_string()))
+        }
+    }
+
+    pub async fn get_recording_status(&self) -> RecordingStatus {
+        if let Some(recorder) = &self.recorder {
+            RecordingStatus {
+                is_recording: true,
+                is_paused: recorder.is_paused(),
+                output_path: Some(recorder.get_output_path()),
+                duration_secs: recorder.get_duration().as_secs(),
+                event_count: recorder.get_event_count(),
+            }
+        } else {
+            RecordingStatus {
+                is_recording: false,
+                is_paused: false,
+                output_path: None,
+                duration_secs: 0,
+                event_count: 0,
+            }
+        }
+    }
+
+    // Record output from a pane (should be called when output is received)
+    pub async fn record_output(&mut self, data: Vec<u8>) {
+        if let Some(recorder) = &mut self.recorder {
+            recorder.record_output(data).await.ok();
+        }
+    }
+
+    // Record input to a pane (should be called when input is sent)
+    pub async fn record_input(&mut self, data: Vec<u8>) {
+        if let Some(recorder) = &mut self.recorder {
+            recorder.record_input(data).await.ok();
+        }
+    }
+
+    // Record terminal resize event
+    pub async fn record_resize(&mut self, cols: u16, rows: u16) {
+        if let Some(recorder) = &mut self.recorder {
+            recorder.record_resize(cols, rows).await.ok();
+        }
     }
 }

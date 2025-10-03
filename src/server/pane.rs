@@ -162,7 +162,7 @@ mod tests {
         let pane = Pane::new(pane_id);
 
         assert!(pane.scrollback.is_empty());
-        assert_eq!(pane.scrollback.capacity(), 0);
+        assert_eq!(pane.scrollback.len(), 0);
     }
 
     #[tokio::test]

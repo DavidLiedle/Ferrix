@@ -180,11 +180,11 @@ pub enum Commands {
 
     #[command(about = "Rename a window")]
     RenameWindow {
-        #[arg(help = "Window ID (if not provided, renames current window)")]
-        window_id: Option<String>,
-
         #[arg(help = "New name for the window")]
         new_name: String,
+
+        #[arg(help = "Window ID (if not provided, renames current window)")]
+        window_id: Option<String>,
     },
 
     #[command(about = "Toggle activity monitoring for a pane")]
@@ -409,7 +409,7 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Some(Commands::RenameWindow { window_id, new_name }) => {
+            Some(Commands::RenameWindow { new_name, window_id }) => {
                 assert_eq!(window_id, None);
                 assert_eq!(new_name, "new-window-name");
             }
@@ -419,11 +419,11 @@ mod tests {
 
     #[test]
     fn test_cli_rename_window_with_id() {
-        let args = vec!["ferrix", "rename-window", "550e8400-e29b-41d4-a716-446655440000", "new-window-name"];
+        let args = vec!["ferrix", "rename-window", "new-window-name", "550e8400-e29b-41d4-a716-446655440000"];
         let cli = Cli::try_parse_from(args).unwrap();
 
         match cli.command {
-            Some(Commands::RenameWindow { window_id, new_name }) => {
+            Some(Commands::RenameWindow { new_name, window_id }) => {
                 assert_eq!(window_id, Some("550e8400-e29b-41d4-a716-446655440000".to_string()));
                 assert_eq!(new_name, "new-window-name");
             }

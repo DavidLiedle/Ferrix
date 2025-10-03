@@ -4,6 +4,7 @@ use portable_pty::{CommandBuilder, PtySize, native_pty_system, Child};
 use tokio::sync::{mpsc, broadcast};
 
 use crate::error::{FerrixError, Result};
+use super::performance::{OutputProcessor, PerformanceConfig};
 
 pub struct Pty {
     writer_tx: mpsc::Sender<Vec<u8>>,
@@ -69,7 +70,9 @@ impl Pty {
 
             std::thread::spawn(move || {
                 let mut reader = reader;
-                let mut buffer = vec![0u8; 4096];
+                // Use larger buffer for better performance with large outputs
+                let mut buffer = vec![0u8; 64 * 1024]; // 64KB buffer
+                let mut consecutive_reads = 0;
                 tracing::debug!("PTY reader thread started");
                 loop {
                     // Check for shutdown signal
@@ -85,13 +88,32 @@ impl Pty {
                         }
                         Ok(n) => {
                             let data = buffer[..n].to_vec();
-                            tracing::trace!("PTY read {} bytes: {:?}", n, String::from_utf8_lossy(&data[..n.min(50)]));
+                            consecutive_reads += 1;
+
+                            // Adaptive delay - if we're getting lots of data, read faster
+                            let delay = if consecutive_reads > 10 {
+                                // High throughput - minimal delay
+                                0
+                            } else if consecutive_reads > 5 {
+                                // Medium throughput
+                                1
+                            } else {
+                                // Low throughput
+                                5
+                            };
+
+                            tracing::trace!("PTY read {} bytes (consecutive: {})", n, consecutive_reads);
                             if tx.blocking_send(data).is_err() {
                                 tracing::error!("Failed to send PTY data to channel");
                                 break;
                             }
+
+                            if delay > 0 {
+                                std::thread::sleep(std::time::Duration::from_micros(delay));
+                            }
                         }
                         Err(e) => {
+                            consecutive_reads = 0; // Reset counter on error
                             if e.kind() == std::io::ErrorKind::WouldBlock ||
                                e.kind() == std::io::ErrorKind::Interrupted {
                                 std::thread::sleep(std::time::Duration::from_millis(1));

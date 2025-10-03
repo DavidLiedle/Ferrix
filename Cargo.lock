@@ -464,6 +464,9 @@ name = "bytes"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "calloop"
@@ -1433,7 +1436,7 @@ dependencies = [
 
 [[package]]
 name = "ferrix"
-version = "0.9.3"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "arboard",

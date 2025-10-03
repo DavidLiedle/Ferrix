@@ -1,6 +1,6 @@
 [package]
 name = "ferrix"
-version = "0.9.3"
+version = "0.10.0"
 edition = "2021"
 authors = ["David Liedle", "Claude <noreply@anthropic.com>"]
 description = "A new Rust-based terminal multiplexer"
@@ -14,7 +14,7 @@ categories = ["command-line-utilities"]
 tokio = { version = "1.40", features = ["full"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 futures = "0.3"
-bytes = "1.8"
+bytes = { version = "1.8", features = ["serde"] }
 async-trait = "0.1"
 
 # Terminal handling
@@ -104,6 +104,10 @@ pretty_assertions = "1.4"
 
 [[bench]]
 name = "startup"
+harness = false
+
+[[bench]]
+name = "large_output"
 harness = false
 
 [profile.release]
