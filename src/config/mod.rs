@@ -2,6 +2,7 @@ pub mod parser;
 pub mod keybindings;
 pub mod ferrixrc;
 pub mod loader;
+pub mod hot_reload;
 // #[cfg(test)]
 // mod tests;
 
@@ -13,7 +14,7 @@ use directories::ProjectDirs;
 
 use crate::error::{FerrixError, Result};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
     #[serde(default)]
     pub general: GeneralConfig,
@@ -35,7 +36,7 @@ pub struct Config {
     pub advanced: AdvancedConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GeneralConfig {
     pub default_shell: String,
     pub escape_key: String,
@@ -47,13 +48,13 @@ pub struct GeneralConfig {
     pub display_panes_time: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct KeyBindings {
     pub prefix: String,
     pub custom: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StatusBarConfig {
     pub enabled: bool,
     pub position: StatusBarPosition,
@@ -64,14 +65,14 @@ pub struct StatusBarConfig {
     pub height: u16,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum StatusBarPosition {
     Top,
     Bottom,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ColorConfig {
     pub background: String,
     pub foreground: String,
@@ -89,21 +90,21 @@ pub struct ColorConfig {
     pub message_fg: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WindowConfig {
     pub renumber: bool,
     pub base_index: usize,
     pub aggressive_resize: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PaneConfig {
     pub base_index: usize,
     pub display_borders: bool,
     pub border_style: BorderStyle,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum BorderStyle {
     Single,
@@ -112,21 +113,21 @@ pub enum BorderStyle {
     Rounded,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CopyModeConfig {
     pub mode: CopyModeStyle,
     pub use_system_clipboard: bool,
     pub exit_after_selection: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum CopyModeStyle {
     Vi,
     Emacs,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PluginConfig {
     pub enabled: bool,
     pub directory: String,
@@ -134,7 +135,7 @@ pub struct PluginConfig {
     pub plugins: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AdvancedConfig {
     pub auto_save_session: bool,
     pub auto_save_interval: u64,

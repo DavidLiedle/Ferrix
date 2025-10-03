@@ -65,6 +65,9 @@ arboard = "3.4"
 # Search
 regex = "1.10"
 
+# File watching for hot reload
+notify = "6.1"
+
 # System info for status bar
 sysinfo = "0.32"
 battery = "0.7"
@@ -81,8 +84,6 @@ md5 = "0.7"
 # Password hashing
 bcrypt = "0.15"
 
-# File watching for config reload
-notify = "6.1"
 
 # TLS for remote sessions
 rustls = "0.23"
