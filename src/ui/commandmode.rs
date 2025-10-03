@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
-use crate::protocol::{ClientMessage, SessionId, WindowId, PaneId, SplitDirection, ResizeDirection};
-use crate::error::Result;
+use crate::protocol::{ClientMessage, SplitDirection, ResizeDirection};
 
 #[derive(Debug, Clone)]
 pub enum CommandResult {

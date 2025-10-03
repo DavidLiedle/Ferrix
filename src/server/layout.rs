@@ -117,6 +117,71 @@ impl Layout {
         }
     }
 
+    /// Resize a specific pane by adjusting the split ratios of its parent
+    pub fn resize_pane(&mut self, pane_id: &PaneId, direction: crate::protocol::ResizeDirection, amount: f32) -> bool {
+        self.resize_pane_internal(pane_id, direction, amount)
+    }
+
+    fn resize_pane_internal(&mut self, target_pane_id: &PaneId, direction: crate::protocol::ResizeDirection, amount: f32) -> bool {
+        match self {
+            Layout::Split { direction: split_dir, ratio, first, second } => {
+                // Check if one of our children is the target pane
+                let first_contains = first.contains_pane(target_pane_id);
+                let second_contains = second.contains_pane(target_pane_id);
+
+                if first_contains || second_contains {
+                    // Determine if we should adjust this split
+                    let should_adjust = match (&direction, split_dir) {
+                        (crate::protocol::ResizeDirection::Left | crate::protocol::ResizeDirection::Right,
+                         SplitDirection::Vertical) => true,
+                        (crate::protocol::ResizeDirection::Up | crate::protocol::ResizeDirection::Down,
+                         SplitDirection::Horizontal) => true,
+                        _ => false,
+                    };
+
+                    if should_adjust {
+                        // Calculate new ratio based on resize direction
+                        let delta = amount / 100.0; // Convert to ratio delta
+
+                        let new_ratio = match direction {
+                            crate::protocol::ResizeDirection::Left | crate::protocol::ResizeDirection::Up => {
+                                if first_contains {
+                                    (*ratio - delta).max(0.1)
+                                } else {
+                                    (*ratio + delta).min(0.9)
+                                }
+                            }
+                            crate::protocol::ResizeDirection::Right | crate::protocol::ResizeDirection::Down => {
+                                if first_contains {
+                                    (*ratio + delta).min(0.9)
+                                } else {
+                                    (*ratio - delta).max(0.1)
+                                }
+                            }
+                        };
+
+                        *ratio = new_ratio;
+                        return true;
+                    }
+                }
+
+                // Recurse into children
+                first.resize_pane_internal(target_pane_id, direction, amount) ||
+                second.resize_pane_internal(target_pane_id, direction, amount)
+            }
+            Layout::Leaf(_) => false,
+        }
+    }
+
+    fn contains_pane(&self, pane_id: &PaneId) -> bool {
+        match self {
+            Layout::Leaf(id) => id == pane_id,
+            Layout::Split { first, second, .. } => {
+                first.contains_pane(pane_id) || second.contains_pane(pane_id)
+            }
+        }
+    }
+
     pub fn get_dimensions(&self, total_width: u16, total_height: u16) -> Vec<(PaneId, u16, u16, u16, u16)> {
         self.get_dimensions_internal(0, 0, total_width, total_height)
     }

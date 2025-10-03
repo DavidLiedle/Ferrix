@@ -19,7 +19,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::error::{FerrixError, Result};
 use crate::protocol::{ClientMessage, ServerMessage, SessionId, codec::FerrixClientCodec, LayoutInfo, PaneInfo, PaneId};
-use crate::config::{Config, keybindings::{KeyBindingManager, KeyBinding, Action}, CopyModeStyle};
+use crate::config::{Config, keybindings::{KeyBindingManager, KeyBinding, Action}};
 use crate::ui::copymode::{CopyMode, CopyModeState, SearchDirection};
 use crate::ui::mouse::{MouseHandler, MouseAction};
 use crate::ui::commandmode::{CommandMode, CommandResult};

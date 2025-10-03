@@ -1462,6 +1462,7 @@ dependencies = [
  "pretty_assertions",
  "ratatui",
  "raw-window-handle",
+ "regex",
  "reqwest",
  "rpassword",
  "rustls",
