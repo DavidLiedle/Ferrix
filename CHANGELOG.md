@@ -5,6 +5,20 @@ All notable changes to Ferrix will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2025-10-03
+
+### Fixed
+- **Critical Daemonization Fix**: Fixed tokio runtime panic on macOS when daemonizing
+  - Moved daemonization logic BEFORE tokio runtime creation
+  - Resolves "Bad file descriptor" panic in tokio I/O driver after fork
+  - Daemon now properly forks before any async operations are initialized
+  - Fixes issue where server would crash with "unable to lock pid file, errno 35"
+
+### Technical Details
+- Restructured main.rs to handle daemonization in synchronous context before async runtime
+- Prevents file descriptor issues that occur when forking after tokio initialization
+- Ensures proper daemon operation on macOS and other Unix systems
+
 ## [0.10.1] - 2025-10-03
 
 ### Fixed

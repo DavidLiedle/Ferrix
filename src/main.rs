@@ -23,9 +23,51 @@ const ASCII_LOGO: &str = r#"
 ╚═══════════════════════════════════════════╝
 "#;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+// Main entry point - handle daemonization BEFORE creating async runtime
+fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Handle daemonization before creating the tokio runtime
+    // This is critical for macOS and other Unix systems
+    if let Some(Commands::Server { foreground, .. }) = &cli.command {
+        if !foreground {
+            use daemonize::Daemonize;
+            use std::fs::File;
+
+            println!("Starting Ferrix server as daemon...");
+
+            // Create directories for daemon files if they don't exist
+            let ferrix_dir = dirs::data_local_dir()
+                .unwrap_or_else(|| PathBuf::from("/tmp"))
+                .join("ferrix");
+            std::fs::create_dir_all(&ferrix_dir).ok();
+
+            let daemon = Daemonize::new()
+                .pid_file(ferrix_dir.join("ferrix.pid"))
+                .chown_pid_file(true)
+                .working_directory("/tmp")
+                .stdout(File::create(ferrix_dir.join("ferrix.out")).unwrap())
+                .stderr(File::create(ferrix_dir.join("ferrix.err")).unwrap())
+                .privileged_action(|| "Ferrix daemon started");
+
+            match daemon.start() {
+                Ok(_) => println!("Ferrix server daemonized successfully"),
+                Err(e) => {
+                    eprintln!("Error daemonizing: {}", e);
+                    return Err(ferrix::error::FerrixError::Other(format!("Failed to daemonize: {}", e)));
+                }
+            }
+        }
+    }
+
+    // Now create the tokio runtime AFTER daemonization
+    let runtime = tokio::runtime::Runtime::new()
+        .map_err(|e| ferrix::error::FerrixError::Other(format!("Failed to create runtime: {}", e)))?;
+
+    runtime.block_on(async_main(cli))
+}
+
+async fn async_main(cli: Cli) -> Result<()> {
 
     let filter = if cli.debug {
         EnvFilter::new("debug")
@@ -41,47 +83,22 @@ async fn main() -> Result<()> {
 
     match &cli.command {
         Some(Commands::Server { foreground, remote, port, tls_cert, tls_key, bind }) => {
-            println!("{}", ASCII_LOGO);
-            println!("Starting Ferrix server...");
-            println!("Socket: {:?}", socket_path);
+            // Only show ASCII logo if not already daemonized
+            if *foreground {
+                println!("{}", ASCII_LOGO);
+                println!("Starting Ferrix server...");
+                println!("Socket: {:?}", socket_path);
 
-            if *remote {
-                println!("Remote access enabled on {}:{}", bind, port);
-                if tls_cert.is_some() && tls_key.is_some() {
-                    println!("TLS encryption enabled");
-                }
-            }
-
-            println!("The prophecy has been fulfilled! (https://github.com/cloudstreet-dev/GNU-Screen-vs-Tmux)\n");
-
-            if !foreground {
-                use daemonize::Daemonize;
-                use std::fs::File;
-
-                println!("Starting Ferrix server as daemon...");
-
-                // Create directories for daemon files if they don't exist
-                let ferrix_dir = dirs::data_local_dir()
-                    .unwrap_or_else(|| PathBuf::from("/tmp"))
-                    .join("ferrix");
-                std::fs::create_dir_all(&ferrix_dir).ok();
-
-                let daemon = Daemonize::new()
-                    .pid_file(ferrix_dir.join("ferrix.pid"))
-                    .chown_pid_file(true)
-                    .working_directory("/tmp")
-                    .stdout(File::create(ferrix_dir.join("ferrix.out")).unwrap())
-                    .stderr(File::create(ferrix_dir.join("ferrix.err")).unwrap())
-                    .privileged_action(|| "Ferrix daemon started");
-
-                match daemon.start() {
-                    Ok(_) => println!("Ferrix server daemonized successfully"),
-                    Err(e) => {
-                        eprintln!("Error daemonizing: {}", e);
-                        return Err(ferrix::error::FerrixError::Other(format!("Failed to daemonize: {}", e)));
+                if *remote {
+                    println!("Remote access enabled on {}:{}", bind, port);
+                    if tls_cert.is_some() && tls_key.is_some() {
+                        println!("TLS encryption enabled");
                     }
                 }
+
+                println!("The prophecy has been fulfilled! (https://github.com/cloudstreet-dev/GNU-Screen-vs-Tmux)\n");
             }
+            // Note: daemonization already handled in main() before async runtime creation
 
             let server = Arc::new(Server::new(socket_path.clone()));
 
