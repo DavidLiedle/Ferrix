@@ -1,6 +1,5 @@
 use crossterm::style::{Color, Attribute, SetForegroundColor, SetBackgroundColor, SetAttribute, ResetColor};
-use crossterm::cursor::{MoveTo, MoveUp, MoveDown, MoveLeft, MoveRight};
-use crossterm::terminal::{Clear, ClearType};
+use crossterm::cursor::{MoveTo, Hide, Show};
 use std::io::Write;
 use crate::server::scrollback::CellScrollback;
 
@@ -22,6 +21,31 @@ impl Default for Cell {
             attributes: Vec::new(),
         }
     }
+}
+
+/// DEC Private Mode states
+#[derive(Default)]
+struct DecModes {
+    cursor_visible: bool,           // ?25
+    auto_wrap: bool,                // ?7
+    origin_mode: bool,              // ?6
+    reverse_video: bool,            // ?5
+    cursor_keys_mode: bool,         // ?1
+    column_132: bool,               // ?3
+    smooth_scroll: bool,            // ?4
+    alternate_screen_active: bool,  // ?1047, ?1049
+    bracketed_paste: bool,          // ?2004
+    mouse_tracking: MouseMode,      // ?1000, ?1002, ?1003, ?1006
+}
+
+#[derive(Default, Clone, Copy, PartialEq)]
+enum MouseMode {
+    #[default]
+    Off,
+    X10,        // ?1000
+    Button,     // ?1002
+    Any,        // ?1003
+    SGR,        // ?1006
 }
 
 /// ANSI escape sequence parser for terminal emulation
@@ -46,6 +70,20 @@ pub struct AnsiParser {
     screen: Vec<Vec<Cell>>,
     /// Scrollback buffer
     scrollback: CellScrollback,
+
+    // New fields for enhanced ANSI support
+    /// Alternate screen buffer
+    alternate_screen: Option<Vec<Vec<Cell>>>,
+    /// Saved cursor for alternate screen
+    alternate_cursor: Option<(u16, u16)>,
+    /// DEC private modes
+    modes: DecModes,
+    /// Scrolling region (top, bottom) - 0-indexed
+    scroll_region: Option<(u16, u16)>,
+    /// Tab stops
+    tab_stops: Vec<u16>,
+    /// Saved attributes for cursor save/restore
+    saved_attrs: Option<(Color, Color, Vec<Attribute>)>,
 }
 
 impl AnsiParser {
@@ -55,6 +93,17 @@ impl AnsiParser {
 
     pub fn new_with_scrollback(width: u16, height: u16, scrollback_lines: usize) -> Self {
         let screen = vec![vec![Cell::default(); width as usize]; height as usize];
+
+        // Initialize default tab stops every 8 columns
+        let mut tab_stops = Vec::new();
+        for i in (8..width).step_by(8) {
+            tab_stops.push(i);
+        }
+
+        let mut modes = DecModes::default();
+        modes.cursor_visible = true;  // Cursor visible by default
+        modes.auto_wrap = true;       // Auto-wrap enabled by default
+
         Self {
             cursor_x: 0,
             cursor_y: 0,
@@ -68,12 +117,27 @@ impl AnsiParser {
             saved_cursor: None,
             screen,
             scrollback: CellScrollback::new(scrollback_lines),
+
+            // Initialize new fields
+            alternate_screen: None,
+            alternate_cursor: None,
+            modes,
+            scroll_region: None,
+            tab_stops,
+            saved_attrs: None,
         }
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
         self.width = width;
         self.height = height;
+
+        // Resize the screen buffer to match new dimensions
+        self.screen.resize(height as usize, vec![Cell::default(); width as usize]);
+        for row in &mut self.screen {
+            row.resize(width as usize, Cell::default());
+        }
+
         // Clamp cursor to new bounds
         self.cursor_x = self.cursor_x.min(width.saturating_sub(1));
         self.cursor_y = self.cursor_y.min(height.saturating_sub(1));
@@ -170,7 +234,16 @@ impl AnsiParser {
         stdout: &mut impl Write,
     ) -> std::io::Result<()> {
         let sequence = String::from_utf8_lossy(&self.escape_buffer[2..]);
-        let (params, command) = self.parse_csi_params(&sequence);
+
+        // Check for DEC private mode (starts with ?)
+        let is_private = sequence.starts_with('?');
+        let clean_seq = if is_private {
+            &sequence[1..]
+        } else {
+            &sequence
+        };
+
+        let (params, command) = self.parse_csi_params(clean_seq);
 
         match command {
             'A' => self.cursor_up(params.first().copied().unwrap_or(1)),
@@ -187,11 +260,36 @@ impl AnsiParser {
             }
             'J' => self.erase_display(params.first().copied().unwrap_or(0), pane_x, pane_y, stdout)?,
             'K' => self.erase_line(params.first().copied().unwrap_or(0), pane_x, pane_y, stdout)?,
+            'L' => self.insert_lines(params.first().copied().unwrap_or(1)),
+            'M' => self.delete_lines(params.first().copied().unwrap_or(1)),
+            '@' => self.insert_chars(params.first().copied().unwrap_or(1)),
+            'P' => self.delete_chars(params.first().copied().unwrap_or(1)),
+            'X' => self.erase_chars(params.first().copied().unwrap_or(1)),
+            'S' => self.scroll_up_region(params.first().copied().unwrap_or(1)),
+            'T' => self.scroll_down_region(params.first().copied().unwrap_or(1)),
+            'r' => {
+                let top = params.first().copied().unwrap_or(1);
+                let bottom = params.get(1).copied().unwrap_or(self.height);
+                self.set_scroll_region(top, bottom);
+            }
             'm' => self.set_graphics_mode(&params, stdout)?,
-            's' => self.save_cursor(),
-            'u' => self.restore_cursor(),
-            'l' => self.reset_mode(&params)?,
-            'h' => self.set_mode(&params)?,
+            'n' => self.device_status_report(params.first().copied().unwrap_or(0), is_private)?,
+            's' => self.save_cursor_with_attrs(),
+            'u' => self.restore_cursor_with_attrs(),
+            'l' => {
+                if is_private {
+                    self.reset_dec_mode(&params, stdout)?;
+                } else {
+                    self.reset_mode(&params)?;
+                }
+            }
+            'h' => {
+                if is_private {
+                    self.set_dec_mode(&params, stdout)?;
+                } else {
+                    self.set_mode(&params)?;
+                }
+            }
             _ => {} // Unknown command
         }
         Ok(())
@@ -430,7 +528,9 @@ impl AnsiParser {
             return Ok(());
         }
 
-        for &param in params {
+        let mut i = 0;
+        while i < params.len() {
+            let param = params[i];
             match param {
                 0 => {
                     // Reset all
@@ -448,26 +548,89 @@ impl AnsiParser {
                 8 => self.attributes.push(Attribute::Hidden),
                 9 => self.attributes.push(Attribute::CrossedOut),
 
+                // Reset specific attributes
+                21 | 22 => self.attributes.retain(|&a| a != Attribute::Bold && a != Attribute::Dim),
+                23 => self.attributes.retain(|&a| a != Attribute::Italic),
+                24 => self.attributes.retain(|&a| a != Attribute::Underlined),
+                25 => self.attributes.retain(|&a| a != Attribute::SlowBlink && a != Attribute::RapidBlink),
+                27 => self.attributes.retain(|&a| a != Attribute::Reverse),
+                28 => self.attributes.retain(|&a| a != Attribute::Hidden),
+                29 => self.attributes.retain(|&a| a != Attribute::CrossedOut),
+
                 // Foreground colors
                 30 => self.foreground = Color::Black,
-                31 => self.foreground = Color::Red,
-                32 => self.foreground = Color::Green,
-                33 => self.foreground = Color::Yellow,
-                34 => self.foreground = Color::Blue,
-                35 => self.foreground = Color::Magenta,
-                36 => self.foreground = Color::Cyan,
-                37 => self.foreground = Color::White,
+                31 => self.foreground = Color::DarkRed,
+                32 => self.foreground = Color::DarkGreen,
+                33 => self.foreground = Color::DarkYellow,
+                34 => self.foreground = Color::DarkBlue,
+                35 => self.foreground = Color::DarkMagenta,
+                36 => self.foreground = Color::DarkCyan,
+                37 => self.foreground = Color::Grey,
+
+                // Extended foreground colors (38;5;n for 256-color, 38;2;r;g;b for RGB)
+                38 => {
+                    if i + 1 < params.len() {
+                        match params[i + 1] {
+                            5 => {
+                                // 256-color mode
+                                if i + 2 < params.len() {
+                                    self.foreground = Color::AnsiValue(params[i + 2] as u8);
+                                    i += 2;
+                                }
+                            }
+                            2 => {
+                                // RGB color mode
+                                if i + 4 < params.len() {
+                                    self.foreground = Color::Rgb {
+                                        r: params[i + 2] as u8,
+                                        g: params[i + 3] as u8,
+                                        b: params[i + 4] as u8,
+                                    };
+                                    i += 4;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 39 => self.foreground = Color::Reset,
 
                 // Background colors
                 40 => self.background = Color::Black,
-                41 => self.background = Color::Red,
-                42 => self.background = Color::Green,
-                43 => self.background = Color::Yellow,
-                44 => self.background = Color::Blue,
-                45 => self.background = Color::Magenta,
-                46 => self.background = Color::Cyan,
-                47 => self.background = Color::White,
+                41 => self.background = Color::DarkRed,
+                42 => self.background = Color::DarkGreen,
+                43 => self.background = Color::DarkYellow,
+                44 => self.background = Color::DarkBlue,
+                45 => self.background = Color::DarkMagenta,
+                46 => self.background = Color::DarkCyan,
+                47 => self.background = Color::Grey,
+
+                // Extended background colors (48;5;n for 256-color, 48;2;r;g;b for RGB)
+                48 => {
+                    if i + 1 < params.len() {
+                        match params[i + 1] {
+                            5 => {
+                                // 256-color mode
+                                if i + 2 < params.len() {
+                                    self.background = Color::AnsiValue(params[i + 2] as u8);
+                                    i += 2;
+                                }
+                            }
+                            2 => {
+                                // RGB color mode
+                                if i + 4 < params.len() {
+                                    self.background = Color::Rgb {
+                                        r: params[i + 2] as u8,
+                                        g: params[i + 3] as u8,
+                                        b: params[i + 4] as u8,
+                                    };
+                                    i += 4;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 49 => self.background = Color::Reset,
 
                 // Bright foreground colors
@@ -492,6 +655,7 @@ impl AnsiParser {
 
                 _ => {} // Unknown or unsupported
             }
+            i += 1;
         }
         Ok(())
     }
@@ -737,6 +901,292 @@ impl AnsiParser {
             self.cursor_x = x;
             self.cursor_y = y;
         }
+    }
+
+    fn save_cursor_with_attrs(&mut self) {
+        self.saved_cursor = Some((self.cursor_x, self.cursor_y));
+        self.saved_attrs = Some((self.foreground, self.background, self.attributes.clone()));
+    }
+
+    fn restore_cursor_with_attrs(&mut self) {
+        if let Some((x, y)) = self.saved_cursor {
+            self.cursor_x = x;
+            self.cursor_y = y;
+        }
+        if let Some((fg, bg, attrs)) = &self.saved_attrs {
+            self.foreground = *fg;
+            self.background = *bg;
+            self.attributes = attrs.clone();
+        }
+    }
+
+    /// Handle DEC private mode set (DECSET)
+    fn set_dec_mode(&mut self, params: &[u16], stdout: &mut impl Write) -> std::io::Result<()> {
+        for &param in params {
+            match param {
+                1 => self.modes.cursor_keys_mode = true,
+                3 => self.modes.column_132 = true,
+                4 => self.modes.smooth_scroll = true,
+                5 => self.modes.reverse_video = true,
+                6 => self.modes.origin_mode = true,
+                7 => self.modes.auto_wrap = true,
+                25 => {
+                    self.modes.cursor_visible = true;
+                    crossterm::execute!(stdout, Show)?;
+                }
+                1000 => self.modes.mouse_tracking = MouseMode::X10,
+                1002 => self.modes.mouse_tracking = MouseMode::Button,
+                1003 => self.modes.mouse_tracking = MouseMode::Any,
+                1006 => self.modes.mouse_tracking = MouseMode::SGR,
+                1047 => self.use_alternate_screen(false)?,
+                1048 => self.save_cursor_with_attrs(),
+                1049 => {
+                    self.save_cursor_with_attrs();
+                    self.use_alternate_screen(true)?;
+                }
+                2004 => self.modes.bracketed_paste = true,
+                _ => {} // Ignore unknown modes
+            }
+        }
+        Ok(())
+    }
+
+    /// Handle DEC private mode reset (DECRST)
+    fn reset_dec_mode(&mut self, params: &[u16], stdout: &mut impl Write) -> std::io::Result<()> {
+        for &param in params {
+            match param {
+                1 => self.modes.cursor_keys_mode = false,
+                3 => self.modes.column_132 = false,
+                4 => self.modes.smooth_scroll = false,
+                5 => self.modes.reverse_video = false,
+                6 => self.modes.origin_mode = false,
+                7 => self.modes.auto_wrap = false,
+                25 => {
+                    self.modes.cursor_visible = false;
+                    crossterm::execute!(stdout, Hide)?;
+                }
+                1000 | 1002 | 1003 | 1006 => self.modes.mouse_tracking = MouseMode::Off,
+                1047 => self.use_normal_screen()?,
+                1048 => self.restore_cursor_with_attrs(),
+                1049 => {
+                    self.use_normal_screen()?;
+                    self.restore_cursor_with_attrs();
+                }
+                2004 => self.modes.bracketed_paste = false,
+                _ => {} // Ignore unknown modes
+            }
+        }
+        Ok(())
+    }
+
+    /// Switch to alternate screen buffer
+    fn use_alternate_screen(&mut self, clear: bool) -> std::io::Result<()> {
+        if !self.modes.alternate_screen_active {
+            // Save current screen and cursor
+            self.alternate_screen = Some(self.screen.clone());
+            self.alternate_cursor = Some((self.cursor_x, self.cursor_y));
+
+            // Create new screen buffer
+            self.screen = vec![vec![Cell::default(); self.width as usize]; self.height as usize];
+            if clear {
+                self.cursor_x = 0;
+                self.cursor_y = 0;
+            }
+            self.modes.alternate_screen_active = true;
+        }
+        Ok(())
+    }
+
+    /// Switch back to normal screen buffer
+    fn use_normal_screen(&mut self) -> std::io::Result<()> {
+        if self.modes.alternate_screen_active {
+            // Restore saved screen and cursor
+            if let Some(saved_screen) = self.alternate_screen.take() {
+                self.screen = saved_screen;
+            }
+            if let Some((x, y)) = self.alternate_cursor.take() {
+                self.cursor_x = x;
+                self.cursor_y = y;
+            }
+            self.modes.alternate_screen_active = false;
+        }
+        Ok(())
+    }
+
+    /// Insert blank lines at cursor position
+    fn insert_lines(&mut self, count: u16) {
+        let count = count as usize;
+        let cursor_row = self.cursor_y as usize;
+
+        // Determine scroll region
+        let (top, bottom) = self.get_scroll_region();
+
+        if cursor_row >= top && cursor_row <= bottom {
+            // Shift lines down within scroll region
+            for _ in 0..count {
+                if bottom < self.screen.len() {
+                    self.screen.remove(bottom);
+                }
+                self.screen.insert(cursor_row, vec![Cell::default(); self.width as usize]);
+            }
+        }
+    }
+
+    /// Delete lines at cursor position
+    fn delete_lines(&mut self, count: u16) {
+        let count = count as usize;
+        let cursor_row = self.cursor_y as usize;
+
+        // Determine scroll region
+        let (top, bottom) = self.get_scroll_region();
+
+        if cursor_row >= top && cursor_row <= bottom {
+            // Remove lines and add blank lines at bottom
+            for _ in 0..count {
+                if cursor_row < self.screen.len() {
+                    self.screen.remove(cursor_row);
+                    self.screen.insert(bottom, vec![Cell::default(); self.width as usize]);
+                }
+            }
+        }
+    }
+
+    /// Insert blank characters at cursor position
+    fn insert_chars(&mut self, count: u16) {
+        let cursor_row = self.cursor_y as usize;
+        let cursor_col = self.cursor_x as usize;
+        let count = count as usize;
+
+        if cursor_row < self.screen.len() {
+            let row = &mut self.screen[cursor_row];
+            for _ in 0..count {
+                if cursor_col < row.len() {
+                    row.insert(cursor_col, Cell::default());
+                    if row.len() > self.width as usize {
+                        row.pop();
+                    }
+                }
+            }
+        }
+    }
+
+    /// Delete characters at cursor position
+    fn delete_chars(&mut self, count: u16) {
+        let cursor_row = self.cursor_y as usize;
+        let cursor_col = self.cursor_x as usize;
+        let count = count as usize;
+
+        if cursor_row < self.screen.len() {
+            let row = &mut self.screen[cursor_row];
+            for _ in 0..count {
+                if cursor_col < row.len() {
+                    row.remove(cursor_col);
+                }
+            }
+            // Fill with blanks at the end
+            while row.len() < self.width as usize {
+                row.push(Cell::default());
+            }
+        }
+    }
+
+    /// Erase characters from cursor position (replace with spaces)
+    fn erase_chars(&mut self, count: u16) {
+        let cursor_row = self.cursor_y as usize;
+        let cursor_col = self.cursor_x as usize;
+        let count = count as usize;
+
+        if cursor_row < self.screen.len() {
+            let row = &mut self.screen[cursor_row];
+            for i in 0..count {
+                let col = cursor_col + i;
+                if col < row.len() {
+                    row[col] = Cell::default();
+                }
+            }
+        }
+    }
+
+    /// Set scrolling region
+    fn set_scroll_region(&mut self, top: u16, bottom: u16) {
+        // Convert from 1-indexed to 0-indexed
+        let top = (top.saturating_sub(1)).min(self.height - 1);
+        let bottom = (bottom.saturating_sub(1)).min(self.height - 1);
+
+        if top < bottom {
+            self.scroll_region = Some((top, bottom));
+
+            // If origin mode is set, move cursor to home position within region
+            if self.modes.origin_mode {
+                self.cursor_x = 0;
+                self.cursor_y = top;
+            }
+        }
+    }
+
+    /// Get current scroll region (0-indexed)
+    fn get_scroll_region(&self) -> (usize, usize) {
+        if let Some((top, bottom)) = self.scroll_region {
+            (top as usize, bottom as usize)
+        } else {
+            (0, (self.height - 1) as usize)
+        }
+    }
+
+    /// Scroll up within the scroll region
+    fn scroll_up_region(&mut self, count: u16) {
+        let (top, bottom) = self.get_scroll_region();
+        let count = count as usize;
+
+        for _ in 0..count {
+            if top <= bottom && bottom < self.screen.len() {
+                // Save line to scrollback if it's the top line
+                if top == 0 && !self.modes.alternate_screen_active {
+                    self.scrollback.push(self.screen[top].clone());
+                }
+
+                // Remove line from top of region
+                self.screen.remove(top);
+                // Add blank line at bottom of region
+                self.screen.insert(bottom, vec![Cell::default(); self.width as usize]);
+            }
+        }
+    }
+
+    /// Scroll down within the scroll region
+    fn scroll_down_region(&mut self, count: u16) {
+        let (top, bottom) = self.get_scroll_region();
+        let count = count as usize;
+
+        for _ in 0..count {
+            if top <= bottom && bottom < self.screen.len() {
+                // Remove line from bottom of region
+                self.screen.remove(bottom);
+                // Add blank line at top of region
+                self.screen.insert(top, vec![Cell::default(); self.width as usize]);
+            }
+        }
+    }
+
+    /// Device Status Report - respond with cursor position or status
+    fn device_status_report(&mut self, mode: u16, _is_private: bool) -> std::io::Result<()> {
+        match mode {
+            5 => {
+                // Device status report - respond with "OK" status
+                // Response: CSI 0 n
+                // TODO: Need to send this response back through the PTY
+                // This requires access to the PTY write handle
+            }
+            6 => {
+                // Cursor position report
+                // Response: CSI row ; col R
+                // TODO: Need to send this response back through the PTY
+                let _row = self.cursor_y + 1;  // Convert to 1-indexed
+                let _col = self.cursor_x + 1;
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     fn scroll_up(&mut self) {

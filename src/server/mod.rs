@@ -359,6 +359,11 @@ async fn handle_message(
                     if let Some(session) = sessions_guard.get(session_id) {
                         let mut session_guard = session.write().await;
                         session_guard.resize(cols, rows).await?;
+
+                        // Send updated layout after resize
+                        if let Some(layout) = session_guard.get_layout_info().await {
+                            return Ok(Some(ServerMessage::LayoutUpdate { layout }));
+                        }
                     }
                 }
             }

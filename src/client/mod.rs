@@ -138,6 +138,18 @@ impl Client {
                     ServerMessage::SessionAttached { .. } => {
                         self.attached_session = Some(session_id.clone());
                         info!("Attached to session: {}", session_id.0);
+
+                        // Send terminal size immediately after attaching
+                        use std::io::IsTerminal;
+                        if std::io::stdin().is_terminal() {
+                            let (cols, rows) = crossterm::terminal::size()?;
+                            self.terminal_size = (cols, rows);
+                            framed.send(ClientMessage::Resize { cols, rows }).await?;
+                        } else {
+                            // Non-TTY environment, use default size
+                            framed.send(ClientMessage::Resize { cols: 80, rows: 24 }).await?;
+                        }
+
                         // Layout will be sent automatically by server
                     }
                     ServerMessage::Error { message } => {
@@ -1014,11 +1026,26 @@ impl Client {
         use crossterm::style::{SetForegroundColor, SetBackgroundColor, SetAttribute, ResetColor, Attribute as CrosstermAttribute};
         let mut stdout = stdout();
 
-        // Calculate content area (inside borders)
-        let content_x = pane.x + 1;
-        let content_y = pane.y + 1;
-        let content_width = if pane.width > 2 { pane.width - 2 } else { 0 };
-        let content_height = if pane.height > 2 { pane.height - 2 } else { 0 };
+        // Check if we're in a single-pane layout
+        let pane_count = if let Some(layout) = &self.current_layout {
+            layout.panes.len()
+        } else {
+            1
+        };
+
+        // Calculate content area
+        // For single pane: use full area (no borders)
+        // For multiple panes: account for borders
+        let (content_x, content_y, content_width, content_height) = if pane_count == 1 {
+            (pane.x, pane.y, pane.width, pane.height)
+        } else {
+            (
+                pane.x + 1,
+                pane.y + 1,
+                if pane.width > 2 { pane.width - 2 } else { 0 },
+                if pane.height > 2 { pane.height - 2 } else { 0 }
+            )
+        };
 
         if content_width == 0 || content_height == 0 {
             return Ok(());
@@ -1129,38 +1156,55 @@ impl Client {
         use std::io::Write;
         let mut stdout = stdout();
 
-        let border_char = if pane.is_focused { '█' } else { '│' };
-        let corner_char = if pane.is_focused { '█' } else { '┌' };
+        // Check if we're in a single-pane layout
+        let pane_count = if let Some(layout) = &self.current_layout {
+            layout.panes.len()
+        } else {
+            1
+        };
+
+        // Only draw borders if there are multiple panes
+        // For single pane, skip borders for a cleaner, full-screen look
+        if pane_count == 1 {
+            return Ok(());
+        }
+
+        // Use thin line characters for a more minimal, trim look
+        let (h_line, v_line, tl_corner, tr_corner, bl_corner, br_corner) = if pane.is_focused {
+            ('─', '│', '┌', '┐', '└', '┘')  // Focused: normal weight
+        } else {
+            ('─', '│', '┌', '┐', '└', '┘')  // Unfocused: same for now, could use lighter chars
+        };
 
         // Top border
         execute!(stdout, crossterm::cursor::MoveTo(pane.x, pane.y))?;
-        write!(stdout, "{}", corner_char)?;
+        write!(stdout, "{}", tl_corner)?;
         for _ in 1..pane.width-1 {
-            write!(stdout, "─")?;
+            write!(stdout, "{}", h_line)?;
         }
         if pane.width > 1 {
-            write!(stdout, "{}", if pane.is_focused { '█' } else { '┐' })?;
+            write!(stdout, "{}", tr_corner)?;
         }
 
         // Side borders
         for y in 1..pane.height-1 {
             execute!(stdout, crossterm::cursor::MoveTo(pane.x, pane.y + y))?;
-            write!(stdout, "{}", border_char)?;
+            write!(stdout, "{}", v_line)?;
             if pane.width > 1 {
                 execute!(stdout, crossterm::cursor::MoveTo(pane.x + pane.width - 1, pane.y + y))?;
-                write!(stdout, "{}", border_char)?;
+                write!(stdout, "{}", v_line)?;
             }
         }
 
         // Bottom border
         if pane.height > 1 {
             execute!(stdout, crossterm::cursor::MoveTo(pane.x, pane.y + pane.height - 1))?;
-            write!(stdout, "{}", if pane.is_focused { '█' } else { '└' })?;
+            write!(stdout, "{}", bl_corner)?;
             for _ in 1..pane.width-1 {
-                write!(stdout, "─")?;
+                write!(stdout, "{}", h_line)?;
             }
             if pane.width > 1 {
-                write!(stdout, "{}", if pane.is_focused { '█' } else { '┘' })?;
+                write!(stdout, "{}", br_corner)?;
             }
         }
 
@@ -1570,6 +1614,11 @@ impl Client {
         }
 
         execute!(stdout, ResetColor)?;
+
+        // Hide cursor after rendering status bar
+        // The cursor will be shown again when rendering pane content
+        execute!(stdout, crossterm::cursor::Hide)?;
+
         stdout.flush()?;
 
         Ok(())
