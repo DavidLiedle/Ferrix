@@ -201,11 +201,43 @@ async fn handle_message(
             let session_name = name.unwrap_or_else(|| format!("session-{}", Uuid::new_v4()));
 
             let session = Session::new(session_id.clone(), session_name.clone());
+            let session_arc = Arc::new(RwLock::new(session));
 
             {
                 let mut sessions_guard = sessions.write().await;
-                sessions_guard.insert(session_id.clone(), Arc::new(RwLock::new(session)));
+                sessions_guard.insert(session_id.clone(), session_arc.clone());
             }
+
+            // Start persistent PTY poller for this session
+            // This runs independently of client connections
+            let session_clone = session_arc.clone();
+            let clients_clone = clients.clone();
+            let session_id_clone = session_id.clone();
+
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+                    let mut session_guard = session_clone.write().await;
+                    if let Ok(pane_outputs) = session_guard.get_all_pane_outputs().await {
+                        for (pane_id, output) in pane_outputs {
+                            if !output.is_empty() {
+                                // Broadcast to all clients attached to this session
+                                let clients_guard = clients_clone.read().await;
+                                for (_, client) in clients_guard.iter() {
+                                    if client.attached_session == Some(session_id_clone.clone()) {
+                                        // Ignore send errors - client might have disconnected
+                                        let _ = client.sender.send(ServerMessage::PaneOutput {
+                                            pane_id: pane_id.clone(),
+                                            data: output.clone()
+                                        }).await;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
 
             info!("Created session: {} ({})", session_name, session_id.0);
 
@@ -226,38 +258,8 @@ async fn handle_message(
                     }
                 }
 
-                // Start a task to poll PTY output
-                let session_clone = session.clone();
-                let clients_clone = clients.clone();
-                let client_id_clone = client_id.clone();
-                let session_id_clone = session_id.clone();
-
-                tokio::spawn(async move {
-                    loop {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-
-                        let mut session_guard = session_clone.write().await;
-                        if let Ok(pane_outputs) = session_guard.get_all_pane_outputs().await {
-                            for (pane_id, output) in pane_outputs {
-                                if !output.is_empty() {
-                                    let clients_guard = clients_clone.read().await;
-                                    if let Some(client) = clients_guard.get(&client_id_clone) {
-                                        if client.attached_session == Some(session_id_clone.clone()) {
-                                            let _ = client.sender.send(ServerMessage::PaneOutput {
-                                                pane_id,
-                                                data: output
-                                            }).await;
-                                        } else {
-                                            return; // Exit if client detached
-                                        }
-                                    } else {
-                                        return; // Exit if client not found
-                                    }
-                                }
-                            }
-                        }
-                    }
-                });
+                // Note: PTY polling is now handled per-session, not per-client
+                // This is started when the session is created, not when clients attach
 
                 info!("Client {} attached to session {}", client_id.0, session_id.0);
 

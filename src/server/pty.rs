@@ -106,12 +106,14 @@ impl Pty {
             });
 
             // Forward data from the thread to the output channel
+            // Keep reading even if there are no consumers - this keeps the PTY alive
+            // when clients detach and reattach
             tokio::select! {
                 _ = async {
                     while let Some(data) = rx.recv().await {
-                        if output_tx_clone.send(data).await.is_err() {
-                            break;
-                        }
+                        // Ignore send errors - just means no one is reading right now
+                        // The PTY should stay alive even when no clients are attached
+                        let _ = output_tx_clone.send(data).await;
                     }
                 } => {}
                 _ = shutdown_rx_reader.recv() => {
