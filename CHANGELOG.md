@@ -5,6 +5,22 @@ All notable changes to Ferrix will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2025-10-03
+
+### Fixed
+- **Session Persistence**: Fixed critical server crash on client detach
+- **PTY Channel Management**: PTY async task now handles disconnected clients gracefully
+- **Detach/Reattach Cycles**: Multiple detach/reattach cycles now work correctly
+- **Per-Session PTY Polling**: Moved PTY poller from per-client to per-session architecture
+
+### Technical Details
+- PTY reader thread no longer exits when output channel send fails
+- PTY poller broadcasts to all attached clients instead of single client
+- Sessions persist independently of client connections
+- Server remains stable when all clients detach from a session
+
+This release enables proper terminal multiplexer functionality where sessions can be detached and reattached without losing state or crashing the server.
+
 ## [0.9.2] - 2025-10-03
 
 ### Added
