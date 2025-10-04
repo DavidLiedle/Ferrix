@@ -1,0 +1,145 @@
+# Ferrix Enhanced Configuration Example
+# This config shows all available status bar widgets
+
+[general]
+default_shell = "/bin/bash"
+escape_key = "ctrl-b"
+mouse = true
+clipboard = true
+term = "xterm-256color"
+scrollback_lines = 10000
+automatic_rename = true
+display_panes_time = 2000
+
+[keybindings]
+prefix = "ctrl-b"
+
+[keybindings.custom]
+# Add custom key bindings here
+# Example: "ctrl-b f" = "find-window"
+
+[status_bar]
+enabled = true
+position = "bottom"
+height = 1
+refresh_rate = 1000
+
+# Available variables for status bar:
+# {session} - Session name
+# {session_id} - Session UUID
+# {windows} - Window list with active marker
+# {window_count} - Number of windows
+# {time} - Current time (HH:MM:SS)
+# {time:FORMAT} - Custom time format (e.g. {time:%Y-%m-%d %H:%M})
+# {date} - Current date (YYYY-MM-DD)
+# {host} - Hostname
+# {user} - Username
+# {git_branch} - Git branch with status indicator
+# {battery} - Battery level with charging status
+# {cpu} - CPU usage with indicator
+# {memory} - Memory usage with indicator
+# {session_locked} - Lock status
+# {pane_sync} - Pane sync status
+# {current_pane} - Current pane name
+# {uptime} - System uptime
+# {load} - Load average
+# {disk} - Disk usage
+# {network} - Network connectivity status
+# {temperature} - CPU temperature
+# {processes} - Number of running processes
+
+# Minimal status bar
+# left = "[{session}]"
+# center = ""
+# right = "{time:%H:%M}"
+
+# Standard status bar
+# left = "[{session}] {windows}"
+# center = ""
+# right = "{user}@{host} {time:%H:%M}"
+
+# Full featured status bar
+left = "[{session}] {windows} {git_branch}"
+center = "{cpu} {memory} {battery} {temperature}"
+right = "{network} {user}@{host} {time:%H:%M:%S}"
+
+# Developer focused status bar
+# left = "[{session}] {git_branch} {windows}"
+# center = "{cpu} {memory} {processes}"
+# right = "{load} {time:%H:%M}"
+
+# System monitor status bar
+# left = "[{session}] W:{window_count}"
+# center = "{cpu} {memory} {disk} {temperature}"
+# right = "{uptime} {load} {time:%H:%M:%S}"
+
+[colors]
+# Color scheme
+status_fg = "white"
+status_bg = "#1e1e1e"
+active_border = "green"
+inactive_border = "#444444"
+pane_border = "#444444"
+message_fg = "white"
+message_bg = "black"
+selection_fg = "black"
+selection_bg = "yellow"
+
+[windows]
+renumber_windows = true
+base_index = 0
+automatic_rename = true
+aggressive_resize = false
+
+[panes]
+base_index = 0
+display_panes_time = 2000
+display_panes_color = "blue"
+display_panes_active_color = "red"
+
+[copy_mode]
+vi_mode = true
+search_wrap = true
+incremental_search = true
+mouse_select = true
+
+[plugins]
+enabled = true
+plugin_dir = "~/.ferrix/plugins"
+auto_install = false
+allow_remote_plugins = false
+
+[advanced]
+shell_command = "/bin/bash"
+history_limit = 10000
+lock_after_time = 0
+lock_command = "vlock"
+default_terminal = "xterm-256color"
+update_environment = ["DISPLAY", "SSH_AUTH_SOCK", "SSH_AGENT_PID"]
+focus_events = true
+set_titles = true
+set_titles_string = "ferrix - #S:#W"
+monitor_activity = true
+monitor_silence = 0
+bell_action = "none"
+visual_bell = false
+visual_activity = false
+visual_silence = false
+word_separators = " -_@"
+buffer_limit = 20
+message_limit = 100
+exit_unattached = false
+exit_empty = true
+destroy_unattached = false
+detach_on_destroy = true
+set_remain_on_exit = false
+auto_save_session = true
+auto_save_interval = 300
+enable_crash_recovery = true
+recovery_backup_dir = "~/.ferrix/recovery"
+allow_remote = false
+remote_port = 7777
+remote_encryption = true
+gpu_acceleration = false
+log_level = "info"
+log_file = "~/.ferrix/ferrix.log"

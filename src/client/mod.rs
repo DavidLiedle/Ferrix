@@ -23,6 +23,7 @@ use crate::config::{Config, keybindings::{KeyBindingManager, KeyBinding, Action}
 use crate::ui::copymode::{CopyMode, CopyModeState, SearchDirection};
 use crate::ui::mouse::{MouseHandler, MouseAction};
 use crate::ui::commandmode::{CommandMode, CommandResult};
+use crate::ui::window_selector::{WindowSelector, WindowInfo};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -38,6 +39,7 @@ pub struct Client {
     copy_mode: CopyMode,
     command_mode: CommandMode,
     mouse_handler: MouseHandler,
+    window_selector: WindowSelector,
     config: Arc<RwLock<Config>>,
     key_binding_manager: Arc<RwLock<KeyBindingManager>>,
     prefix_mode: bool, // Track if we're waiting for the second key after prefix
@@ -75,6 +77,7 @@ impl Client {
             copy_mode: CopyMode::new(copy_mode_style),
             command_mode: CommandMode::new(),
             mouse_handler: MouseHandler::new(mouse_enabled),
+            window_selector: WindowSelector::new(),
             config: Arc::new(RwLock::new(config)),
             key_binding_manager: Arc::new(RwLock::new(key_binding_manager)),
             prefix_mode: false,
@@ -375,6 +378,11 @@ impl Client {
     }
 
     async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<bool> {
+        // If window selector is visible, handle window selector keys
+        if self.window_selector.is_visible() {
+            return self.handle_window_selector_key(key_event).await;
+        }
+
         // If in command mode, handle command mode keys
         if self.command_mode.is_active() {
             return self.handle_command_mode_key(key_event).await;
@@ -553,8 +561,38 @@ impl Client {
                 }
             }
             Action::ListSessions => {
+                // TODO: Implement list sessions
+            }
+            Action::ListWindows => {
+                // Request window list from server and show selector
                 if let Some(framed) = &mut self.framed {
                     framed.send(ClientMessage::ListWindows).await?;
+
+                    // Wait for response
+                    if let Some(response) = framed.next().await {
+                        match response? {
+                            ServerMessage::WindowList { windows } => {
+                                // Convert to our WindowInfo format and show selector
+                                let window_infos: Vec<WindowInfo> = windows.iter().enumerate().map(|(i, w)| {
+                                    WindowInfo {
+                                        id: w.id.clone(),
+                                        name: w.name.clone(),
+                                        index: i,
+                                        active: w.is_active,
+                                        pane_count: w.panes,
+                                    }
+                                }).collect();
+
+                                self.window_selector.show(window_infos);
+                            }
+                            ServerMessage::Error { message } => {
+                                warn!("Failed to get window list: {}", message);
+                            }
+                            _ => {
+                                warn!("Unexpected response to ListWindows");
+                            }
+                        }
+                    }
                 }
             }
             Action::ReloadConfig => {
@@ -610,6 +648,59 @@ impl Client {
                 debug!("Unhandled action: {:?}", action);
             }
         }
+        Ok(false)
+    }
+
+    async fn handle_window_selector_key(&mut self, key_event: KeyEvent) -> Result<bool> {
+        self.window_selector.update_interaction();
+
+        match key_event.code {
+            KeyCode::Esc => {
+                self.window_selector.hide();
+                return Ok(false);
+            }
+            KeyCode::Enter => {
+                if let Some(window_id) = self.window_selector.get_selected() {
+                    self.window_selector.hide();
+
+                    // Switch to the selected window
+                    if let Some(framed) = &mut self.framed {
+                        framed.send(ClientMessage::SwitchWindow { window_id }).await?;
+                    }
+                }
+                return Ok(false);
+            }
+            KeyCode::Up => {
+                self.window_selector.previous();
+                return Ok(false);
+            }
+            KeyCode::Down => {
+                self.window_selector.next();
+                return Ok(false);
+            }
+            KeyCode::Char(c) if c.is_digit(10) => {
+                let index = c.to_digit(10).unwrap() as usize;
+                if let Some(window_id) = self.window_selector.select_by_index(index) {
+                    self.window_selector.hide();
+
+                    // Switch to the selected window
+                    if let Some(framed) = &mut self.framed {
+                        framed.send(ClientMessage::SwitchWindow { window_id }).await?;
+                    }
+                }
+                return Ok(false);
+            }
+            KeyCode::Backspace => {
+                self.window_selector.backspace_filter();
+                return Ok(false);
+            }
+            KeyCode::Char(c) => {
+                self.window_selector.add_filter_char(c);
+                return Ok(false);
+            }
+            _ => {}
+        }
+
         Ok(false)
     }
 

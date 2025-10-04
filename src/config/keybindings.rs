@@ -62,6 +62,7 @@ pub enum Action {
     PreviousWindow,
     RenameWindow,
     KillWindow,
+    ListWindows,
     SelectWindow(u8),
 
     // Pane actions
@@ -162,6 +163,7 @@ impl KeyBindingManager {
             "previous-window" => Ok(Action::PreviousWindow),
             "rename-window" => Ok(Action::RenameWindow),
             "kill-window" => Ok(Action::KillWindow),
+            "list-windows" => Ok(Action::ListWindows),
             "select-window" => {
                 if parts.len() > 1 {
                     if let Ok(n) = parts[1].parse::<u8>() {
@@ -218,6 +220,10 @@ impl KeyBindingManager {
         bindings.insert(
             KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('p') },
             Action::PreviousWindow,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('w') },
+            Action::ListWindows,
         );
         bindings.insert(
             KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char(',') },
@@ -413,6 +419,7 @@ impl KeyBindingManager {
                 Action::PreviousWindow => "previous-window".to_string(),
                 Action::RenameWindow => "rename-window".to_string(),
                 Action::KillWindow => "kill-window".to_string(),
+                Action::ListWindows => "list-windows".to_string(),
                 Action::SelectWindow(n) => format!("select-window {}", n),
                 Action::SplitHorizontal => "split-horizontal".to_string(),
                 Action::SplitVertical => "split-vertical".to_string(),
@@ -474,6 +481,7 @@ impl KeyBindingManager {
                 Action::PreviousWindow => "previous-window",
                 Action::RenameWindow => "rename-window",
                 Action::KillWindow => "kill-window",
+                Action::ListWindows => "list-windows",
                 Action::SelectWindow(n) => &format!("select-window {}", n),
                 Action::SplitHorizontal => "split-horizontal",
                 Action::SplitVertical => "split-vertical",

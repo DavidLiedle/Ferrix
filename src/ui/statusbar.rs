@@ -170,7 +170,7 @@ impl StatusBar {
                 .and_then(|h| h.into_string().ok())
                 .unwrap_or_else(|| "unknown".to_string()),
             "user" => std::env::var("USER").unwrap_or_else(|_| "unknown".to_string()),
-            "git_branch" => self.git_branch.clone().unwrap_or_else(|| "".to_string()),
+            "git_branch" => self.format_git_branch(),
             "battery" => self.format_battery(),
             "cpu" => self.format_cpu(),
             "memory" => self.format_memory(),
@@ -180,6 +180,9 @@ impl StatusBar {
             "uptime" => self.format_uptime(),
             "load" => self.format_load_average(),
             "disk" => self.format_disk_usage(),
+            "network" => self.format_network_status(),
+            "temperature" | "temp" => self.format_temperature(),
+            "processes" => self.format_process_count(),
             _ => format!("{{{}}}", var_name), // Unknown variable
         }
     }
@@ -203,14 +206,31 @@ impl StatusBar {
         if let Some(level) = self.battery_level {
             let icon = if level > 80.0 {
                 "🔋"
-            } else if level > 50.0 {
+            } else if level > 60.0 {
+                "🔋"
+            } else if level > 40.0 {
                 "🔋"
             } else if level > 20.0 {
                 "🪫"
             } else {
                 "🪫"
             };
-            format!("{} {:.0}%", icon, level)
+
+            // Add charging status if available
+            let status = if let Ok(manager) = battery::Manager::new() {
+                if let Ok(mut batteries) = manager.batteries() {
+                    if let Some(Ok(battery)) = batteries.next() {
+                        match battery.state() {
+                            battery::State::Charging => "⚡",
+                            battery::State::Discharging => "",
+                            battery::State::Full => "✓",
+                            _ => "",
+                        }
+                    } else { "" }
+                } else { "" }
+            } else { "" };
+
+            format!("{}{} {:.0}%", icon, status, level)
         } else {
             "".to_string()
         }
@@ -219,14 +239,35 @@ impl StatusBar {
     fn format_cpu(&mut self) -> String {
         self.system.refresh_all();
         let usage = self.system.global_cpu_usage();
-        format!("CPU: {:.1}%", usage)
+
+        // Add visual indicator based on usage
+        let indicator = if usage > 80.0 {
+            "🔴"
+        } else if usage > 50.0 {
+            "🟡"
+        } else {
+            "🟢"
+        };
+
+        format!("{}CPU: {:.1}%", indicator, usage)
     }
 
     fn format_memory(&mut self) -> String {
         self.system.refresh_all();
         let used = self.system.used_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
         let total = self.system.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
-        format!("MEM: {:.1}/{:.1}GB", used, total)
+        let percent = (used / total * 100.0) as u32;
+
+        // Add visual indicator based on usage
+        let indicator = if percent > 80 {
+            "🔴"
+        } else if percent > 60 {
+            "🟡"
+        } else {
+            "🟢"
+        };
+
+        format!("{}MEM: {:.1}GB/{}%", indicator, used, percent)
     }
 
     fn get_status_style(&self) -> Style {
@@ -271,6 +312,51 @@ impl StatusBar {
             }
         }
         None
+    }
+
+    fn format_git_branch(&self) -> String {
+        if let Some(branch) = &self.git_branch {
+            // Try to get repository status
+            let status_indicator = if let Ok(repo) = git2::Repository::open_from_env() {
+                let mut has_changes = false;
+                let mut has_staged = false;
+                let mut has_untracked = false;
+
+                if let Ok(statuses) = repo.statuses(None) {
+                    for entry in statuses.iter() {
+                        let status = entry.status();
+                        if status.contains(git2::Status::INDEX_NEW) ||
+                           status.contains(git2::Status::INDEX_MODIFIED) ||
+                           status.contains(git2::Status::INDEX_DELETED) {
+                            has_staged = true;
+                        }
+                        if status.contains(git2::Status::WT_MODIFIED) ||
+                           status.contains(git2::Status::WT_DELETED) {
+                            has_changes = true;
+                        }
+                        if status.contains(git2::Status::WT_NEW) {
+                            has_untracked = true;
+                        }
+                    }
+                }
+
+                if has_staged {
+                    "✓"  // Staged changes
+                } else if has_changes {
+                    "✗"  // Modified files
+                } else if has_untracked {
+                    "?"  // Untracked files
+                } else {
+                    ""   // Clean
+                }
+            } else {
+                ""
+            };
+
+            format!("🌿{}{}", branch, status_indicator)
+        } else {
+            "".to_string()
+        }
     }
 
     fn get_battery_level() -> Option<f32> {
@@ -334,6 +420,38 @@ impl StatusBar {
             }
         }
         "DISK: N/A".to_string()
+    }
+
+    fn format_network_status(&self) -> String {
+        // Simple network status check - can be enhanced with actual network monitoring
+        use std::process::Command;
+
+        // Check if we have network connectivity (ping a reliable server)
+        if let Ok(output) = Command::new("ping")
+            .args(&["-c", "1", "-W", "1", "8.8.8.8"])
+            .output()
+        {
+            if output.status.success() {
+                "🌐✓"
+            } else {
+                "🌐✗"
+            }
+        } else {
+            "🌐?"
+        }.to_string()
+    }
+
+    fn format_temperature(&mut self) -> String {
+        // Temperature monitoring is not universally available
+        // This would require platform-specific implementation
+        // For now, return empty string
+        "".to_string()
+    }
+
+    fn format_process_count(&mut self) -> String {
+        self.system.refresh_all();
+        let count = self.system.processes().len();
+        format!("📊{}", count)
     }
 
     pub fn update_session_state(&mut self, locked: bool, pane_sync: bool, current_pane: Option<String>) {

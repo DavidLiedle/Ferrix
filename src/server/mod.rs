@@ -1689,7 +1689,7 @@ async fn handle_message(
                                         RecordingEvent::Input { .. } => {
                                             // Optionally show input events during playback
                                         }
-                                        RecordingEvent::Resize { cols, rows, .. } => {
+                                        RecordingEvent::Resize { .. } => {
                                             // Handle resize events during playback
                                             // This would need a new server message type
                                         }
