@@ -104,21 +104,21 @@ ferrix kill -t my-session
 
 ### Key Bindings
 
-All commands are prefixed with `Ctrl-a` (similar to GNU Screen):
+All commands are prefixed with `Ctrl-b` (similar to tmux):
 
 | Key Combo | Action |
 |-----------|--------|
-| `Ctrl-a d` | Detach from current session |
-| `Ctrl-a c` | Create new window |
-| `Ctrl-a n` | Next window |
-| `Ctrl-a p` | Previous window |
-| `Ctrl-a %` | Split pane vertically |
-| `Ctrl-a "` | Split pane horizontally |
-| `Ctrl-a` + arrows | Navigate between panes |
-| `Ctrl-a z` | Zoom/unzoom current pane |
-| `Ctrl-a x` | Close current pane |
-| `Ctrl-a [` | Enter copy mode |
-| `Ctrl-a w` | List windows |
+| `Ctrl-b d` | Detach from current session |
+| `Ctrl-b c` | Create new window |
+| `Ctrl-b n` | Next window |
+| `Ctrl-b p` | Previous window |
+| `Ctrl-b %` | Split pane vertically |
+| `Ctrl-b "` | Split pane horizontally |
+| `Ctrl-b` + arrows | Navigate between panes |
+| `Ctrl-b z` | Zoom/unzoom current pane |
+| `Ctrl-b x` | Close current pane |
+| `Ctrl-b [` | Enter copy mode |
+| `Ctrl-b w` | List windows |
 
 ## 🔧 Configuration
 
