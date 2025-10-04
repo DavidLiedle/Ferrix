@@ -929,6 +929,81 @@ async fn handle_message(
             }
         }
 
+        ClientMessage::ApplyLayoutPreset { preset_name } => {
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let sessions_guard = sessions.read().await;
+                    if let Some(session) = sessions_guard.get(session_id) {
+                        let mut session_guard = session.write().await;
+                        if session_guard.apply_layout_preset(&preset_name) {
+                            Ok(Some(ServerMessage::LayoutApplied { preset_name }))
+                        } else {
+                            Ok(Some(ServerMessage::Error {
+                                message: format!("Unknown layout preset: {}", preset_name),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "No session attached".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::CycleLayout => {
+            if let Some(client) = clients.read().await.get(&client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let sessions_guard = sessions.read().await;
+                    if let Some(session) = sessions_guard.get(session_id) {
+                        let mut session_guard = session.write().await;
+                        let preset_name = session_guard.cycle_layout();
+                        Ok(Some(ServerMessage::LayoutApplied { preset_name }))
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "No session attached".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::ListLayoutPresets => {
+            use crate::server::layout_presets::LayoutPreset;
+
+            let all_presets = LayoutPreset::all_presets();
+            let preset_infos: Vec<crate::protocol::LayoutPresetInfo> = all_presets
+                .iter()
+                .map(|preset| {
+                    let layout = preset.to_layout();
+                    crate::protocol::LayoutPresetInfo {
+                        name: preset.name().to_string(),
+                        description: preset.description().to_string(),
+                        pane_count: layout.count_panes(),
+                        is_custom: matches!(preset, LayoutPreset::Custom(_, _)),
+                    }
+                })
+                .collect();
+
+            Ok(Some(ServerMessage::LayoutPresetsList { presets: preset_infos }))
+        }
+
         ClientMessage::EnterCopyMode => {
             if let Some(client) = clients.read().await.get(&client_id) {
                 if let Some(session_id) = &client.attached_session {

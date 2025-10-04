@@ -637,6 +637,50 @@ impl Client {
                     }
                 }
             }
+            Action::ApplyLayoutPreset(preset_name) => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::ApplyLayoutPreset {
+                        preset_name: preset_name.clone()
+                    }).await?;
+                    info!("Applied layout preset: {}", preset_name);
+                }
+            }
+            Action::CycleLayout => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::CycleLayout).await?;
+                    info!("Cycling through layout presets");
+                }
+            }
+            Action::ListLayoutPresets => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::ListLayoutPresets).await?;
+
+                    // Wait for response and display
+                    if let Some(response) = framed.next().await {
+                        match response? {
+                            ServerMessage::LayoutPresetsList { presets } => {
+                                // Display available layout presets
+                                println!("\n Available Layout Presets:");
+                                println!(" ========================");
+                                for preset in presets {
+                                    let custom_marker = if preset.is_custom { " (custom)" } else { "" };
+                                    println!(" • {:<20} - {} ({} panes){}",
+                                        preset.name,
+                                        preset.description,
+                                        preset.pane_count,
+                                        custom_marker
+                                    );
+                                }
+                                println!("\n Press Space to cycle through layouts");
+                                println!(" Use Alt+1 to Alt+5 for quick presets\n");
+                            }
+                            _ => {
+                                warn!("Unexpected response to ListLayoutPresets");
+                            }
+                        }
+                    }
+                }
+            }
             Action::Custom(command) => {
                 // Handle custom commands
                 info!("Executing custom command: {}", command);

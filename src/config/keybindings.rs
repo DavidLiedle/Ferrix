@@ -79,6 +79,11 @@ pub enum Action {
     ResizePaneLeft,
     ResizePaneRight,
 
+    // Layout actions
+    ApplyLayoutPreset(String),
+    CycleLayout,
+    ListLayoutPresets,
+
     // Copy mode
     EnterCopyMode,
     PasteBuffer,
@@ -187,6 +192,15 @@ impl KeyBindingManager {
             "resize-pane-down" => Ok(Action::ResizePaneDown),
             "resize-pane-left" => Ok(Action::ResizePaneLeft),
             "resize-pane-right" => Ok(Action::ResizePaneRight),
+            "apply-layout" => {
+                if parts.len() > 1 {
+                    Ok(Action::ApplyLayoutPreset(parts[1].to_string()))
+                } else {
+                    Err(FerrixError::Config("Missing layout preset name".to_string()))
+                }
+            }
+            "cycle-layout" => Ok(Action::CycleLayout),
+            "list-layouts" => Ok(Action::ListLayoutPresets),
             "enter-copy-mode" => Ok(Action::EnterCopyMode),
             "paste-buffer" => Ok(Action::PasteBuffer),
             "enter-command-mode" => Ok(Action::EnterCommandMode),
@@ -284,6 +298,32 @@ impl KeyBindingManager {
         bindings.insert(
             KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('?') },
             Action::Custom("show-keys".to_string()),
+        );
+
+        // Layout presets
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char(' ') },
+            Action::CycleLayout,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::ALT, code: KeyCode::Char('1') },
+            Action::ApplyLayoutPreset("even-horizontal".to_string()),
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::ALT, code: KeyCode::Char('2') },
+            Action::ApplyLayoutPreset("even-vertical".to_string()),
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::ALT, code: KeyCode::Char('3') },
+            Action::ApplyLayoutPreset("main-left".to_string()),
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::ALT, code: KeyCode::Char('4') },
+            Action::ApplyLayoutPreset("grid-2x2".to_string()),
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::ALT, code: KeyCode::Char('5') },
+            Action::ApplyLayoutPreset("ide".to_string()),
         );
 
         // Number keys for window selection
@@ -433,6 +473,9 @@ impl KeyBindingManager {
                 Action::ResizePaneDown => "resize-pane-down".to_string(),
                 Action::ResizePaneLeft => "resize-pane-left".to_string(),
                 Action::ResizePaneRight => "resize-pane-right".to_string(),
+                Action::ApplyLayoutPreset(preset) => format!("apply-layout {}", preset),
+                Action::CycleLayout => "cycle-layout".to_string(),
+                Action::ListLayoutPresets => "list-layouts".to_string(),
                 Action::EnterCopyMode => "enter-copy-mode".to_string(),
                 Action::PasteBuffer => "paste-buffer".to_string(),
                 Action::EnterCommandMode => "enter-command-mode".to_string(),
@@ -495,6 +538,9 @@ impl KeyBindingManager {
                 Action::ResizePaneDown => "resize-pane-down",
                 Action::ResizePaneLeft => "resize-pane-left",
                 Action::ResizePaneRight => "resize-pane-right",
+                Action::ApplyLayoutPreset(preset) => &format!("apply-layout {}", preset),
+                Action::CycleLayout => "cycle-layout",
+                Action::ListLayoutPresets => "list-layouts",
                 Action::EnterCopyMode => "enter-copy-mode",
                 Action::PasteBuffer => "paste-buffer",
                 Action::EnterCommandMode => "enter-command-mode",

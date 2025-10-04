@@ -22,6 +22,62 @@ pub struct Window {
 }
 
 impl Window {
+    pub fn apply_preset_layout(&mut self, preset: crate::server::layout_presets::LayoutPreset) {
+        // Clear existing panes (except the first one)
+        let first_pane_id = if let Some(id) = &self.current_pane {
+            id.clone()
+        } else if !self.panes.is_empty() {
+            self.panes.keys().next().unwrap().clone()
+        } else {
+            // Create a new pane if no panes exist
+            let pane_id = PaneId(Uuid::new_v4());
+            let pane = Pane::new(pane_id.clone());
+            self.panes.insert(pane_id.clone(), Arc::new(RwLock::new(pane)));
+            pane_id
+        };
+
+        // Clear all panes except the first one
+        let mut first_pane = None;
+        if let Some(pane) = self.panes.remove(&first_pane_id) {
+            first_pane = Some((first_pane_id.clone(), pane));
+        }
+        self.panes.clear();
+
+        // Restore the first pane
+        if let Some((id, pane)) = first_pane {
+            self.panes.insert(id.clone(), pane);
+            self.current_pane = Some(id);
+        }
+
+        // Apply the new layout
+        let mut new_layout = preset.to_layout();
+
+        // Replace the pane IDs in the layout with actual panes
+        self.populate_layout_with_panes(&mut new_layout);
+
+        self.layout = new_layout;
+
+        // Clear zoom when applying a new layout
+        self.zoomed_pane = None;
+    }
+
+    fn populate_layout_with_panes(&mut self, layout: &mut Layout) {
+        match layout {
+            Layout::Leaf(pane_id) => {
+                // If this pane doesn't exist, create it
+                if !self.panes.contains_key(pane_id) {
+                    let pane = Pane::new(pane_id.clone());
+                    self.panes.insert(pane_id.clone(), Arc::new(RwLock::new(pane)));
+                    self.activity_monitor.enable_monitoring(pane_id);
+                }
+            }
+            Layout::Split { first, second, .. } => {
+                self.populate_layout_with_panes(first);
+                self.populate_layout_with_panes(second);
+            }
+        }
+    }
+
     pub fn new(id: WindowId, name: String) -> Self {
         let pane_id = PaneId(Uuid::new_v4());
         let default_pane = Pane::new(pane_id.clone());

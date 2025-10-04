@@ -67,6 +67,11 @@ pub enum ClientMessage {
     ZoomPane,
     KillPane,
     ListWindows,
+    ApplyLayoutPreset {
+        preset_name: String,
+    },
+    ListLayoutPresets,
+    CycleLayout,
     EnterCopyMode,
     ExitCopyMode,
     CopyModeInput {
@@ -239,6 +244,12 @@ pub enum ServerMessage {
     WindowList {
         windows: Vec<WindowInfo>,
     },
+    LayoutPresetsList {
+        presets: Vec<LayoutPresetInfo>,
+    },
+    LayoutApplied {
+        preset_name: String,
+    },
     CopyModeEntered,
     CopyModeUpdate {
         cursor_row: usize,
@@ -342,6 +353,14 @@ pub struct WindowInfo {
     pub panes: usize,
     pub is_active: bool,
     pub activity_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayoutPresetInfo {
+    pub name: String,
+    pub description: String,
+    pub pane_count: usize,
+    pub is_custom: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

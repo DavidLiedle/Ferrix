@@ -18,6 +18,15 @@ impl Layout {
         Layout::Leaf(pane_id)
     }
 
+    pub fn count_panes(&self) -> usize {
+        match self {
+            Layout::Leaf(_) => 1,
+            Layout::Split { first, second, .. } => {
+                first.count_panes() + second.count_panes()
+            }
+        }
+    }
+
     pub fn split(&mut self, pane_id: &PaneId, direction: SplitDirection, new_pane_id: PaneId) -> bool {
         match self {
             Layout::Leaf(id) if id == pane_id => {

@@ -35,6 +35,7 @@ pub struct Session {
     pub auto_save_interval: Duration,
     pub last_auto_save: Option<chrono::DateTime<chrono::Utc>>,
     pub recorder: Option<SessionRecorder>,
+    pub current_layout_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +66,7 @@ impl Session {
             auto_save_interval: Duration::from_secs(300), // Default 5 minutes
             last_auto_save: None,
             recorder: None,
+            current_layout_index: 0,
         }
     }
 
@@ -333,6 +335,48 @@ impl Session {
         }
 
         Err(FerrixError::WindowNotFound(format!("{:?}", target_window_id)))
+    }
+
+    pub fn apply_layout_preset(&mut self, preset_name: &str) -> bool {
+        use crate::server::layout_presets::LayoutPreset;
+
+        if let Some(preset) = LayoutPreset::from_name(preset_name) {
+            if let Some(current_window_id) = &self.current_window {
+                // Find the current window
+                for window in &mut self.windows {
+                    let mut window_guard = window.blocking_write();
+                    if window_guard.id == *current_window_id {
+                        // Apply the preset layout
+                        window_guard.apply_preset_layout(preset);
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    pub fn cycle_layout(&mut self) -> String {
+        use crate::server::layout_presets::LayoutPreset;
+
+        let all_presets = LayoutPreset::all_presets();
+        self.current_layout_index = (self.current_layout_index + 1) % all_presets.len();
+
+        let preset = &all_presets[self.current_layout_index];
+        let preset_name = preset.name().to_string();
+
+        if let Some(current_window_id) = &self.current_window {
+            // Find the current window
+            for window in &mut self.windows {
+                let mut window_guard = window.blocking_write();
+                if window_guard.id == *current_window_id {
+                    window_guard.apply_preset_layout(preset.clone());
+                    break;
+                }
+            }
+        }
+
+        preset_name
     }
 
     pub fn list_windows(&self) -> Vec<crate::protocol::WindowInfo> {
@@ -673,6 +717,7 @@ impl Session {
             auto_save_interval: Duration::from_secs(300),
             last_auto_save: None,
             recorder: None,
+            current_layout_index: 0,
         }
     }
 
