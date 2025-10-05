@@ -84,6 +84,8 @@ pub struct AnsiParser {
     tab_stops: Vec<u16>,
     /// Saved attributes for cursor save/restore
     saved_attrs: Option<(Color, Color, Vec<Attribute>)>,
+    /// Pending responses to send back to PTY (for device status reports, etc)
+    pending_responses: Vec<Vec<u8>>,
 }
 
 impl AnsiParser {
@@ -125,6 +127,7 @@ impl AnsiParser {
             scroll_region: None,
             tab_stops,
             saved_attrs: None,
+            pending_responses: Vec::new(),
         }
     }
 
@@ -1173,16 +1176,16 @@ impl AnsiParser {
         match mode {
             5 => {
                 // Device status report - respond with "OK" status
-                // Response: CSI 0 n
-                // TODO: Need to send this response back through the PTY
-                // This requires access to the PTY write handle
+                // Response: CSI 0 n (terminal is OK/ready)
+                self.pending_responses.push(b"\x1b[0n".to_vec());
             }
             6 => {
                 // Cursor position report
                 // Response: CSI row ; col R
-                // TODO: Need to send this response back through the PTY
-                let _row = self.cursor_y + 1;  // Convert to 1-indexed
-                let _col = self.cursor_x + 1;
+                let row = self.cursor_y + 1;  // Convert to 1-indexed
+                let col = self.cursor_x + 1;
+                let response = format!("\x1b[{};{}R", row, col);
+                self.pending_responses.push(response.into_bytes());
             }
             _ => {}
         }
@@ -1301,5 +1304,10 @@ impl AnsiParser {
     /// Render the current screen buffer
     pub fn render(&self) -> &Vec<Vec<Cell>> {
         &self.screen
+    }
+
+    /// Take any pending responses that need to be sent back to the PTY
+    pub fn take_pending_responses(&mut self) -> Vec<Vec<u8>> {
+        std::mem::take(&mut self.pending_responses)
     }
 }

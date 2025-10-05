@@ -36,6 +36,9 @@ pub struct Session {
     pub last_auto_save: Option<chrono::DateTime<chrono::Utc>>,
     pub recorder: Option<SessionRecorder>,
     pub current_layout_index: usize,
+    pub current_layout_preset: Option<String>,
+    pub session_config: Option<crate::config::session_config::SessionConfig>,
+    pub versioning: Option<Box<super::versioning::SessionVersioning>>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +70,9 @@ impl Session {
             last_auto_save: None,
             recorder: None,
             current_layout_index: 0,
+            current_layout_preset: Some("single".to_string()),
+            session_config: None,
+            versioning: None,
         }
     }
 
@@ -337,6 +343,109 @@ impl Session {
         Err(FerrixError::WindowNotFound(format!("{:?}", target_window_id)))
     }
 
+    pub fn load_session_config(&mut self, config_path: Option<PathBuf>) -> Result<()> {
+        use crate::config::session_config::SessionConfig;
+
+        // Try to load from specified path or default location
+        let config = if let Some(path) = config_path {
+            SessionConfig::load_from_file(path)?
+        } else {
+            // Try default location
+            let config_dir = dirs::config_dir()
+                .ok_or_else(|| FerrixError::Config("Could not find config directory".to_string()))?
+                .join("ferrix")
+                .join("sessions");
+
+            let config_path = config_dir.join(format!("{}.toml", self.id.0));
+            if config_path.exists() {
+                SessionConfig::load_from_file(config_path)?
+            } else {
+                return Ok(()); // No config file, that's fine
+            }
+        };
+
+        // Apply environment variables
+        for (key, value) in &config.environment {
+            std::env::set_var(key, value);
+        }
+
+        // Run startup commands
+        for command in &config.startup_commands {
+            // Execute command in the first pane of the first window
+            if let Some(window) = self.windows.first() {
+                let window_guard = window.blocking_read();
+                if let Some(pane) = window_guard.panes.values().next() {
+                    let mut pane_guard = pane.blocking_write();
+                    // Use handle_input async method with blocking
+                    let mut cmd_bytes = command.as_bytes().to_vec();
+                    cmd_bytes.push(b'\n');
+                    let _ = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(
+                            pane_guard.handle_input(cmd_bytes)
+                        )
+                    });
+                }
+            }
+        }
+
+        // Apply default layout if specified
+        if let Some(ref layout_name) = config.default_layout {
+            self.apply_layout_preset(layout_name);
+        }
+
+        // Run after_session_create hooks
+        for hook in &config.hooks.after_session_create {
+            // Execute hook command
+            std::process::Command::new("sh")
+                .arg("-c")
+                .arg(hook)
+                .env("FERRIX_SESSION_ID", format!("{}", self.id.0))
+                .env("FERRIX_SESSION_NAME", &self.name)
+                .spawn()
+                .ok();
+        }
+
+        self.session_config = Some(config);
+        Ok(())
+    }
+
+    pub fn save_session_config(&self) -> Result<()> {
+        if let Some(ref config) = self.session_config {
+            let config_dir = dirs::config_dir()
+                .ok_or_else(|| FerrixError::Config("Could not find config directory".to_string()))?
+                .join("ferrix")
+                .join("sessions");
+
+            std::fs::create_dir_all(&config_dir)?;
+
+            let config_path = config_dir.join(format!("{}.toml", self.id.0));
+            config.save_to_file(config_path)?;
+        }
+        Ok(())
+    }
+
+    pub fn apply_template(&mut self, template_name: &str) -> Result<()> {
+        use crate::config::session_config::SessionConfigTemplate;
+
+        let templates = SessionConfigTemplate::all_templates();
+        let template = templates
+            .into_iter()
+            .find(|t| t.name.to_lowercase() == template_name.to_lowercase())
+            .ok_or_else(|| FerrixError::Config(format!("Template '{}' not found", template_name)))?;
+
+        self.session_config = Some(template.config.clone());
+        self.load_session_config(None)?;
+        Ok(())
+    }
+
+    pub fn get_effective_config(&self, global_config: &crate::config::Config) -> crate::config::Config {
+        if let Some(ref session_config) = self.session_config {
+            session_config.merge_with_global(global_config)
+        } else {
+            global_config.clone()
+        }
+    }
+
     pub fn apply_layout_preset(&mut self, preset_name: &str) -> bool {
         use crate::server::layout_presets::LayoutPreset;
 
@@ -348,6 +457,8 @@ impl Session {
                     if window_guard.id == *current_window_id {
                         // Apply the preset layout
                         window_guard.apply_preset_layout(preset);
+                        // Store the preset name for tracking
+                        self.current_layout_preset = Some(preset_name.to_string());
                         return true;
                     }
                 }
@@ -371,6 +482,8 @@ impl Session {
                 let mut window_guard = window.blocking_write();
                 if window_guard.id == *current_window_id {
                     window_guard.apply_preset_layout(preset.clone());
+                    // Store the preset name for tracking
+                    self.current_layout_preset = Some(preset_name.clone());
                     break;
                 }
             }
@@ -438,7 +551,7 @@ impl Session {
                 "v" => copy_mode.enter_visual_mode(),
                 "V" => copy_mode.enter_visual_line_mode(),
                 "y" => {
-                    copy_mode.yank_selection();
+                    let _ = copy_mode.yank_selection();
                     // Exit copy mode after yanking
                     copy_mode.exit();
                     self.copy_mode = None;
@@ -621,6 +734,7 @@ impl Session {
                     current_pane: window.current_pane.clone(),
                     width: window.width,
                     height: window.height,
+                    panes: std::collections::HashMap::new(),  // Will be populated below
                 };
                 windows.push(window_state);
 
@@ -648,6 +762,9 @@ impl Session {
             session: session_state,
             windows,
             panes,
+            created_at: chrono::Utc::now(),
+            environment: std::collections::HashMap::new(),  // Can be populated from session_state.environment
+            config: None,  // Can be populated with session config if needed
         }
     }
 
@@ -718,6 +835,9 @@ impl Session {
             last_auto_save: None,
             recorder: None,
             current_layout_index: 0,
+            current_layout_preset: Some("single".to_string()),
+            session_config: None,
+            versioning: None,
         }
     }
 
@@ -799,7 +919,8 @@ impl Session {
 
                     let target_pane = pane_id.unwrap_or_else(|| {
                         window_guard.current_pane.clone().unwrap_or_else(|| {
-                            window_guard.panes.keys().next().cloned().unwrap()
+                            window_guard.panes.keys().next().cloned()
+                                .expect("Window must have at least one pane")
                         })
                     });
 
@@ -827,7 +948,8 @@ impl Session {
 
                     let target_pane = pane_id.unwrap_or_else(|| {
                         window_guard.current_pane.clone().unwrap_or_else(|| {
-                            window_guard.panes.keys().next().cloned().unwrap()
+                            window_guard.panes.keys().next().cloned()
+                                .expect("Window must have at least one pane")
                         })
                     });
 
@@ -1159,6 +1281,250 @@ mod tests {
 }
 
 impl Session {
+    // Versioning methods
+    pub async fn init_versioning(&mut self) -> Result<()> {
+        use super::versioning::SessionVersioning;
+
+        if self.versioning.is_some() {
+            return Err(FerrixError::Other("Versioning already initialized".to_string()));
+        }
+
+        let mut versioning = SessionVersioning::new(self.id.clone())?;
+
+        // Create initial commit with current state
+        let snapshot = self.to_snapshot().await;
+        versioning.init_with_snapshot(snapshot)?;
+
+        self.versioning = Some(Box::new(versioning));
+        Ok(())
+    }
+
+    pub async fn commit_changes(&mut self, message: &str, author: &str) -> Result<super::versioning::CommitId> {
+        // Create snapshot before borrowing versioning
+        let snapshot = self.to_snapshot().await;
+
+        let versioning = self.versioning.as_mut()
+            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
+
+        versioning.commit(snapshot, message, author)
+    }
+
+    pub async fn create_branch(&mut self, name: &str, from_commit: Option<&str>) -> Result<()> {
+        let versioning = self.versioning.as_mut()
+            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
+
+        versioning.create_branch(name, from_commit)
+    }
+
+    pub async fn checkout_branch(&mut self, name: &str) -> Result<()> {
+        let versioning = self.versioning.as_mut()
+            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
+
+        let snapshot = versioning.checkout_branch(name)?;
+        self.restore_from_snapshot(snapshot).await;
+        Ok(())
+    }
+
+    pub async fn merge_branch(&mut self, source: &str, auto_resolve: bool) -> Result<(Vec<String>, Vec<String>)> {
+        let versioning = self.versioning.as_mut()
+            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
+
+        let (merged_snapshot, conflicts, resolved) = versioning.merge_branch(source, auto_resolve)?;
+
+        if conflicts.is_empty() {
+            self.restore_from_snapshot(merged_snapshot).await;
+        }
+
+        Ok((conflicts, resolved))
+    }
+
+    pub fn list_branches(&self) -> Vec<super::versioning::Branch> {
+        self.versioning.as_ref()
+            .map(|v| v.list_branches())
+            .unwrap_or_default()
+    }
+
+    pub fn get_current_branch(&self) -> Option<&str> {
+        self.versioning.as_ref()
+            .and_then(|v| v.current_branch())
+    }
+
+    pub fn get_commit_log(&self, limit: usize) -> Vec<super::versioning::Commit> {
+        self.versioning.as_ref()
+            .map(|v| v.get_log(limit))
+            .unwrap_or_default()
+    }
+
+    pub fn diff_commits(&self, from: Option<&str>, to: Option<&str>) -> Result<String> {
+        let versioning = self.versioning.as_ref()
+            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
+
+        versioning.diff(from, to)
+    }
+
+    async fn restore_from_snapshot(&mut self, snapshot: super::snapshot::SessionSnapshot) {
+        // Restore session metadata
+        self.name = snapshot.session.name;
+        self.created_at = snapshot.session.created_at;
+
+        // Clear existing windows
+        self.windows.clear();
+
+        // Restore windows and panes from snapshot
+        if snapshot.windows.is_empty() {
+            // Fallback: create a default window if no windows in snapshot
+            let window_id = WindowId(Uuid::new_v4());
+            let default_window = Window::new(window_id.clone(), "bash".to_string());
+            self.windows.push(Arc::new(RwLock::new(default_window)));
+            self.current_window = Some(window_id);
+        } else {
+            // Restore windows
+            for window_state in &snapshot.windows {
+                let mut window = Window::new(window_state.id.clone(), window_state.name.clone());
+
+                // Restore window properties
+                window.layout = window_state.layout.clone();
+                window.current_pane = window_state.current_pane.clone();
+                window.width = window_state.width;
+                window.height = window_state.height;
+
+                // Clear the default pane that Window::new creates
+                window.panes.clear();
+
+                // Restore panes for this window
+                for pane_state in &snapshot.panes {
+                    if pane_state.window_id == window_state.id {
+                        let mut pane = super::pane::Pane::new(pane_state.id.clone());
+
+                        // Restore pane properties
+                        pane.working_directory = pane_state.working_directory.clone();
+                        pane.command = pane_state.command.clone();
+                        pane.cols = pane_state.cols;
+                        pane.rows = pane_state.rows;
+                        pane.scrollback.from_vec(pane_state.scrollback.clone());
+                        pane.cursor_position = pane_state.cursor_position;
+
+                        window.panes.insert(pane_state.id.clone(), Arc::new(RwLock::new(pane)));
+                    }
+                }
+
+                // If no panes were restored, create a default one
+                if window.panes.is_empty() {
+                    let pane_id = PaneId(Uuid::new_v4());
+                    let default_pane = super::pane::Pane::new(pane_id.clone());
+                    window.panes.insert(pane_id.clone(), Arc::new(RwLock::new(default_pane)));
+                    window.current_pane = Some(pane_id);
+                }
+
+                self.windows.push(Arc::new(RwLock::new(window)));
+            }
+
+            // Restore current window
+            self.current_window = snapshot.session.current_window.clone();
+        }
+
+        // Restore environment variables if provided
+        for (key, value) in snapshot.environment {
+            std::env::set_var(key, value);
+        }
+
+        // Restore configuration if provided
+        if let Some(config_value) = snapshot.config {
+            // Try to deserialize the config value into SessionConfig
+            if let Ok(config) = serde_json::from_value::<crate::config::session_config::SessionConfig>(config_value) {
+                self.session_config = Some(config);
+            }
+        }
+    }
+
+    pub async fn to_snapshot(&self) -> super::snapshot::SessionSnapshot {
+        use super::snapshot::{SessionSnapshot, SessionState, WindowState, PaneState, SnapshotMetadata};
+        
+        use chrono::Utc;
+        use sha2::{Sha256, Digest};
+
+        let mut all_panes = Vec::new();
+
+        let windows: Vec<WindowState> = self.windows.iter().enumerate().map(|(idx, w)| {
+            let window = w.blocking_read();
+
+            // Collect panes from this window
+            let mut window_panes: std::collections::HashMap<String, PaneState> = std::collections::HashMap::new();
+            for (pane_id, pane_arc) in &window.panes {
+                let pane = pane_arc.blocking_read();
+                let pane_state = PaneState {
+                    id: pane.id.clone(),
+                    window_id: window.id.clone(),
+                    working_directory: pane.working_directory.clone(),
+                    command: pane.command.clone(),
+                    cols: pane.cols,
+                    rows: pane.rows,
+                    scrollback: vec![], // Scrollback lines - simplified for now
+                    cursor_position: pane.cursor_position,
+                };
+                window_panes.insert(pane_id.0.to_string(), pane_state.clone());
+                all_panes.push(pane_state);
+            }
+
+            // Get terminal dimensions from first pane or use defaults
+            let (width, height) = window.panes.values().next()
+                .map(|p| {
+                    let pane = p.blocking_read();
+                    (pane.cols, pane.rows)
+                })
+                .unwrap_or((80, 24));
+
+            WindowState {
+                id: window.id.clone(),
+                session_id: self.id.clone(),
+                name: window.name.clone(),
+                index: idx,
+                layout: window.layout.clone(),
+                current_pane: window.current_pane.clone(),
+                width,
+                height,
+                panes: window_panes,
+            }
+        }).collect();
+
+        // Collect environment variables
+        let environment: Vec<(String, String)> = std::env::vars()
+            .filter(|(k, _)| {
+                // Only save relevant environment variables
+                matches!(k.as_str(), "TERM" | "SHELL" | "PATH" | "HOME" | "USER" | "EDITOR")
+            })
+            .collect();
+
+        // Calculate checksum of snapshot data
+        let snapshot_data = format!("{:?}{:?}{:?}", self.name, windows.len(), all_panes.len());
+        let mut hasher = Sha256::new();
+        hasher.update(snapshot_data.as_bytes());
+        let checksum = format!("{:x}", hasher.finalize());
+
+        SessionSnapshot {
+            metadata: SnapshotMetadata {
+                id: Uuid::new_v4(),
+                name: format!("Snapshot of {}", self.name),
+                description: "Session snapshot".to_string(),
+                created_at: Utc::now(),
+                ferrix_version: env!("CARGO_PKG_VERSION").to_string(),
+                checksum: Some(checksum),
+            },
+            session: SessionState {
+                id: self.id.clone(),
+                name: self.name.clone(),
+                current_window: self.current_window.clone(),
+                created_at: self.created_at,
+                environment: environment.clone(),
+            },
+            windows,
+            panes: all_panes,
+            created_at: Utc::now(),
+            environment: environment.into_iter().collect(),
+            config: None,
+        }
+    }
+
     // Recording methods
     pub async fn start_recording(&mut self, output_path: PathBuf) -> Result<()> {
         if self.recorder.is_some() {

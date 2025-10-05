@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::fs::File;
 use std::io::{Write, BufWriter, BufReader, BufRead};
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use std::time::{SystemTime, Duration};
 use std::sync::{Arc, Mutex};
 use serde::{Serialize, Deserialize};
 use flate2::write::GzEncoder;
@@ -576,9 +576,299 @@ impl SessionPlayer {
     }
 
     /// Export as HTML with player
-    fn export_html(&self, _path: &Path) -> Result<()> {
-        // HTML export with embedded player would go here
-        Err(FerrixError::Other("HTML export not yet implemented".to_string()))
+    pub fn export_html(&self, path: &Path) -> Result<()> {
+        // Read metadata
+        let metadata = self.metadata.clone();
+
+        // Collect all output events
+        let mut output_frames = Vec::new();
+        let start_time = Duration::from_secs(metadata.created_at);
+
+        for event in &self.events {
+            if let RecordingEvent::Output { timestamp, data, .. } = event {
+                let elapsed_ms = (*timestamp - metadata.created_at) * 1000;
+                // Escape the data for JSON
+                let data_str = String::from_utf8_lossy(data);
+                let data_json = serde_json::to_string(&data_str)
+                    .map_err(|e| FerrixError::Other(format!("Failed to serialize data: {}", e)))?;
+                output_frames.push(format!("[{}, {}]", elapsed_ms, data_json));
+            }
+        }
+
+        let frames_json = format!("[{}]", output_frames.join(",\n      "));
+
+        // Generate HTML with embedded xterm.js player
+        let html = format!(r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ferrix Recording - {session_name}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+    <style>
+        body {{
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }}
+        .container {{
+            max-width: 1200px;
+            width: 100%;
+        }}
+        .header {{
+            background: #252525;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            margin-bottom: 0;
+        }}
+        h1 {{
+            margin: 0 0 10px 0;
+            font-size: 24px;
+        }}
+        .metadata {{
+            font-size: 12px;
+            opacity: 0.8;
+        }}
+        .metadata span {{
+            margin-right: 20px;
+        }}
+        .terminal-container {{
+            background: #1e1e1e;
+            padding: 10px;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }}
+        .controls {{
+            background: #252525;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }}
+        button {{
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }}
+        button:hover {{
+            background: #005a9e;
+        }}
+        button:disabled {{
+            background: #444;
+            cursor: not-allowed;
+        }}
+        .progress {{
+            flex: 1;
+            height: 4px;
+            background: #444;
+            border-radius: 2px;
+            overflow: hidden;
+            cursor: pointer;
+        }}
+        .progress-bar {{
+            height: 100%;
+            background: #007acc;
+            width: 0%;
+            transition: width 0.1s linear;
+        }}
+        .time {{
+            font-size: 12px;
+            min-width: 100px;
+        }}
+        .watermark {{
+            text-align: center;
+            margin-top: 20px;
+            font-size: 12px;
+            opacity: 0.6;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Terminal Recording: {session_name}</h1>
+            <div class="metadata">
+                <span>User: {user}@{hostname}</span>
+                <span>Shell: {shell}</span>
+                <span>Size: {cols}x{rows}</span>
+                <span>Date: {date}</span>
+            </div>
+        </div>
+        <div class="terminal-container">
+            <div id="terminal"></div>
+        </div>
+        <div class="controls">
+            <button id="play-pause">Play</button>
+            <button id="restart">Restart</button>
+            <div class="progress" id="progress">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <div class="time" id="time">0:00 / {duration}</div>
+        </div>
+        <div class="watermark">
+            <p>Generated with <strong>Ferrix</strong> - Modern Terminal Multiplexer<br>
+            <a href="https://github.com/davidliedle/Ferrix" style="color: #007acc;">github.com/davidliedle/Ferrix</a></p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script>
+        // Recording data
+        const frames = {frames};
+
+        // Terminal setup
+        const term = new Terminal({{
+            cols: {cols},
+            rows: {rows},
+            cursorBlink: true,
+            theme: {{
+                background: '#1e1e1e',
+                foreground: '#d4d4d4'
+            }}
+        }});
+
+        term.open(document.getElementById('terminal'));
+
+        // Player state
+        let currentFrame = 0;
+        let isPlaying = false;
+        let startTime = 0;
+        let animationId = null;
+
+        // Controls
+        const playPauseBtn = document.getElementById('play-pause');
+        const restartBtn = document.getElementById('restart');
+        const progressBar = document.getElementById('progress-bar');
+        const progressContainer = document.getElementById('progress');
+        const timeDisplay = document.getElementById('time');
+
+        const totalDuration = frames.length > 0 ? frames[frames.length - 1][0] : 0;
+
+        function formatTime(ms) {{
+            const seconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${{minutes}}:${{secs.toString().padStart(2, '0')}}`;
+        }}
+
+        function play() {{
+            if (currentFrame >= frames.length) {{
+                restart();
+                return;
+            }}
+
+            isPlaying = true;
+            playPauseBtn.textContent = 'Pause';
+            startTime = performance.now() - (frames[currentFrame]?.[0] || 0);
+
+            function renderFrame(timestamp) {{
+                if (!isPlaying) return;
+
+                const elapsed = timestamp - startTime;
+
+                while (currentFrame < frames.length && frames[currentFrame][0] <= elapsed) {{
+                    term.write(frames[currentFrame][1]);
+                    currentFrame++;
+                }}
+
+                // Update progress
+                const progress = (elapsed / totalDuration) * 100;
+                progressBar.style.width = Math.min(progress, 100) + '%';
+                timeDisplay.textContent = formatTime(elapsed) + ' / ' + formatTime(totalDuration);
+
+                if (currentFrame < frames.length) {{
+                    animationId = requestAnimationFrame(renderFrame);
+                }} else {{
+                    pause();
+                }}
+            }}
+
+            animationId = requestAnimationFrame(renderFrame);
+        }}
+
+        function pause() {{
+            isPlaying = false;
+            playPauseBtn.textContent = 'Play';
+            if (animationId) {{
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }}
+        }}
+
+        function restart() {{
+            pause();
+            currentFrame = 0;
+            term.reset();
+            progressBar.style.width = '0%';
+            timeDisplay.textContent = '0:00 / ' + formatTime(totalDuration);
+        }}
+
+        playPauseBtn.addEventListener('click', () => {{
+            if (isPlaying) {{
+                pause();
+            }} else {{
+                play();
+            }}
+        }});
+
+        restartBtn.addEventListener('click', restart);
+
+        progressContainer.addEventListener('click', (e) => {{
+            const rect = progressContainer.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const percentage = clickX / rect.width;
+            const targetTime = percentage * totalDuration;
+
+            // Find the frame closest to target time
+            pause();
+            term.reset();
+            currentFrame = 0;
+
+            while (currentFrame < frames.length && frames[currentFrame][0] < targetTime) {{
+                term.write(frames[currentFrame][1]);
+                currentFrame++;
+            }}
+
+            progressBar.style.width = (percentage * 100) + '%';
+            timeDisplay.textContent = formatTime(targetTime) + ' / ' + formatTime(totalDuration);
+        }});
+
+        // Update time display
+        timeDisplay.textContent = '0:00 / ' + formatTime(totalDuration);
+    </script>
+</body>
+</html>"#,
+            session_name = metadata.session_name,
+            user = metadata.user,
+            hostname = metadata.hostname,
+            shell = metadata.shell,
+            cols = metadata.terminal_size.0,
+            rows = metadata.terminal_size.1,
+            date = {
+                use std::time::UNIX_EPOCH;
+                let datetime = UNIX_EPOCH + Duration::from_secs(metadata.created_at);
+                format!("{:?}", datetime)
+            },
+            duration = metadata.duration_ms.map(|d| format!("{}:{:02}", d / 60000, (d / 1000) % 60)).unwrap_or_else(|| "0:00".to_string()),
+            frames = frames_json,
+        );
+
+        // Write to file
+        std::fs::write(path, html)?;
+
+        info!("Exported recording to HTML: {:?}", path);
+        Ok(())
     }
 }
 

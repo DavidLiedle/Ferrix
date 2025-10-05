@@ -489,7 +489,7 @@ impl Default for SessionContext {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_ai_assistant_placeholder() {

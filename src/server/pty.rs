@@ -4,7 +4,6 @@ use portable_pty::{CommandBuilder, PtySize, native_pty_system, Child};
 use tokio::sync::{mpsc, broadcast};
 
 use crate::error::{FerrixError, Result};
-use super::performance::{OutputProcessor, PerformanceConfig};
 
 pub struct Pty {
     writer_tx: mpsc::Sender<Vec<u8>>,

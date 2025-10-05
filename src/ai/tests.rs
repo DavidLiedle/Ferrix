@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod ai_tests {
-    use super::*;
+    
     use crate::error::Result;
     use crate::ai::{CommandAssistant, Suggestion, SuggestionCategory};
 

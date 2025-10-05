@@ -14,6 +14,9 @@ pub struct SessionSnapshot {
     pub session: SessionState,
     pub windows: Vec<WindowState>,
     pub panes: Vec<PaneState>,
+    pub created_at: DateTime<Utc>,
+    pub environment: std::collections::HashMap<String, String>,
+    pub config: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,7 +38,7 @@ pub struct SessionState {
     pub environment: Vec<(String, String)>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WindowState {
     pub id: WindowId,
     pub session_id: SessionId,
@@ -45,9 +48,10 @@ pub struct WindowState {
     pub current_pane: Option<PaneId>,
     pub width: u16,
     pub height: u16,
+    pub panes: std::collections::HashMap<String, PaneState>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaneState {
     pub id: PaneId,
     pub window_id: WindowId,
@@ -332,6 +336,7 @@ mod tests {
                 current_pane: Some(pane_id.clone()),
                 width: 80,
                 height: 24,
+                panes: std::collections::HashMap::new(),
             }],
             panes: vec![PaneState {
                 id: pane_id,
@@ -343,6 +348,9 @@ mod tests {
                 scrollback: vec!["line 1".to_string(), "line 2".to_string()],
                 cursor_position: (0, 0),
             }],
+            created_at: chrono::Utc::now(),
+            environment: std::collections::HashMap::new(),
+            config: None,
         }
     }
 
@@ -531,6 +539,7 @@ mod tests {
             current_pane: Some(pane_id.clone()),
             width: 100,
             height: 50,
+            panes: std::collections::HashMap::new(),
         };
 
         assert_eq!(window_state.id, window_id);

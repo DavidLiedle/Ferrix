@@ -556,7 +556,7 @@ impl ParsedCommand {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_command_mode_activation() {

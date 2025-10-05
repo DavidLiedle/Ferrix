@@ -1,9 +1,9 @@
 [package]
 name = "ferrix"
-version = "0.10.2"
+version = "0.11.0"
 edition = "2021"
 authors = ["David Liedle", "Claude <noreply@anthropic.com>"]
-description = "A new Rust-based terminal multiplexer"
+description = "A modern terminal multiplexer with shell completions, security hardening, and comprehensive testing"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/davidliedle/Ferrix"
 keywords = ["terminal", "multiplexer", "tmux", "screen", "tui"]
@@ -31,7 +31,8 @@ toml = "0.8"
 bincode = "1.3"
 
 # CLI
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5", features = ["derive", "cargo"] }
+clap_complete = "4.5"
 rpassword = "7.3"
 daemonize = "0.5"
 
@@ -55,9 +56,12 @@ dirs = "5.0"
 hostname = "0.4"
 
 # Plugin system
+# Note: wasmtime 27.0 has a low-severity vulnerability (RUSTSEC-2025-0046, severity 3.3)
+# affecting fd_renumber WASIp1 function. Upgrade to 37.0+ requires significant API changes.
+# Tracked in V1_RELEASE_CHECKLIST.md for future update.
 wasmtime = "27.0"
 wasmtime-wasi = "27.0"
-reqwest = { version = "0.12", features = ["blocking"] }
+reqwest = { version = "0.12", features = ["blocking", "json"] }
 
 # Clipboard
 arboard = "3.4"
@@ -68,9 +72,14 @@ regex = "1.10"
 # File watching for hot reload
 notify = "6.1"
 
+# Plugin marketplace
+semver = "1.0"
+sha2 = "0.10"
+tar = "0.4"
+
 # System info for status bar
 sysinfo = "0.32"
-battery = "0.7"
+battery = { version = "0.7", optional = true }
 
 # Git integration for status bar
 git2 = { version = "0.19", features = ["vendored-openssl"] }
@@ -110,6 +119,10 @@ harness = false
 name = "large_output"
 harness = false
 
+[[bench]]
+name = "performance"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = true
@@ -123,5 +136,8 @@ opt-level = 0
 inherits = "release"
 
 [features]
+# Default features exclude battery-status to avoid nix vulnerability (RUSTSEC-2021-0119)
+# Users can enable with --features battery-status if needed
 default = ["gpu"]
 gpu = ["dep:wgpu", "dep:raw-window-handle", "dep:winit", "dep:bytemuck"]
+battery-status = ["dep:battery"]

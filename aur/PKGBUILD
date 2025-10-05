@@ -1,0 +1,63 @@
+# Maintainer: David Liedle <david@liedle.com>
+pkgname=ferrix
+pkgver=0.11.0
+pkgrel=1
+pkgdesc="Modern terminal multiplexer combining Screen and tmux features with GPU acceleration"
+arch=('x86_64' 'aarch64')
+url="https://github.com/davidliedle/Ferrix"
+license=('MIT')
+depends=('gcc-libs' 'glibc')
+makedepends=('rust' 'cargo' 'git')
+optdepends=(
+  'wgpu: GPU acceleration support'
+  'git: Git integration in status bar'
+)
+provides=('ferrix')
+conflicts=('ferrix-git')
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/davidliedle/Ferrix/archive/v${pkgver}.tar.gz")
+sha256sums=('SKIP')  # To be updated with actual checksum
+
+build() {
+  cd "${srcdir}/Ferrix-${pkgver}"
+
+  # Build with release optimizations
+  cargo build --release --locked
+
+  # Build with GPU feature if available
+  if pacman -Qi mesa >/dev/null 2>&1; then
+    cargo build --release --locked --features gpu
+  fi
+}
+
+check() {
+  cd "${srcdir}/Ferrix-${pkgver}"
+  cargo test --release --locked
+}
+
+package() {
+  cd "${srcdir}/Ferrix-${pkgver}"
+
+  # Install binary
+  install -Dm755 "target/release/ferrix" "${pkgdir}/usr/bin/ferrix"
+
+  # Install license
+  install -Dm644 "LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+
+  # Install documentation
+  install -Dm644 "README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+  install -Dm644 "FEATURES.md" "${pkgdir}/usr/share/doc/${pkgname}/FEATURES.md"
+  install -Dm644 "CHANGELOG.md" "${pkgdir}/usr/share/doc/${pkgname}/CHANGELOG.md"
+
+  # Install shell completions
+  install -Dm644 "completions/ferrix.bash" "${pkgdir}/usr/share/bash-completion/completions/ferrix"
+  install -Dm644 "completions/ferrix.fish" "${pkgdir}/usr/share/fish/vendor_completions.d/ferrix.fish"
+  install -Dm644 "completions/_ferrix" "${pkgdir}/usr/share/zsh/site-functions/_ferrix"
+
+  # Install systemd service
+  install -Dm644 "systemd/ferrix.service" "${pkgdir}/usr/lib/systemd/user/ferrix.service"
+
+  # Install default configuration
+  install -Dm644 "config/default.toml" "${pkgdir}/usr/share/${pkgname}/config/default.toml"
+}
+
+# vim: set ts=2 sw=2 et:

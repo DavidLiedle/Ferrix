@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 use rustls::{ServerConfig, ClientConfig, RootCertStore};
@@ -13,6 +14,7 @@ use std::pin::Pin;
 use crate::error::{Result, FerrixError};
 use crate::protocol::{ClientMessage, ServerMessage, FerrixCodec, ClientId, SessionId, AuthCredentials};
 use super::Server;
+use super::rate_limiter::RateLimiter;
 
 /// Wrapper enum for different stream types
 enum Stream {
@@ -71,6 +73,7 @@ pub struct RemoteServer {
     tls_config: Option<Arc<ServerConfig>>,
     auth_handler: Arc<dyn AuthenticationHandler>,
     server: Arc<Server>,
+    rate_limiter: Arc<RateLimiter>,
 }
 
 /// Client connector for remote sessions
@@ -98,11 +101,15 @@ impl RemoteServer {
         server: Arc<Server>,
         auth_handler: Arc<dyn AuthenticationHandler>,
     ) -> Self {
+        // Default: 5 failed attempts, 15 minute lockout
+        let rate_limiter = RateLimiter::new(5, Duration::from_secs(900));
+
         Self {
             bind_addr,
             tls_config: None,
             auth_handler,
             server,
+            rate_limiter: Arc::new(rate_limiter),
         }
     }
 
@@ -154,9 +161,10 @@ impl RemoteServer {
             let server = self.server.clone();
             let auth_handler = self.auth_handler.clone();
             let tls_acceptor = tls_acceptor.clone();
+            let rate_limiter = self.rate_limiter.clone();
 
             tokio::spawn(async move {
-                if let Err(e) = Self::handle_client(stream, peer_addr, server, auth_handler, tls_acceptor).await {
+                if let Err(e) = Self::handle_client(stream, peer_addr, server, auth_handler, tls_acceptor, rate_limiter).await {
                     error!("Error handling remote client {}: {}", peer_addr, e);
                 }
             });
@@ -166,10 +174,22 @@ impl RemoteServer {
     async fn handle_client(
         stream: TcpStream,
         peer_addr: SocketAddr,
-        _server: Arc<Server>,
+        server: Arc<Server>,
         auth_handler: Arc<dyn AuthenticationHandler>,
         tls_acceptor: Option<TlsAcceptor>,
+        rate_limiter: Arc<RateLimiter>,
     ) -> Result<()> {
+        // Check if address is rate limited
+        if rate_limiter.is_locked(&peer_addr).await {
+            if let Some(remaining) = rate_limiter.lockout_remaining(&peer_addr).await {
+                error!("Connection from {} rejected: rate limited ({} seconds remaining)",
+                    peer_addr, remaining.as_secs());
+                return Err(FerrixError::Other(format!(
+                    "Too many failed authentication attempts. Try again in {} seconds.",
+                    remaining.as_secs()
+                )));
+            }
+        }
         // Apply TLS if configured
         let stream = if let Some(acceptor) = tls_acceptor {
             let tls_stream = acceptor.accept(stream).await
@@ -187,11 +207,24 @@ impl RemoteServer {
             Some(Ok(ClientMessage::Authenticate(credentials))) => {
                 match auth_handler.authenticate(&credentials).await {
                     Ok(client_id) => {
+                        // Successful authentication - clear rate limit
+                        rate_limiter.record_success(&peer_addr).await;
                         framed.send(ServerMessage::Authenticated { client_id: client_id.clone() }).await?;
                         client_id
                     }
                     Err(e) => {
-                        framed.send(ServerMessage::Error { message: format!("Authentication failed: {}", e) }).await?;
+                        // Failed authentication - record failure
+                        let locked = rate_limiter.record_failure(peer_addr).await;
+                        let error_msg = if locked {
+                            if let Some(remaining) = rate_limiter.lockout_remaining(&peer_addr).await {
+                                format!("Authentication failed. Account locked for {} seconds due to too many failed attempts.", remaining.as_secs())
+                            } else {
+                                "Authentication failed. Too many failed attempts.".to_string()
+                            }
+                        } else {
+                            format!("Authentication failed: {}", e)
+                        };
+                        framed.send(ServerMessage::Error { message: error_msg }).await?;
                         return Ok(());
                     }
                 }
@@ -204,27 +237,69 @@ impl RemoteServer {
 
         info!("Remote client {} authenticated as {:?}", peer_addr, client_id);
 
-        // Handle client messages
-        while let Some(msg) = framed.next().await {
-            match msg {
-                Ok(client_msg) => {
-                    // Check authorization for the action
-                    let action = format!("{:?}", client_msg);
-                    if !auth_handler.authorize(&client_id, &action).await.unwrap_or(false) {
-                        framed.send(ServerMessage::Error { message: "Unauthorized action".to_string() }).await?;
-                        continue;
-                    }
+        // Get server state references
+        let sessions = server.sessions();
+        let clients = server.clients();
+        let keybinding_manager = server.keybinding_manager();
 
-                    // Process message through server
-                    // This would integrate with the existing server message handling
-                    // For now, just echo back success
-                    framed.send(ServerMessage::Success).await?;
+        // Register the remote client in the clients map
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerMessage>(100);
+        {
+            let mut clients_guard = clients.write().await;
+            clients_guard.insert(
+                client_id.clone(),
+                super::ClientConnection {
+                    id: client_id.clone(),
+                    attached_session: None,
+                    sender: tx.clone(),
+                },
+            );
+        }
+
+        // Handle client messages
+        loop {
+            tokio::select! {
+                Some(msg) = framed.next() => {
+                    match msg {
+                        Ok(client_msg) => {
+                            // Check authorization for the action
+                            let action = format!("{:?}", client_msg);
+                            if !auth_handler.authorize(&client_id, &action).await.unwrap_or(false) {
+                                framed.send(ServerMessage::Error { message: "Unauthorized action".to_string() }).await?;
+                                continue;
+                            }
+
+                            // Process message through server using the real handle_message function
+                            match super::handle_message(client_msg, &client_id, &sessions, &clients, &keybinding_manager).await {
+                                Ok(Some(response)) => {
+                                    framed.send(response).await?;
+                                }
+                                Ok(None) => {
+                                    // No response needed
+                                }
+                                Err(e) => {
+                                    error!("Error handling message from {}: {}", peer_addr, e);
+                                    framed.send(ServerMessage::Error { message: format!("Server error: {}", e) }).await?;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("Error receiving message from {}: {}", peer_addr, e);
+                            break;
+                        }
+                    }
                 }
-                Err(e) => {
-                    error!("Error receiving message from {}: {}", peer_addr, e);
-                    break;
+                Some(message) = rx.recv() => {
+                    // Send server-initiated messages (like output updates)
+                    framed.send(message).await?;
                 }
             }
+        }
+
+        // Clean up client connection
+        {
+            let mut clients_guard = clients.write().await;
+            clients_guard.remove(&client_id);
         }
 
         info!("Remote client {} disconnected", peer_addr);
@@ -439,7 +514,7 @@ impl PasswordAuthHandler {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_remote_connection() {

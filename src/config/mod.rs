@@ -3,6 +3,7 @@ pub mod keybindings;
 pub mod ferrixrc;
 pub mod loader;
 pub mod hot_reload;
+pub mod session_config;
 // #[cfg(test)]
 // mod tests;
 

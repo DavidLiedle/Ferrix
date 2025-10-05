@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use tokio::sync::{RwLock, broadcast};
 use tokio::time::{interval, Duration};
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use crate::protocol::{SessionId, ClientId, PaneId, ServerMessage};
 use crate::error::Result;

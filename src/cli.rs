@@ -1,13 +1,14 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, CommandFactory};
 
 #[derive(Parser)]
 #[command(name = "ferrix")]
 #[command(author, version, about, long_about = None)]
+#[command(after_help = "For more information, see: https://github.com/davidliedle/Ferrix")]
 pub struct Cli {
-    #[arg(short, long, default_value = "/tmp/ferrix.sock")]
+    #[arg(short, long, default_value = "/tmp/ferrix.sock", help = "Path to Unix socket for IPC")]
     pub socket: String,
 
-    #[arg(short, long)]
+    #[arg(short, long, help = "Enable debug logging")]
     pub debug: bool,
 
     #[command(subcommand)]
@@ -258,6 +259,273 @@ pub enum Commands {
         #[arg(help = "Session ID or name")]
         session: Option<String>,
     },
+
+    // Layout management commands
+    #[command(about = "Apply a preset layout to the current window")]
+    ApplyLayout {
+        #[arg(help = "Layout preset name (single, vsplit, hsplit, main-left, main-right, main-top, main-bottom, 3v, 3h, 2x2, ide, 3x2)")]
+        preset: String,
+    },
+
+    #[command(about = "Cycle through available layouts")]
+    CycleLayout {
+        #[arg(short, long, help = "Cycle backwards through layouts")]
+        reverse: bool,
+    },
+
+    #[command(about = "Save current layout as a template")]
+    SaveLayout {
+        #[arg(help = "Name for the layout template")]
+        name: String,
+
+        #[arg(short, long, help = "Description of the layout")]
+        description: Option<String>,
+    },
+
+    #[command(about = "List available layouts")]
+    ListLayouts,
+
+    // Session versioning commands (Git-like)
+    #[command(about = "Initialize version control for the current session")]
+    InitVersioning,
+
+    #[command(about = "Commit current session state")]
+    CommitSession {
+        #[arg(short, long, help = "Commit message")]
+        message: String,
+
+        #[arg(short, long, help = "Author name")]
+        author: Option<String>,
+    },
+
+    #[command(about = "Create a new branch from current session state")]
+    Branch {
+        #[arg(help = "Name for the new branch")]
+        name: Option<String>,
+
+        #[arg(short, long, help = "List all branches")]
+        list: bool,
+
+        #[arg(short, long, help = "Delete a branch")]
+        delete: Option<String>,
+    },
+
+    #[command(about = "Switch to a different branch")]
+    Checkout {
+        #[arg(help = "Branch name or commit hash")]
+        target: String,
+
+        #[arg(short, long, help = "Create new branch if it doesn't exist")]
+        create: bool,
+    },
+
+    #[command(about = "Merge another branch into current branch")]
+    Merge {
+        #[arg(help = "Branch to merge")]
+        branch: String,
+
+        #[arg(long, help = "Automatically resolve conflicts")]
+        auto: bool,
+    },
+
+    #[command(about = "Show session history")]
+    Log {
+        #[arg(short, long, default_value = "10", help = "Number of commits to show")]
+        limit: usize,
+
+        #[arg(long, help = "Show full commit details")]
+        verbose: bool,
+    },
+
+    #[command(about = "Show differences between session states")]
+    Diff {
+        #[arg(help = "First commit/branch to compare")]
+        from: Option<String>,
+
+        #[arg(help = "Second commit/branch to compare")]
+        to: Option<String>,
+    },
+
+    // Session configuration commands
+    #[command(about = "Load session-specific configuration")]
+    LoadSessionConfig {
+        #[arg(help = "Path to session config file")]
+        path: String,
+
+        #[arg(help = "Session ID or name (defaults to current)")]
+        session: Option<String>,
+    },
+
+    #[command(about = "Save current session configuration")]
+    SaveSessionConfig {
+        #[arg(help = "Path to save config file")]
+        path: String,
+
+        #[arg(help = "Session ID or name (defaults to current)")]
+        session: Option<String>,
+    },
+
+    #[command(about = "Apply a session template")]
+    ApplySessionTemplate {
+        #[arg(help = "Template name (development, remote, monitoring)")]
+        template: String,
+
+        #[arg(help = "Session ID or name (defaults to current)")]
+        session: Option<String>,
+    },
+
+    #[command(about = "List available session templates")]
+    ListSessionTemplates,
+
+    // Input mode commands
+    #[command(about = "Set input mode (vim or emacs)")]
+    SetInputMode {
+        #[arg(help = "Input mode (vim, emacs, or default)")]
+        mode: String,
+    },
+
+    #[command(about = "Show current input mode")]
+    GetInputMode,
+
+    #[command(about = "Enter copy mode")]
+    EnterCopyMode,
+
+    #[command(about = "Exit copy mode")]
+    ExitCopyMode,
+
+    // Plugin marketplace commands
+    #[command(about = "Manage plugins")]
+    Plugin {
+        #[command(subcommand)]
+        action: PluginAction,
+    },
+
+    // Window and pane management commands
+    #[command(about = "Create a new window")]
+    NewWindow {
+        #[arg(short, long, help = "Name for the new window")]
+        name: Option<String>,
+
+        #[arg(short, long, help = "Command to run in the new window")]
+        command: Option<String>,
+    },
+
+    #[command(about = "Select a window")]
+    SelectWindow {
+        #[arg(help = "Window ID or index")]
+        target: String,
+    },
+
+    #[command(about = "Kill a window")]
+    KillWindow {
+        #[arg(help = "Window ID or index (defaults to current)")]
+        target: Option<String>,
+    },
+
+    #[command(about = "List all windows")]
+    ListWindows,
+
+    #[command(about = "Split the current pane")]
+    SplitPane {
+        #[arg(short = 'v', long, help = "Split vertically")]
+        vertical: bool,
+
+        #[arg(short = 'h', long, help = "Split horizontally")]
+        horizontal: bool,
+
+        #[arg(short, long, help = "Percentage of space for new pane")]
+        percentage: Option<u8>,
+    },
+
+    #[command(about = "Select a pane")]
+    SelectPane {
+        #[arg(help = "Pane direction (up, down, left, right) or ID")]
+        target: String,
+    },
+
+    #[command(about = "Kill a pane")]
+    KillPane {
+        #[arg(help = "Pane ID (defaults to current)")]
+        target: Option<String>,
+    },
+
+    #[command(about = "Resize current pane")]
+    ResizePane {
+        #[arg(help = "Direction (up, down, left, right)")]
+        direction: String,
+
+        #[arg(help = "Amount to resize (in cells)", default_value = "5")]
+        amount: u16,
+    },
+
+    #[command(about = "Generate shell completions")]
+    Completions {
+        #[arg(help = "Shell type (bash, zsh, fish, powershell, elvish)")]
+        shell: String,
+
+        #[arg(short, long, help = "Output file path (defaults to stdout)")]
+        output: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PluginAction {
+    #[command(about = "Search for plugins in the marketplace")]
+    Search {
+        #[arg(help = "Search query")]
+        query: String,
+
+        #[arg(short, long, help = "Filter by category")]
+        category: Option<String>,
+    },
+
+    #[command(about = "Install a plugin")]
+    Install {
+        #[arg(help = "Plugin name or ID")]
+        plugin: String,
+
+        #[arg(short, long, help = "Plugin version (defaults to latest)")]
+        version: Option<String>,
+    },
+
+    #[command(about = "Update installed plugins")]
+    Update {
+        #[arg(help = "Plugin name or ID (updates all if not specified)")]
+        plugin: Option<String>,
+    },
+
+    #[command(about = "Uninstall a plugin")]
+    Uninstall {
+        #[arg(help = "Plugin name or ID")]
+        plugin: String,
+    },
+
+    #[command(about = "List installed plugins")]
+    List {
+        #[arg(short, long, help = "Show detailed information")]
+        verbose: bool,
+    },
+
+    #[command(about = "Show plugin information")]
+    Info {
+        #[arg(help = "Plugin name or ID")]
+        plugin: String,
+    },
+
+    #[command(about = "Enable a plugin")]
+    Enable {
+        #[arg(help = "Plugin name or ID")]
+        plugin: String,
+    },
+
+    #[command(about = "Disable a plugin")]
+    Disable {
+        #[arg(help = "Plugin name or ID")]
+        plugin: String,
+    },
+
+    #[command(about = "Reload plugin configuration")]
+    Reload,
 }
 
 #[derive(Subcommand)]

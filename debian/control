@@ -1,0 +1,35 @@
+Source: ferrix
+Section: utils
+Priority: optional
+Maintainer: David Liedle <david@liedle.com>
+Build-Depends: debhelper-compat (= 13),
+               cargo,
+               rustc (>= 1.70),
+               pkg-config,
+               libssl-dev,
+               cmake
+Standards-Version: 4.6.2
+Homepage: https://github.com/davidliedle/Ferrix
+Vcs-Browser: https://github.com/davidliedle/Ferrix
+Vcs-Git: https://github.com/davidliedle/Ferrix.git
+Rules-Requires-Root: no
+
+Package: ferrix
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: git
+Suggests: mesa-utils
+Description: Modern terminal multiplexer with GPU acceleration
+ Ferrix is a modern terminal multiplexer that combines the best features
+ of GNU Screen and tmux, while adding innovative capabilities only possible
+ with modern technology.
+ .
+ Features include:
+  - GPU-accelerated rendering for smooth performance
+  - Session versioning with Git-like branching and merging
+  - Per-session configurations
+  - Plugin marketplace with WASM support
+  - Vim and Emacs input modes
+  - Advanced status bar with system monitoring
+  - Layout presets for common workflows
+  - Copy mode with clipboard integration

@@ -15,6 +15,7 @@ pub mod scrollback;
 pub mod activity;
 pub mod recording;
 pub mod performance;
+pub mod rate_limiter;
 // #[cfg(test)]
 // mod pty_tests;
 // #[cfg(test)]
@@ -46,10 +47,10 @@ pub struct Server {
     socket_path: PathBuf,
 }
 
-struct ClientConnection {
-    id: ClientId,
-    attached_session: Option<SessionId>,
-    sender: mpsc::Sender<ServerMessage>,
+pub struct ClientConnection {
+    pub id: ClientId,
+    pub attached_session: Option<SessionId>,
+    pub sender: mpsc::Sender<ServerMessage>,
 }
 
 impl Server {
@@ -60,6 +61,21 @@ impl Server {
             keybinding_manager: Arc::new(RwLock::new(crate::config::keybindings::KeyBindingManager::new())),
             socket_path,
         }
+    }
+
+    /// Get sessions reference for remote server access
+    pub fn sessions(&self) -> Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>> {
+        self.sessions.clone()
+    }
+
+    /// Get clients reference for remote server access
+    pub fn clients(&self) -> Arc<RwLock<HashMap<ClientId, ClientConnection>>> {
+        self.clients.clone()
+    }
+
+    /// Get keybinding manager reference for remote server access
+    pub fn keybinding_manager(&self) -> Arc<RwLock<crate::config::keybindings::KeyBindingManager>> {
+        self.keybinding_manager.clone()
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -190,7 +206,7 @@ async fn handle_client(
     Ok(())
 }
 
-async fn handle_message(
+pub async fn handle_message(
     message: ClientMessage,
     client_id: &ClientId,
     sessions: &Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
@@ -220,8 +236,13 @@ async fn handle_message(
                 loop {
                     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-                    let mut session_guard = session_clone.write().await;
-                    if let Ok(pane_outputs) = session_guard.get_all_pane_outputs().await {
+                    // Get pane outputs with minimal lock duration
+                    let pane_outputs = {
+                        let mut session_guard = session_clone.write().await;
+                        session_guard.get_all_pane_outputs().await
+                    };
+
+                    if let Ok(pane_outputs) = pane_outputs {
                         for (pane_id, output) in pane_outputs {
                             if !output.is_empty() {
                                 // Broadcast to all clients attached to this session
@@ -1810,8 +1831,7 @@ async fn handle_message(
                             player.export_text(&output_path)
                         }
                         crate::protocol::RecordingExportFormat::Html => {
-                            // HTML export not yet implemented
-                            Err(crate::error::FerrixError::Other("HTML export not yet implemented".to_string()))
+                            player.export_html(&output_path)
                         }
                     };
 
@@ -1837,6 +1857,213 @@ async fn handle_message(
                     }))
                 }
             }
+        }
+
+        // Session versioning commands
+        ClientMessage::InitVersioning { session_id } => {
+            let sessions_guard = sessions.read().await;
+            if let Some(session) = sessions_guard.get(&session_id) {
+                let mut session_guard = session.write().await;
+                match session_guard.init_versioning().await {
+                    Ok(()) => {
+                        Ok(Some(ServerMessage::Success))
+                    }
+                    Err(e) => Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to initialize versioning: {}", e),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Session not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::CommitSession { session_id, message } => {
+            let sessions_guard = sessions.read().await;
+            if let Some(session) = sessions_guard.get(&session_id) {
+                let mut session_guard = session.write().await;
+                let author_name = "User".to_string(); // TODO: Get from session or client
+                match session_guard.commit_changes(&message, &author_name).await {
+                    Ok(commit_id) => {
+                        Ok(Some(ServerMessage::CommitCreated {
+                            session_id: session_id.clone(),
+                            commit_id: commit_id.0,
+                            message: message.clone(),
+                        }))
+                    }
+                    Err(e) => Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to commit: {}", e),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Session not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::CreateBranch { session_id, branch_name, description: _ } => {
+            let sessions_guard = sessions.read().await;
+            if let Some(session) = sessions_guard.get(&session_id) {
+                let mut session_guard = session.write().await;
+                match session_guard.create_branch(&branch_name, None).await {
+                    Ok(()) => {
+                        Ok(Some(ServerMessage::BranchCreated {
+                            session_id: session_id.clone(),
+                            branch_name
+                        }))
+                    }
+                    Err(e) => Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to create branch: {}", e),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Session not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::CheckoutBranch { session_id, branch_name } => {
+            let sessions_guard = sessions.read().await;
+            if let Some(session) = sessions_guard.get(&session_id) {
+                let mut session_guard = session.write().await;
+                match session_guard.checkout_branch(&branch_name).await {
+                    Ok(()) => {
+                        Ok(Some(ServerMessage::BranchCheckedOut {
+                            session_id: session_id.clone(),
+                            branch_name
+                        }))
+                    }
+                    Err(e) => Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to checkout branch: {}", e),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Session not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::MergeBranch { session_id, branch_name, strategy } => {
+            let sessions_guard = sessions.read().await;
+            if let Some(session) = sessions_guard.get(&session_id) {
+                let mut session_guard = session.write().await;
+                let auto_resolve = strategy == "auto";
+                match session_guard.merge_branch(&branch_name, auto_resolve).await {
+                    Ok((conflicts, resolved)) => {
+                        Ok(Some(ServerMessage::MergeCompleted {
+                            session_id: session_id.clone(),
+                            branch_name: branch_name.clone(),
+                            conflicts,
+                        }))
+                    }
+                    Err(e) => Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to merge: {}", e),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Session not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::ListBranches { session_id } => {
+            let sessions_guard = sessions.read().await;
+            if let Some(session) = sessions_guard.get(&session_id) {
+                let session_guard = session.read().await;
+                let branches = session_guard.list_branches();
+                let branch_infos: Vec<crate::protocol::BranchInfo> = branches.into_iter().map(|b| {
+                    crate::protocol::BranchInfo {
+                        name: b.name.clone(),
+                        head: b.head.0,
+                        description: b.description,
+                        created_at: b.created_at,
+                        is_current: session_guard.get_current_branch() == Some(&b.name),
+                    }
+                }).collect();
+                Ok(Some(ServerMessage::BranchList {
+                    session_id: session_id.clone(),
+                    branches: branch_infos,
+                    current: session_guard.get_current_branch().unwrap_or("master").to_string(),
+                }))
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Session not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::ShowLog { session_id, limit } => {
+            let sessions_guard = sessions.read().await;
+            if let Some(session) = sessions_guard.get(&session_id) {
+                let session_guard = session.read().await;
+                let log_entries = session_guard.get_commit_log(limit.unwrap_or(10));
+                let commit_infos: Vec<crate::protocol::CommitInfo> = log_entries.into_iter().map(|c| {
+                    crate::protocol::CommitInfo {
+                        id: c.id.0,
+                        message: c.message,
+                        author: c.author,
+                        timestamp: c.timestamp,
+                        parent: c.parent.map(|p| p.0),
+                        tags: c.tags,
+                    }
+                }).collect();
+                Ok(Some(ServerMessage::LogHistory {
+                    session_id: session_id.clone(),
+                    commits: commit_infos,
+                }))
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Session not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::ShowDiff { session_id, from_commit, to_commit } => {
+            let sessions_guard = sessions.read().await;
+            if let Some(session) = sessions_guard.get(&session_id) {
+                let session_guard = session.read().await;
+                match session_guard.diff_commits(Some(&from_commit), Some(&to_commit)) {
+                    Ok(diff) => {
+                        Ok(Some(ServerMessage::DiffResult {
+                            session_id: session_id.clone(),
+                            diff
+                        }))
+                    }
+                    Err(e) => Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to generate diff: {}", e),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Session not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::PtyResponse { pane_id, data } => {
+            // Find the session that has this pane and write the response to it
+            let sessions_guard = sessions.read().await;
+            for session in sessions_guard.values() {
+                let session_guard = session.read().await;
+                // Search all windows in the session
+                for window in &session_guard.windows {
+                    let mut window_guard = window.write().await;
+                    if let Some(pane) = window_guard.panes.get_mut(&pane_id) {
+                        // Write the response data to the pane's PTY
+                        let mut pane_guard = pane.write().await;
+                        if let Some(pty) = &mut pane_guard.pty {
+                            let _ = pty.write(data).await;
+                        }
+                        return Ok(None);
+                    }
+                }
+            }
+            Ok(None)
         }
 
         _ => {

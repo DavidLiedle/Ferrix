@@ -1,11 +1,10 @@
 // End-to-end tests for Ferrix terminal multiplexer
 // These tests verify the complete functionality of the system
 
-use ferrix::error::Result;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     // Note: The integration tests below are placeholders for future implementation.
     // The actual Ferrix server uses a message-passing architecture through Unix sockets,

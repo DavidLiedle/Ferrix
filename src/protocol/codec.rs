@@ -101,7 +101,7 @@ impl Encoder<ClientMessage> for FerrixClientCodec {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_codec_encoding() {

@@ -440,6 +440,142 @@ impl KeyBindingManager {
         result
     }
 
+    /// Create Emacs-style keybindings (similar to GNU Screen)
+    pub fn emacs_bindings() -> Self {
+        let mut bindings = HashMap::new();
+
+        // Session management (Emacs/Screen style with C-x prefix)
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('d') },
+            Action::DetachSession,
+        );
+
+        // Window management
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('c') },
+            Action::NewWindow,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('n') },
+            Action::NextWindow,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('p') },
+            Action::PreviousWindow,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('w') },
+            Action::ListWindows,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('A') },
+            Action::RenameWindow,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('k') },
+            Action::KillWindow,
+        );
+
+        // Pane management (Emacs-style)
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('2') },
+            Action::SplitHorizontal,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('3') },
+            Action::SplitVertical,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('o') },
+            Action::NavigateDown, // Cycle through panes
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('0') },
+            Action::ClosePane,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('1') },
+            Action::ZoomPane,
+        );
+
+        // Arrow key navigation
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Up },
+            Action::NavigateUp,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Down },
+            Action::NavigateDown,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Left },
+            Action::NavigateLeft,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Right },
+            Action::NavigateRight,
+        );
+
+        // Copy mode (Emacs style uses ESC [)
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('[') },
+            Action::EnterCopyMode,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char(']') },
+            Action::PasteBuffer,
+        );
+
+        // Command mode
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char(':') },
+            Action::EnterCommandMode,
+        );
+
+        // Config reload
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('r') },
+            Action::ReloadConfig,
+        );
+
+        // Layout management
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char(' ') },
+            Action::CycleLayout,
+        );
+
+        // Help
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('?') },
+            Action::Custom("show-keys".to_string()),
+        );
+
+        // Number keys for window selection (0-9)
+        for i in 0..=9 {
+            let digit = char::from_digit(i as u32, 10).unwrap();
+            bindings.insert(
+                KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char(digit) },
+                Action::SelectWindow(i),
+            );
+        }
+
+        Self {
+            prefix: KeyBinding {
+                modifiers: KeyModifiers::CONTROL,
+                code: KeyCode::Char('a'), // Screen-style C-a prefix
+            },
+            bindings,
+            custom_bindings: HashMap::new(),
+            config_path: None,
+        }
+    }
+
+    /// Create Vim-style keybindings (similar to modern terminal multiplexers)
+    pub fn vim_bindings() -> Self {
+        // Vim users typically prefer the tmux-style bindings which are already the default
+        Self::default()
+    }
+
     pub fn save_to_config(&self) -> Result<()> {
         let mut config = super::Config::load().unwrap_or_default();
 
@@ -605,7 +741,7 @@ impl KeyBindingManager {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_keybinding_defaults() {

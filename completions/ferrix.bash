@@ -1,117 +1,72 @@
-#!/bin/bash
-# Bash completion script for Ferrix
+#!/usr/bin/env bash
+# Bash completion script for ferrix
 
 _ferrix() {
-    local cur prev opts
+    local cur prev opts base
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Main commands
-    local commands="new attach detach list kill kill-server restore save-snapshot restore-snapshot \
-                    list-snapshots export-snapshot import-snapshot server connect plugin version help"
+    opts="new attach detach list kill rename server help version \
+          save-snapshot load-snapshot list-snapshots \
+          new-window select-window rename-window kill-window list-windows \
+          split-pane select-pane kill-pane resize-pane \
+          apply-layout save-layout cycle-layout list-layouts \
+          enter-copy-mode \
+          plugin commit-session branch checkout merge log \
+          enable-autosave disable-autosave"
 
-    # Global options
-    local global_opts="-h --help -V --version"
-
+    # Sub-command options
     case "${prev}" in
-        ferrix)
-            COMPREPLY=( $(compgen -W "${commands} ${global_opts}" -- ${cur}) )
+        new|attach)
+            local sessions=$(ferrix list 2>/dev/null | awk '{print $1}')
+            COMPREPLY=($(compgen -W "${sessions} -s -t --session --target" -- ${cur}))
             return 0
             ;;
-        new)
-            local opts="-s --session -d --detached -c --command --working-dir"
-            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+        kill|rename|save-snapshot)
+            local sessions=$(ferrix list 2>/dev/null | awk '{print $1}')
+            COMPREPLY=($(compgen -W "${sessions}" -- ${cur}))
             return 0
             ;;
-        attach)
-            local opts="-t --target --force --read-only"
-            if [[ ${cur} == -* ]]; then
-                COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
-            else
-                # Complete with available sessions
-                local sessions=$(ferrix list 2>/dev/null | cut -d: -f1)
-                COMPREPLY=( $(compgen -W "${sessions}" -- ${cur}) )
-            fi
+        apply-layout)
+            local layouts="single vsplit hsplit main-left main-right main-top main-bottom \
+                          3v 3h 2x2 ide 3x2"
+            COMPREPLY=($(compgen -W "${layouts}" -- ${cur}))
             return 0
             ;;
-        kill)
-            local opts="-t --target"
-            if [[ ${cur} == -* ]]; then
-                COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
-            else
-                # Complete with available sessions
-                local sessions=$(ferrix list 2>/dev/null | cut -d: -f1)
-                COMPREPLY=( $(compgen -W "${sessions}" -- ${cur}) )
-            fi
+        split-pane|split)
+            COMPREPLY=($(compgen -W "-h -v --horizontal --vertical" -- ${cur}))
             return 0
             ;;
-        save-snapshot|restore-snapshot)
-            if [[ ${cur} == -* ]]; then
-                local opts="--name --description --session-id"
-                COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
-            else
-                # Complete with available sessions
-                local sessions=$(ferrix list 2>/dev/null | cut -d: -f1)
-                COMPREPLY=( $(compgen -W "${sessions}" -- ${cur}) )
-            fi
-            return 0
-            ;;
-        export-snapshot|import-snapshot)
-            local opts="--output --input"
-            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
-            return 0
-            ;;
-        server)
-            local opts="--bind --cert --key --auth-mode --auth-token --foreground"
-            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
-            return 0
-            ;;
-        connect)
-            local opts="--list --password --token --cert"
-            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+        resize-pane)
+            COMPREPLY=($(compgen -W "-U -D -L -R --up --down --left --right" -- ${cur}))
             return 0
             ;;
         plugin)
-            local subcommands="install uninstall list enable disable test"
-            COMPREPLY=( $(compgen -W "${subcommands}" -- ${cur}) )
+            COMPREPLY=($(compgen -W "install uninstall update list search info" -- ${cur}))
             return 0
             ;;
-        version)
-            local opts="--commit --build-date --verbose"
-            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+        branch|checkout|merge)
+            local branches=$(ferrix branch --list 2>/dev/null | awk '{print $1}')
+            COMPREPLY=($(compgen -W "${branches}" -- ${cur}))
             return 0
             ;;
-        help)
-            COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
+        --features)
+            COMPREPLY=($(compgen -W "gpu" -- ${cur}))
             return 0
-            ;;
-        -s|--session|-t|--target)
-            # Complete with available sessions
-            local sessions=$(ferrix list 2>/dev/null | cut -d: -f1)
-            COMPREPLY=( $(compgen -W "${sessions}" -- ${cur}) )
-            return 0
-            ;;
-        --working-dir)
-            # Complete with directories
-            COMPREPLY=( $(compgen -d -- ${cur}) )
-            return 0
-            ;;
-        -c|--command)
-            # Complete with available commands
-            COMPREPLY=( $(compgen -c -- ${cur}) )
-            return 0
-            ;;
-        *)
             ;;
     esac
 
-    # Default to commands if nothing matches
+    # Handle options starting with dash
     if [[ ${cur} == -* ]]; then
-        COMPREPLY=( $(compgen -W "${global_opts}" -- ${cur}) )
-    else
-        COMPREPLY=( $(compgen -W "${commands}" -- ${cur}) )
+        local global_opts="-h --help -v --version -c --config -l --log-level"
+        COMPREPLY=($(compgen -W "${global_opts}" -- ${cur}))
+        return 0
     fi
+
+    COMPREPLY=($(compgen -W "${opts}" -- ${cur}))
+    return 0
 }
 
 complete -F _ferrix ferrix

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct SessionId(pub Uuid);
@@ -72,6 +73,14 @@ pub enum ClientMessage {
     },
     ListLayoutPresets,
     CycleLayout,
+    LoadSessionConfig {
+        config_path: Option<PathBuf>,
+    },
+    SaveSessionConfig,
+    ApplySessionTemplate {
+        template_name: String,
+    },
+    ListSessionTemplates,
     EnterCopyMode,
     ExitCopyMode,
     CopyModeInput {
@@ -157,6 +166,69 @@ pub enum ClientMessage {
         path: std::path::PathBuf,
         format: RecordingExportFormat,
         output_path: std::path::PathBuf,
+    },
+    // Session versioning commands
+    InitVersioning {
+        session_id: SessionId,
+    },
+    CommitSession {
+        session_id: SessionId,
+        message: String,
+    },
+    CreateBranch {
+        session_id: SessionId,
+        branch_name: String,
+        description: Option<String>,
+    },
+    CheckoutBranch {
+        session_id: SessionId,
+        branch_name: String,
+    },
+    MergeBranch {
+        session_id: SessionId,
+        branch_name: String,
+        strategy: String,  // "ours", "theirs", "auto", "manual"
+    },
+    CherryPick {
+        session_id: SessionId,
+        commit_id: String,
+    },
+    RevertCommit {
+        session_id: SessionId,
+        commit_id: String,
+    },
+    ResetToCommit {
+        session_id: SessionId,
+        commit_id: String,
+        hard: bool,
+    },
+    ShowLog {
+        session_id: SessionId,
+        limit: Option<usize>,
+    },
+    ShowDiff {
+        session_id: SessionId,
+        from_commit: String,
+        to_commit: String,
+    },
+    TagCommit {
+        session_id: SessionId,
+        commit_id: String,
+        tag: String,
+    },
+    ListBranches {
+        session_id: SessionId,
+    },
+    ResolveConflict {
+        session_id: SessionId,
+        conflict_path: String,
+        resolution: String,  // "ours", "theirs", "custom"
+        custom_value: Option<String>,
+    },
+    /// Send PTY response (for device status reports, cursor position, etc.)
+    PtyResponse {
+        pane_id: PaneId,
+        data: Vec<u8>,
     },
 }
 
@@ -249,6 +321,18 @@ pub enum ServerMessage {
     },
     LayoutApplied {
         preset_name: String,
+    },
+    SessionConfigLoaded {
+        session_id: SessionId,
+    },
+    SessionConfigSaved {
+        session_id: SessionId,
+    },
+    SessionTemplateApplied {
+        template_name: String,
+    },
+    SessionTemplatesList {
+        templates: Vec<SessionTemplateInfo>,
     },
     CopyModeEntered,
     CopyModeUpdate {
@@ -344,6 +428,62 @@ pub enum ServerMessage {
         output_path: std::path::PathBuf,
         format: RecordingExportFormat,
     },
+    // Session versioning responses
+    VersioningInitialized {
+        session_id: SessionId,
+    },
+    CommitCreated {
+        session_id: SessionId,
+        commit_id: String,
+        message: String,
+    },
+    BranchCreated {
+        session_id: SessionId,
+        branch_name: String,
+    },
+    BranchCheckedOut {
+        session_id: SessionId,
+        branch_name: String,
+    },
+    MergeCompleted {
+        session_id: SessionId,
+        branch_name: String,
+        conflicts: Vec<String>,
+    },
+    CherryPickCompleted {
+        session_id: SessionId,
+        commit_id: String,
+    },
+    RevertCompleted {
+        session_id: SessionId,
+        commit_id: String,
+    },
+    ResetCompleted {
+        session_id: SessionId,
+        commit_id: String,
+    },
+    LogHistory {
+        session_id: SessionId,
+        commits: Vec<CommitInfo>,
+    },
+    DiffResult {
+        session_id: SessionId,
+        diff: String,
+    },
+    CommitTagged {
+        session_id: SessionId,
+        commit_id: String,
+        tag: String,
+    },
+    BranchList {
+        session_id: SessionId,
+        branches: Vec<BranchInfo>,
+        current: String,
+    },
+    ConflictResolved {
+        session_id: SessionId,
+        conflict_path: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -361,6 +501,12 @@ pub struct LayoutPresetInfo {
     pub description: String,
     pub pane_count: usize,
     pub is_custom: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionTemplateInfo {
+    pub name: String,
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,9 +574,28 @@ pub struct KeyBindingInfo {
     pub description: String,
     pub is_custom: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitInfo {
+    pub id: String,
+    pub message: String,
+    pub author: String,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub parent: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BranchInfo {
+    pub name: String,
+    pub head: String,
+    pub description: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub is_current: bool,
+}
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_message_serialization() {

@@ -500,7 +500,7 @@ impl Default for FerrixRc {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_ferrixrc_parsing() {

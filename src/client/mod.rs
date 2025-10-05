@@ -218,6 +218,26 @@ impl Client {
         Err(FerrixError::Protocol("Failed to kill session".to_string()))
     }
 
+    /// Send a generic protocol message to the server
+    pub async fn send(&mut self, message: ClientMessage) -> Result<()> {
+        if let Some(ref mut framed) = self.framed {
+            framed.send(message).await?;
+        } else {
+            return Err(FerrixError::NotConnected);
+        }
+        Ok(())
+    }
+
+    /// Receive a message from the server
+    pub async fn receive(&mut self) -> Result<ServerMessage> {
+        if let Some(ref mut framed) = self.framed {
+            if let Some(msg) = framed.next().await {
+                return Ok(msg?);
+            }
+        }
+        Err(FerrixError::NotConnected)
+    }
+
     async fn run_attached(&mut self) -> Result<()> {
         // Only enable raw mode if we're in an interactive terminal
         let is_tty = std::io::stdin().is_terminal();
@@ -561,7 +581,36 @@ impl Client {
                 }
             }
             Action::ListSessions => {
-                // TODO: Implement list sessions
+                // Request session list from server
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::ListSessions).await?;
+
+                    // Wait for response and display sessions
+                    if let Some(response) = framed.next().await {
+                        match response? {
+                            ServerMessage::SessionList { sessions } => {
+                                if sessions.is_empty() {
+                                    println!("No active sessions");
+                                } else {
+                                    println!("Active sessions ({}):", sessions.len());
+                                    for session in sessions {
+                                        println!("  {} - {} ({} clients attached)",
+                                            session.id.0,
+                                            session.name,
+                                            session.attached_clients
+                                        );
+                                    }
+                                }
+                            }
+                            ServerMessage::Error { message } => {
+                                error!("Failed to list sessions: {}", message);
+                            }
+                            _ => {
+                                error!("Unexpected response to ListSessions");
+                            }
+                        }
+                    }
+                }
             }
             Action::ListWindows => {
                 // Request window list from server and show selector
@@ -1109,6 +1158,19 @@ impl Client {
         // Process the data through the ANSI parser
         parser.process(&data);
 
+        // Send any pending PTY responses back to the server
+        let responses = parser.take_pending_responses();
+        if !responses.is_empty() {
+            for response_data in responses {
+                if let Some(framed) = &mut self.framed {
+                    let _ = framed.send(ClientMessage::PtyResponse {
+                        pane_id: pane_id.clone(),
+                        data: response_data,
+                    }).await;
+                }
+            }
+        }
+
         // In non-TTY mode, always write output to stdout
         if !is_tty {
             let mut stdout = stdout();
@@ -1210,15 +1272,119 @@ impl Client {
     }
 
     fn get_text_in_range(&self, start: (u16, u16), end: (u16, u16)) -> Option<String> {
-        // Get text from the pane buffer in the specified range
-        // This is simplified - in reality you'd need to handle the buffer properly
-        None
+        // Find the focused pane and get its parser
+        let current_layout = self.current_layout.as_ref()?;
+        let focused_pane = current_layout.panes.iter().find(|p| p.is_focused)?;
+        let parser = self.pane_parsers.get(&focused_pane.id)?;
+
+        let screen = parser.render();
+        let mut result = String::new();
+
+        // Normalize coordinates (ensure start <= end)
+        let (start_x, start_y) = start;
+        let (end_x, end_y) = end;
+
+        if start_y == end_y {
+            // Single line selection
+            if let Some(row) = screen.get(start_y as usize) {
+                let start_col = start_x.min(end_x) as usize;
+                let end_col = start_x.max(end_x) as usize;
+                for cell in row.iter().skip(start_col).take(end_col - start_col + 1) {
+                    result.push(cell.ch);
+                }
+            }
+        } else {
+            // Multi-line selection
+            let (first_y, last_y) = if start_y < end_y {
+                (start_y, end_y)
+            } else {
+                (end_y, start_y)
+            };
+
+            for y in first_y..=last_y {
+                if let Some(row) = screen.get(y as usize) {
+                    if y == first_y {
+                        // First line: from start_x to end
+                        for cell in row.iter().skip(start_x as usize) {
+                            result.push(cell.ch);
+                        }
+                    } else if y == last_y {
+                        // Last line: from beginning to end_x
+                        for cell in row.iter().take((end_x + 1) as usize) {
+                            result.push(cell.ch);
+                        }
+                    } else {
+                        // Middle lines: entire line
+                        for cell in row {
+                            result.push(cell.ch);
+                        }
+                    }
+                    if y != last_y {
+                        result.push('\n');
+                    }
+                }
+            }
+        }
+
+        Some(result.trim_end().to_string())
     }
 
     fn get_word_at(&self, x: u16, y: u16) -> Option<String> {
-        // Get word at the specified position
-        // This is simplified - in reality you'd need to parse the buffer
-        None
+        // Find the focused pane and get its parser
+        let current_layout = self.current_layout.as_ref()?;
+        let focused_pane = current_layout.panes.iter().find(|p| p.is_focused)?;
+        let parser = self.pane_parsers.get(&focused_pane.id)?;
+
+        let screen = parser.render();
+        let row = screen.get(y as usize)?;
+
+        // Define word boundary characters
+        let is_word_char = |ch: char| ch.is_alphanumeric() || ch == '_' || ch == '-' || ch == '.';
+
+        // Check if the position has a word character
+        let cell_at_pos = row.get(x as usize)?;
+        if !is_word_char(cell_at_pos.ch) {
+            return None;
+        }
+
+        // Find word boundaries
+        let mut start_x = x as usize;
+        let mut end_x = x as usize;
+
+        // Expand left
+        while start_x > 0 {
+            if let Some(cell) = row.get(start_x - 1) {
+                if is_word_char(cell.ch) {
+                    start_x -= 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        // Expand right
+        while end_x < row.len() - 1 {
+            if let Some(cell) = row.get(end_x + 1) {
+                if is_word_char(cell.ch) {
+                    end_x += 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        // Extract the word
+        let word: String = row.iter()
+            .skip(start_x)
+            .take(end_x - start_x + 1)
+            .map(|cell| cell.ch)
+            .collect();
+
+        Some(word)
     }
 
     async fn draw_panes(&mut self, layout: &LayoutInfo) -> Result<()> {
@@ -1242,7 +1408,7 @@ impl Client {
 
     async fn draw_pane_content(&mut self, pane: &PaneInfo) -> Result<()> {
         use std::io::Write;
-        use crossterm::style::{SetForegroundColor, SetBackgroundColor, SetAttribute, ResetColor, Attribute as CrosstermAttribute};
+        use crossterm::style::{SetForegroundColor, SetBackgroundColor, SetAttribute, ResetColor};
         let mut stdout = stdout();
 
         // Check if we're in a single-pane layout

@@ -1,0 +1,27 @@
+[Unit]
+Description=Ferrix Terminal Multiplexer Server
+Documentation=https://github.com/davidliedle/Ferrix
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ferrix server
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ferrix
+
+# Security settings
+PrivateTmp=yes
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=%h/.ferrix
+NoNewPrivileges=true
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=default.target

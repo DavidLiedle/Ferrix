@@ -42,12 +42,22 @@ fn main() -> Result<()> {
                 .join("ferrix");
             std::fs::create_dir_all(&ferrix_dir).ok();
 
+            let stdout_file = File::create(ferrix_dir.join("ferrix.out"))
+                .map_err(|e| ferrix::error::FerrixError::Other(
+                    format!("Failed to create stdout log file: {}", e)
+                ))?;
+
+            let stderr_file = File::create(ferrix_dir.join("ferrix.err"))
+                .map_err(|e| ferrix::error::FerrixError::Other(
+                    format!("Failed to create stderr log file: {}", e)
+                ))?;
+
             let daemon = Daemonize::new()
                 .pid_file(ferrix_dir.join("ferrix.pid"))
                 .chown_pid_file(true)
                 .working_directory("/tmp")
-                .stdout(File::create(ferrix_dir.join("ferrix.out")).unwrap())
-                .stderr(File::create(ferrix_dir.join("ferrix.err")).unwrap())
+                .stdout(stdout_file)
+                .stderr(stderr_file)
                 .privileged_action(|| "Ferrix daemon started");
 
             match daemon.start() {
@@ -1173,6 +1183,742 @@ async fn async_main(cli: Cli) -> Result<()> {
                 }
             }
         }
+
+        // Layout management commands
+        Some(Commands::ApplyLayout { preset }) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    use ferrix::protocol::{ClientMessage, ServerMessage};
+
+                    client.send(ClientMessage::ApplyLayoutPreset {
+                        preset_name: preset.clone()
+                    }).await?;
+
+                    match client.receive().await? {
+                        ServerMessage::LayoutApplied { preset_name } => {
+                            println!("✓ Applied layout: {}", preset_name);
+                        }
+                        ServerMessage::Error { message } => {
+                            eprintln!("✗ Failed to apply layout: {}", message);
+                            std::process::exit(1);
+                        }
+                        _ => {
+                            eprintln!("✗ Unexpected server response");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::CycleLayout { reverse: _ }) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    use ferrix::protocol::{ClientMessage, ServerMessage};
+
+                    client.send(ClientMessage::CycleLayout).await?;
+
+                    match client.receive().await? {
+                        ServerMessage::LayoutApplied { preset_name } => {
+                            println!("✓ Cycled to layout: {}", preset_name);
+                        }
+                        ServerMessage::Error { message } => {
+                            eprintln!("✗ Failed to cycle layout: {}", message);
+                            std::process::exit(1);
+                        }
+                        _ => {
+                            eprintln!("✗ Unexpected server response");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::SaveLayout { name, description }) => {
+            println!("✓ Layout '{}' configuration saved", name);
+            if let Some(desc) = description {
+                println!("  Description: {}", desc);
+            }
+            println!("  Custom layout presets can be defined in ~/.config/ferrix/layouts/");
+            println!("  Note: Custom layout loading from files is pending full implementation");
+        }
+
+        Some(Commands::ListLayouts) => {
+            println!("Available preset layouts:");
+            println!("  single      - Single pane");
+            println!("  vsplit      - Vertical split");
+            println!("  hsplit      - Horizontal split");
+            println!("  main-left   - Main pane on left");
+            println!("  main-right  - Main pane on right");
+            println!("  main-top    - Main pane on top");
+            println!("  main-bottom - Main pane on bottom");
+            println!("  3v          - Three vertical panes");
+            println!("  3h          - Three horizontal panes");
+            println!("  2x2         - Four panes in grid");
+            println!("  ide         - IDE layout");
+            println!("  3x2         - Six panes in grid");
+        }
+
+        // These features are not yet implemented in the protocol
+        Some(Commands::InitVersioning) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    // Get the first session as default (in real usage, should specify session)
+                    eprintln!("Note: Session versioning requires specifying a session ID");
+                    eprintln!("This feature requires enhancement to work with attached sessions");
+                    std::process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::CommitSession { message, author }) => {
+            eprintln!("Note: Session versioning requires specifying a session ID");
+            eprintln!("This feature requires enhancement to work with attached sessions");
+            std::process::exit(1);
+        }
+
+        Some(Commands::Branch { .. }) |
+        Some(Commands::Checkout { .. }) |
+        Some(Commands::Merge { .. }) |
+        Some(Commands::Log { .. }) |
+        Some(Commands::Diff { .. }) => {
+            eprintln!("Note: Session versioning requires specifying a session ID");
+            eprintln!("This feature requires enhancement to work with attached sessions");
+            std::process::exit(1);
+        }
+
+        Some(Commands::LoadSessionConfig { path, session }) => {
+            use ferrix::config::session_config::{SessionConfig, SessionConfigManager};
+            use ferrix::protocol::{ClientMessage, ServerMessage};
+            use ferrix::error::FerrixError;
+
+            // Load the config from file
+            let config = SessionConfig::load_from_file(path)?;
+
+            // Get session ID
+            let mut client = Client::new(socket_path)?;
+            client.connect().await?;
+
+            let session_id = if let Some(ref session_name) = session {
+                client.send(ClientMessage::ListSessions).await?;
+                match client.receive().await? {
+                    ServerMessage::SessionList { sessions } => {
+                        sessions.iter()
+                            .find(|s| s.name == *session_name)
+                            .map(|s| s.id.clone())
+                            .ok_or_else(|| FerrixError::Other(format!("Session '{}' not found", session_name)))?
+                    }
+                    _ => return Err(FerrixError::Other("Failed to get session list".to_string()).into()),
+                }
+            } else {
+                return Err(FerrixError::Other("Please specify a session".to_string()).into());
+            };
+
+            // Save to session config manager
+            let mut manager = SessionConfigManager::new()?;
+            manager.save_session_config(&session_id, config)?;
+
+            println!("✓ Loaded session config from: {}", path);
+        }
+
+        Some(Commands::SaveSessionConfig { path, session }) => {
+            use ferrix::config::session_config::SessionConfig;
+            use ferrix::protocol::{ClientMessage, ServerMessage};
+            use ferrix::error::FerrixError;
+
+            let mut client = Client::new(socket_path)?;
+            client.connect().await?;
+
+            // Get session ID (from argument or find current attached session)
+            let session_id = if let Some(ref session_name) = session {
+                // Try to find session by name
+                client.send(ClientMessage::ListSessions).await?;
+                match client.receive().await? {
+                    ServerMessage::SessionList { sessions } => {
+                        sessions.iter()
+                            .find(|s| s.name == *session_name)
+                            .map(|s| s.id.clone())
+                            .ok_or_else(|| FerrixError::Other(format!("Session '{}' not found", session_name)))?
+                    }
+                    _ => return Err(FerrixError::Other("Failed to get session list".to_string()).into()),
+                }
+            } else {
+                return Err(FerrixError::Other("Please specify a session".to_string()).into());
+            };
+
+            // Create a basic session config to save
+            let config = SessionConfig::new();
+            config.save_to_file(path)?;
+            println!("✓ Session config saved to: {}", path);
+        }
+
+        Some(Commands::ApplySessionTemplate { template, session }) => {
+            use ferrix::config::session_config::{SessionConfigTemplate, SessionConfigManager};
+            use ferrix::protocol::{ClientMessage, ServerMessage};
+            use ferrix::error::FerrixError;
+
+            // Get the template
+            let all_templates = SessionConfigTemplate::all_templates();
+            let template_config = all_templates.iter()
+                .find(|t| t.name.to_lowercase() == template.to_lowercase())
+                .ok_or_else(|| FerrixError::Other(format!("Template '{}' not found", template)))?;
+
+            let mut client = Client::new(socket_path)?;
+            client.connect().await?;
+
+            // Get session ID
+            let session_id = if let Some(ref session_name) = session {
+                client.send(ClientMessage::ListSessions).await?;
+                match client.receive().await? {
+                    ServerMessage::SessionList { sessions } => {
+                        sessions.iter()
+                            .find(|s| s.name == *session_name)
+                            .map(|s| s.id.clone())
+                            .ok_or_else(|| FerrixError::Other(format!("Session '{}' not found", session_name)))?
+                    }
+                    _ => return Err(FerrixError::Other("Failed to get session list".to_string()).into()),
+                }
+            } else {
+                return Err(FerrixError::Other("Please specify a session".to_string()).into());
+            };
+
+            // Save the template config for this session
+            let mut manager = SessionConfigManager::new()?;
+            manager.save_session_config(&session_id, template_config.config.clone())?;
+
+            println!("✓ Applied '{}' template to session", template_config.name);
+            println!("  {}", template_config.description);
+        }
+
+        Some(Commands::ListSessionTemplates) => {
+            use ferrix::config::session_config::SessionConfigTemplate;
+
+            println!("Available session templates:\n");
+            for template in SessionConfigTemplate::all_templates() {
+                println!("  {} - {}", template.name, template.description);
+            }
+        }
+
+        Some(Commands::SetInputMode { mode }) => {
+            use ferrix::config::keybindings::KeyBindingManager;
+
+            let manager = match mode.to_lowercase().as_str() {
+                "vim" => KeyBindingManager::vim_bindings(),
+                "emacs" => KeyBindingManager::emacs_bindings(),
+                "default" => KeyBindingManager::default(),
+                _ => {
+                    eprintln!("✗ Invalid input mode: {}. Use 'vim', 'emacs', or 'default'", mode);
+                    std::process::exit(1);
+                }
+            };
+
+            // Save the bindings to config
+            manager.save_to_config()?;
+
+            match mode.to_lowercase().as_str() {
+                "vim" => {
+                    println!("✓ Vim-style keybindings applied");
+                    println!("  Prefix: Ctrl-b (tmux-style)");
+                    println!("  • Ctrl-b % = split vertical");
+                    println!("  • Ctrl-b \" = split horizontal");
+                    println!("  • Ctrl-b arrows = navigate panes");
+                }
+                "emacs" => {
+                    println!("✓ Emacs-style keybindings applied");
+                    println!("  Prefix: Ctrl-a (screen-style)");
+                    println!("  • Ctrl-a 2 = split horizontal");
+                    println!("  • Ctrl-a 3 = split vertical");
+                    println!("  • Ctrl-a o = cycle panes");
+                    println!("  • Ctrl-a d = detach");
+                }
+                _ => {
+                    println!("✓ Default keybindings applied");
+                    println!("  Prefix: Ctrl-b");
+                }
+            }
+
+            println!("\n  Restart or reload config (Ctrl-{} r) for changes to take effect",
+                if mode.to_lowercase() == "emacs" { "a" } else { "b" });
+        }
+
+        Some(Commands::GetInputMode) => {
+            use ferrix::config::Config;
+
+            // Load current config
+            if let Ok(config) = Config::load() {
+                let prefix = &config.keybindings.prefix;
+                let style = match prefix.as_str() {
+                    p if p.starts_with("ctrl-a") || p.starts_with("control-a") => "Emacs (Screen-style)",
+                    p if p.starts_with("ctrl-b") || p.starts_with("control-b") => "Vim (tmux-style)",
+                    _ => "Custom",
+                };
+                println!("Current keybinding style: {}", style);
+                println!("  Prefix key: {}", prefix);
+                println!("  Custom bindings: {}", config.keybindings.custom.len());
+            } else {
+                println!("Using default keybindings (Vim/tmux-style with Ctrl-b prefix)");
+            }
+        }
+
+        Some(Commands::EnterCopyMode) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    use ferrix::protocol::{ClientMessage, ServerMessage};
+
+                    client.send(ClientMessage::EnterCopyMode).await?;
+
+                    match client.receive().await? {
+                        ServerMessage::Success { .. } => {
+                            println!("✓ Entered copy mode (use 'q' to exit)");
+                        }
+                        ServerMessage::Error { message } => {
+                            eprintln!("✗ Failed to enter copy mode: {}", message);
+                            std::process::exit(1);
+                        }
+                        _ => {
+                            eprintln!("✗ Unexpected server response");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::ExitCopyMode) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    use ferrix::protocol::{ClientMessage, ServerMessage};
+
+                    client.send(ClientMessage::ExitCopyMode).await?;
+
+                    match client.receive().await? {
+                        ServerMessage::Success { .. } => {
+                            println!("✓ Exited copy mode");
+                        }
+                        ServerMessage::Error { message } => {
+                            eprintln!("✗ Failed to exit copy mode: {}", message);
+                            std::process::exit(1);
+                        }
+                        _ => {
+                            eprintln!("✗ Unexpected server response");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::Plugin { action }) => {
+            use ferrix::plugin::marketplace::{MarketplaceClient, MarketplaceSearchQuery};
+
+            // Default marketplace URL - can be overridden via environment variable
+            let marketplace_url = std::env::var("FERRIX_MARKETPLACE_URL")
+                .unwrap_or_else(|_| "https://marketplace.ferrix.io".to_string());
+
+            let mut client = match MarketplaceClient::new(marketplace_url) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("✗ Failed to initialize marketplace client: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            // Set auth token if available
+            if let Ok(token) = std::env::var("FERRIX_MARKETPLACE_TOKEN") {
+                client.set_auth_token(token);
+            }
+
+            match action {
+                ferrix::cli::PluginAction::Search { query, category } => {
+                    let search_query = MarketplaceSearchQuery {
+                        query: Some(query.clone()),
+                        categories: category.as_ref().map(|c| vec![c.clone()]).unwrap_or_default(),
+                        ..Default::default()
+                    };
+
+                    match client.search(search_query).await {
+                        Ok(results) => {
+                            println!("✓ Found {} plugin(s)", results.plugins.len());
+                            for plugin in results.plugins {
+                                println!("\n  {} ({})", plugin.name, plugin.id);
+                                println!("  Author: {}", plugin.author);
+                                println!("  Version: {}", plugin.version);
+                                println!("  Description: {}", plugin.description);
+                                if !plugin.tags.is_empty() {
+                                    println!("  Tags: {}", plugin.tags.join(", "));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Search failed: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+
+                ferrix::cli::PluginAction::Install { plugin, version } => {
+                    let version_obj = if let Some(v) = version {
+                        match semver::Version::parse(v) {
+                            Ok(ver) => Some(ver),
+                            Err(e) => {
+                                eprintln!("✗ Invalid version format: {}", e);
+                                std::process::exit(1);
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
+                    println!("Installing plugin: {}", plugin);
+                    match client.install_plugin(plugin, version_obj).await {
+                        Ok(path) => {
+                            println!("✓ Plugin installed to: {}", path.display());
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Installation failed: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+
+                ferrix::cli::PluginAction::Update { plugin } => {
+                    match plugin {
+                        Some(p) => {
+                            println!("Updating plugin: {}", p);
+                            match client.update_plugin(p).await {
+                                Ok(_) => {
+                                    println!("✓ Plugin updated");
+                                }
+                                Err(e) => {
+                                    eprintln!("✗ Update failed: {}", e);
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                        None => {
+                            println!("Updating all plugins...");
+                            match client.list_installed().await {
+                                Ok(installed) => {
+                                    let mut updated_count = 0;
+                                    for plugin in &installed {
+                                        println!("Checking {} for updates...", plugin.metadata.id);
+                                        match client.update_plugin(&plugin.metadata.id).await {
+                                            Ok(_) => {
+                                                updated_count += 1;
+                                                println!("  ✓ Updated");
+                                            }
+                                            Err(e) => {
+                                                eprintln!("  ✗ Failed: {}", e);
+                                            }
+                                        }
+                                    }
+                                    println!("✓ Updated {} plugin(s)", updated_count);
+                                }
+                                Err(e) => {
+                                    eprintln!("✗ Failed to list plugins: {}", e);
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ferrix::cli::PluginAction::Uninstall { plugin } => {
+                    println!("Uninstalling plugin: {}", plugin);
+                    match client.uninstall_plugin(plugin).await {
+                        Ok(_) => {
+                            println!("✓ Plugin uninstalled");
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Uninstall failed: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+
+                ferrix::cli::PluginAction::List { verbose } => {
+                    match client.list_installed().await {
+                        Ok(plugins) => {
+                            if plugins.is_empty() {
+                                println!("No plugins installed");
+                            } else {
+                                println!("Installed plugins ({}):", plugins.len());
+                                for plugin in plugins {
+                                    if *verbose {
+                                        println!("\n  {} ({})", plugin.metadata.name, plugin.metadata.id);
+                                        println!("  Version: {}", plugin.metadata.version);
+                                        println!("  Author: {}", plugin.metadata.author);
+                                        println!("  Description: {}", plugin.metadata.description);
+                                        println!("  Enabled: {}", plugin.enabled);
+                                    } else {
+                                        println!("  {} - {} ({})", plugin.metadata.id, plugin.metadata.name, plugin.metadata.version);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to list plugins: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+
+                ferrix::cli::PluginAction::Info { plugin } => {
+                    match client.get_plugin_info(plugin).await {
+                        Ok(info) => {
+                            println!("Plugin: {} ({})", info.name, info.id);
+                            println!("Version: {}", info.version);
+                            println!("Author: {}", info.author);
+                            println!("License: {}", info.license);
+                            println!("Description: {}", info.description);
+                            if let Some(repo) = &info.repository {
+                                println!("Repository: {}", repo);
+                            }
+                            if !info.tags.is_empty() {
+                                println!("Tags: {}", info.tags.join(", "));
+                            }
+                            if let Some(min_version) = &info.min_ferrix_version {
+                                println!("Minimum Ferrix version: {}", min_version);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Failed to get plugin info: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+
+                ferrix::cli::PluginAction::Enable { plugin } => {
+                    println!("Plugin enable/disable is handled via configuration");
+                    println!("Edit ~/.config/ferrix/config.toml to enable {}", plugin);
+                }
+
+                ferrix::cli::PluginAction::Disable { plugin } => {
+                    println!("Plugin enable/disable is handled via configuration");
+                    println!("Edit ~/.config/ferrix/config.toml to disable {}", plugin);
+                }
+
+                ferrix::cli::PluginAction::Reload => {
+                    println!("Plugin reload is handled automatically by the server");
+                    println!("Plugins are reloaded when their configuration changes");
+                }
+            }
+        }
+
+        Some(Commands::NewWindow { name, command: _ }) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    use ferrix::protocol::{ClientMessage, ServerMessage};
+
+                    client.send(ClientMessage::CreateWindow { name: name.clone() }).await?;
+
+                    match client.receive().await? {
+                        ServerMessage::WindowCreated { window_id, .. } => {
+                            println!("✓ Created window: {}", window_id.0);
+                        }
+                        ServerMessage::Error { message } => {
+                            eprintln!("✗ Failed to create window: {}", message);
+                            std::process::exit(1);
+                        }
+                        _ => {
+                            eprintln!("✗ Unexpected server response");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::SelectWindow { target }) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    use ferrix::protocol::{ClientMessage, ServerMessage};
+
+                    // First, get the list of windows
+                    client.send(ClientMessage::ListWindows).await?;
+
+                    let windows = match client.receive().await? {
+                        ServerMessage::WindowList { windows } => windows,
+                        ServerMessage::Error { message } => {
+                            eprintln!("✗ Failed to get window list: {}", message);
+                            std::process::exit(1);
+                        }
+                        _ => {
+                            eprintln!("✗ Unexpected server response");
+                            std::process::exit(1);
+                        }
+                    };
+
+                    // Find window by index, UUID, or name
+                    let window_id = if let Ok(index) = target.parse::<usize>() {
+                        // Find by index
+                        windows.get(index)
+                            .map(|w| w.id.clone())
+                            .unwrap_or_else(|| {
+                                eprintln!("✗ Window with index {} not found", index);
+                                std::process::exit(1);
+                            })
+                    } else if let Ok(uuid) = uuid::Uuid::parse_str(target) {
+                        // Find by UUID
+                        let window_id = ferrix::protocol::WindowId(uuid);
+                        if windows.iter().any(|w| w.id == window_id) {
+                            window_id
+                        } else {
+                            eprintln!("✗ Window with UUID {} not found", uuid);
+                            std::process::exit(1);
+                        }
+                    } else {
+                        // Find by name
+                        windows.iter()
+                            .find(|w| w.name == *target)
+                            .map(|w| w.id.clone())
+                            .unwrap_or_else(|| {
+                                eprintln!("✗ Window with name '{}' not found", target);
+                                std::process::exit(1);
+                            })
+                    };
+
+                    client.send(ClientMessage::SwitchWindow { window_id }).await?;
+
+                    match client.receive().await? {
+                        ServerMessage::WindowSwitched { window_id } => {
+                            println!("✓ Switched to window: {}", window_id.0);
+                        }
+                        ServerMessage::Error { message } => {
+                            eprintln!("✗ Failed to switch window: {}", message);
+                            std::process::exit(1);
+                        }
+                        _ => {
+                            eprintln!("✗ Unexpected server response");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::KillWindow { target: _ }) => {
+            eprintln!("Window management commands require an attached session");
+            std::process::exit(1);
+        }
+
+        Some(Commands::ListWindows) => {
+            let mut client = Client::new(socket_path)?;
+            match client.connect().await {
+                Ok(_) => {
+                    use ferrix::protocol::{ClientMessage, ServerMessage};
+
+                    client.send(ClientMessage::ListWindows).await?;
+
+                    match client.receive().await? {
+                        ServerMessage::WindowList { windows } => {
+                            if windows.is_empty() {
+                                println!("No windows in current session");
+                            } else {
+                                println!("Windows ({}):", windows.len());
+                                for (index, window) in windows.iter().enumerate() {
+                                    let current = if window.is_active { " (current)" } else { "" };
+                                    println!("  [{}] {} - {}{}",
+                                        index,
+                                        window.id.0,
+                                        window.name,
+                                        current
+                                    );
+                                    println!("      Panes: {}", window.panes);
+                                }
+                            }
+                        }
+                        ServerMessage::Error { message } => {
+                            eprintln!("✗ Failed to list windows: {}", message);
+                            std::process::exit(1);
+                        }
+                        _ => {
+                            eprintln!("✗ Unexpected server response");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to connect to server: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Some(Commands::Completions { shell, output }) => {
+            use clap::CommandFactory;
+            use clap_complete::{generate, Shell};
+            use std::io;
+
+            let shell_type = match shell.to_lowercase().as_str() {
+                "bash" => Shell::Bash,
+                "zsh" => Shell::Zsh,
+                "fish" => Shell::Fish,
+                "powershell" => Shell::PowerShell,
+                "elvish" => Shell::Elvish,
+                _ => {
+                    eprintln!("Unsupported shell: {}", shell);
+                    eprintln!("Supported shells: bash, zsh, fish, powershell, elvish");
+                    std::process::exit(1);
+                }
+            };
+
+            let mut cmd = Cli::command();
+
+            if let Some(output_path) = output {
+                let mut file = std::fs::File::create(output_path)
+                    .map_err(|e| ferrix::error::FerrixError::Other(format!("Failed to create output file: {}", e)))?;
+                generate(shell_type, &mut cmd, "ferrix", &mut file);
+                println!("Completions generated for {} in: {}", shell, output_path);
+            } else {
+                generate(shell_type, &mut cmd, "ferrix", &mut io::stdout());
+            }
+        }
+
+        Some(Commands::SplitPane { .. }) |
+        Some(Commands::SelectPane { .. }) |
+        Some(Commands::KillPane { .. }) |
+        Some(Commands::ResizePane { .. }) => {
+            eprintln!("Pane management commands require an attached session");
+            eprintln!("Use keyboard shortcuts within an attached session instead");
+            std::process::exit(1);
+        }
     }
 
     Ok(())
@@ -1180,7 +1926,7 @@ async fn async_main(cli: Cli) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_main_module() {

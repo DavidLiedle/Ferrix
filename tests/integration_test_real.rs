@@ -14,13 +14,29 @@ async fn test_basic_session_operations() {
         .arg(&socket_path)
         .arg("server")
         .arg("--foreground")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start server");
 
-    // Give server time to start
-    sleep(Duration::from_millis(500)).await;
+    // Wait for socket to be created (with timeout)
+    let mut retries = 0;
+    while !socket_path.exists() && retries < 20 {
+        sleep(Duration::from_millis(100)).await;
+        retries += 1;
+    }
+
+    if !socket_path.exists() {
+        // Get server output for debugging
+        let _ = server.kill();
+        let output = server.wait_with_output().unwrap();
+        panic!("Server failed to create socket after 2s. stdout: {:?}, stderr: {:?}",
+               String::from_utf8_lossy(&output.stdout),
+               String::from_utf8_lossy(&output.stderr));
+    }
+
+    // Give server a bit more time to fully initialize
+    sleep(Duration::from_millis(200)).await;
 
     // Create a session
     let output = Command::new("./target/release/ferrix")
@@ -53,12 +69,12 @@ async fn test_basic_session_operations() {
         .arg("--socket")
         .arg(&socket_path)
         .arg("kill")
-        .arg("-t")
         .arg("test-session")
         .output()
         .expect("Failed to kill session");
 
-    assert!(output.status.success());
+    assert!(output.status.success(), "Failed to kill session: {:?}",
+            String::from_utf8_lossy(&output.stderr));
 
     // Clean up server
     server.kill().expect("Failed to kill server");
@@ -75,12 +91,19 @@ async fn test_window_pane_operations() {
         .arg(&socket_path)
         .arg("server")
         .arg("--foreground")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start server");
 
-    sleep(Duration::from_millis(500)).await;
+    // Wait for socket
+    let mut retries = 0;
+    while !socket_path.exists() && retries < 20 {
+        sleep(Duration::from_millis(100)).await;
+        retries += 1;
+    }
+    assert!(socket_path.exists(), "Server failed to create socket");
+    sleep(Duration::from_millis(200)).await;
 
     // Create a session
     Command::new("./target/release/ferrix")
@@ -101,7 +124,6 @@ async fn test_window_pane_operations() {
         .arg("--socket")
         .arg(&socket_path)
         .arg("kill")
-        .arg("-t")
         .arg("window-test")
         .output()
         .expect("Failed to kill session");
@@ -122,12 +144,19 @@ async fn test_session_persistence() {
         .arg(&socket_path)
         .arg("server")
         .arg("--foreground")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start server");
 
-    sleep(Duration::from_millis(500)).await;
+    // Wait for socket
+    let mut retries = 0;
+    while !socket_path.exists() && retries < 20 {
+        sleep(Duration::from_millis(100)).await;
+        retries += 1;
+    }
+    assert!(socket_path.exists(), "Server failed to create socket");
+    sleep(Duration::from_millis(200)).await;
 
     // Create a session
     Command::new("./target/release/ferrix")
@@ -175,7 +204,6 @@ async fn test_session_persistence() {
         .arg("--socket")
         .arg(&socket_path)
         .arg("kill")
-        .arg("-t")
         .arg("persist-test")
         .output()
         .expect("Failed to kill session");
@@ -194,12 +222,27 @@ async fn test_detach_reattach() {
         .arg(&socket_path)
         .arg("server")
         .arg("--foreground")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start server");
 
-    sleep(Duration::from_millis(500)).await;
+    // Wait for socket to be created (with timeout)
+    let mut retries = 0;
+    while !socket_path.exists() && retries < 20 {
+        sleep(Duration::from_millis(100)).await;
+        retries += 1;
+    }
+
+    if !socket_path.exists() {
+        let _ = server.kill();
+        let output = server.wait_with_output().unwrap();
+        panic!("Server failed to create socket. stdout: {:?}, stderr: {:?}",
+               String::from_utf8_lossy(&output.stdout),
+               String::from_utf8_lossy(&output.stderr));
+    }
+
+    sleep(Duration::from_millis(200)).await;
 
     // Create a detached session
     let output = Command::new("./target/release/ferrix")
@@ -230,7 +273,6 @@ async fn test_detach_reattach() {
         .arg("--socket")
         .arg(&socket_path)
         .arg("kill")
-        .arg("-t")
         .arg("detach-test")
         .output()
         .expect("Failed to kill session");

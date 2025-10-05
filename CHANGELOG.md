@@ -5,6 +5,128 @@ All notable changes to Ferrix will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.11.0] - 2025-10-05
+
+### Added
+- **Shell Completions**: Complete shell completion support for bash, zsh, fish, powershell, and elvish
+  - New `ferrix completions` command to generate completion scripts
+  - Comprehensive installation guide (docs/SHELL_COMPLETIONS.md)
+  - Tab completion for all commands, options, and arguments
+- **Security Documentation**:
+  - SECURITY.md with vulnerability reporting process and security policy
+  - Comprehensive security section in README.md
+  - Cross-references to security audits (SECURITY_AUDIT.md, DEPENDENCY_AUDIT.md)
+- **UX Improvements**:
+  - Enhanced help output with better descriptions
+  - Added GitHub repository link to CLI help
+  - Improved command descriptions throughout
+
+### Fixed
+- **Critical Bug**: PTY polling lock contention (src/server/mod.rs:239-263)
+  - Session write lock was held during async I/O operations
+  - Could cause deadlock under load in production
+  - Fixed by releasing lock immediately after getting pane outputs
+
+### Changed
+- Updated package description to highlight new features
+- V1_RELEASE_CHECKLIST.md updated to reflect 8/8 success criteria met
+
+### Documentation
+- Created docs/SHELL_COMPLETIONS.md - detailed installation instructions for all shells
+- Updated SESSION_3_SUMMARY.md with bug fix details and v1.0 readiness status
+- Updated README.md with security features and shell completion examples
+
+## [0.10.2] - 2025-10-04
+
+### Added
+- **Security Hardening**:
+  - Authentication rate limiting (5 attempts, 15-minute lockout)
+  - IP-based rate limiter with automatic cleanup
+  - Enhanced authentication failure logging
+  - Comprehensive security audit documentation (SECURITY_AUDIT.md)
+- **Testing Infrastructure**:
+  - Comprehensive E2E test suite with 6 test scenarios
+  - Performance benchmarks for ANSI parsing, serialization, and snapshots
+  - Integration test improvements with proper socket waiting
+- **Plugin Marketplace Integration**: Complete CLI implementation for plugin management
+  - `ferrix plugin search` - Search plugins by query and category
+  - `ferrix plugin install` - Install plugins with optional version specification
+  - `ferrix plugin update` - Update installed plugins to latest versions
+  - `ferrix plugin uninstall` - Remove installed plugins
+  - `ferrix plugin list` - List all installed plugins
+  - `ferrix plugin info` - Display detailed plugin information
+  - `ferrix plugin enable/disable` - Toggle plugin activation
+  - `ferrix plugin reload` - Hot reload plugins without restart
+- **HTML Recording Export**: Export terminal recordings as standalone HTML files
+  - Self-contained HTML with embedded xterm.js player
+  - Play/pause controls with progress bar and timeline
+  - Speed control (0.5x, 1x, 2x, 4x playback speeds)
+  - No external dependencies required - works offline
+- **Window Management Enhancements**:
+  - Window selection by index, UUID, or name
+  - Formatted window listing with all metadata
+  - Complete window switching capabilities
+- **Session Management Improvements**:
+  - Full session listing in client with metadata display
+  - Session count and attached client information
+- **Snapshot System Completion**:
+  - Complete snapshot restoration including windows, panes, scrollback, and environment
+  - Session configuration restoration from snapshots
+  - Working directory and command restoration per pane
+- **Versioning System - Three-Way Merge**:
+  - Git-like three-way merge with common ancestor finding
+  - Conflict detection and auto-resolution support
+  - Proper merge semantics for session state
+  - Branch ancestry tracking with BFS algorithm
+- **Device Status Report Implementation**:
+  - ANSI device status report (DSR) responses
+  - Cursor position report (CPR) support
+  - PTY response protocol for terminal queries
+  - Full bidirectional terminal communication
+
+### Fixed
+- **Critical Daemon Startup**: Fixed potential panic on log file creation failure
+  - Proper error handling instead of unwrap() for stdout/stderr log files
+  - Graceful error messages if log directory cannot be created
+- **Remote Sessions**: Integrated real message handling in remote server (was using stub)
+- **GPU Renderer**: Removed broken `init_gpu_renderer_with_fallback` with todo!() panic
+- **Code Quality**: Fixed unused imports and variables, removed dead code warnings
+- **Integration Tests**: Fixed flaky tests with proper socket existence checking
+  - Added retry logic with 2-second timeout for socket creation
+  - Improved error reporting with captured server output
+  - All 279 tests now pass reliably
+
+### Security
+- **Rate Limiting**: Remote authentication now rate-limited to prevent brute force attacks
+  - 5 failed attempts → 15-minute lockout
+  - IP-based tracking with automatic cleanup
+  - Clear error messages with remaining lockout time
+- **Dependency Security**:
+  - Battery status made optional feature to mitigate nix vulnerability (RUSTSEC-2021-0119)
+  - Removed from default build - opt-in with `--features battery-status`
+  - Comprehensive dependency audit with risk assessment (DEPENDENCY_AUDIT.md)
+- **Audit Trail**: Enhanced security event logging for authentication failures
+- **Documentation**:
+  - Complete security audit with findings and recommendations (SECURITY_AUDIT.md)
+  - Dependency vulnerability tracking and mitigation strategies (DEPENDENCY_AUDIT.md)
+
+### Technical Details
+- Added `RateLimiter` module with configurable attempt limits and lockout duration
+- Added `ClientMessage::PtyResponse` protocol variant for terminal device responses
+- Implemented `pending_responses` queue in AnsiParser for collecting PTY responses
+- Enhanced `AnsiParser` to properly handle DSR (mode 5) and CPR (mode 6) escape sequences
+- Server now routes PTY responses to correct pane across all windows
+- Three-way merge uses ancestor snapshot for proper conflict resolution
+- Plugin marketplace client uses configurable marketplace URL via env var
+- E2E tests use TestServer helper with automatic cleanup
+
+### Documentation
+- Added SECURITY_AUDIT.md with comprehensive security analysis
+- Added V1_RELEASE_CHECKLIST.md for v1.0 preparation tracking
+- Updated KNOWN_ISSUES.md to reflect production-ready status
+
 ## [0.10.2] - 2025-10-03
 
 ### Fixed

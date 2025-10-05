@@ -102,6 +102,19 @@ ferrix attach -t my-session
 ferrix kill -t my-session
 ```
 
+### Shell Completions
+
+Ferrix supports shell completions for bash, zsh, fish, powershell, and elvish:
+
+```bash
+# Generate completions for your shell
+ferrix completions bash --output ~/.local/share/bash-completion/completions/ferrix
+ferrix completions zsh --output ~/.zsh/completions/_ferrix
+ferrix completions fish --output ~/.config/fish/completions/ferrix.fish
+```
+
+See [docs/SHELL_COMPLETIONS.md](docs/SHELL_COMPLETIONS.md) for detailed installation instructions.
+
 ### Key Bindings
 
 All commands are prefixed with `Ctrl-a` (similar to GNU Screen):
@@ -146,6 +159,28 @@ right = "{time:%H:%M}"
 ```
 
 
+## 🔒 Security
+
+Ferrix takes security seriously and has undergone comprehensive security audits:
+
+### Security Features
+- ✅ **TLS 1.3 Support** - Secure remote connections with rustls
+- ✅ **Authentication** - Bcrypt password hashing with rate limiting (5 attempts, 15min lockout)
+- ✅ **Authorization** - Role-based permission system for multi-user environments
+- ✅ **Session Locking** - Read-only mode for secure viewing
+- ✅ **Dependency Auditing** - Regular security audits with `cargo audit`
+
+### Security Audits
+For detailed security information, see:
+- [**SECURITY_AUDIT.md**](SECURITY_AUDIT.md) - Comprehensive security analysis and hardening measures
+- [**DEPENDENCY_AUDIT.md**](DEPENDENCY_AUDIT.md) - Dependency security status and mitigation strategies
+- [**DEPLOYMENT.md**](docs/DEPLOYMENT.md) - Production deployment security best practices
+
+### Reporting Vulnerabilities
+See [SECURITY.md](SECURITY.md) for information on reporting security vulnerabilities.
+
+**Security Status**: ✅ All critical vulnerabilities addressed for v1.0 release
+
 ## 📊 Architecture & Performance
 
 Ferrix uses a modern async Rust architecture:
@@ -155,10 +190,13 @@ Ferrix uses a modern async Rust architecture:
 - **Memory Safe** - 100% safe Rust with no unsafe blocks
 - **Modular Design** - Clean separation of concerns for maintainability
 
-Performance characteristics:
-- Fast startup and low memory footprint
-- Efficient client-server communication
-- Responsive terminal handling
+Performance benchmarks (v1.0 baselines):
+- **ANSI Parser**: 4.7 µs (100 chars) to 5.5 ms (100k chars)
+- **Protocol Serialization**: ~16-18 ns per message
+- **Snapshot Operations**: ~2.84 µs
+- **Multi-pane Handling**: ~58 µs for 10 panes
+
+See [benches/performance.rs](benches/performance.rs) for detailed benchmarks.
 
 ## 🤝 Contributing
 

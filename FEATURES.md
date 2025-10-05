@@ -1,9 +1,9 @@
 # Ferrix Features Documentation
 
-## Version 0.9.0 Release
+## Version 0.11.0 Release
 
 ## Overview
-Ferrix is a modern terminal multiplexer written in Rust that combines the reliability of GNU Screen with the features of Tmux, while adding innovative capabilities only possible with modern technology.
+Ferrix is a modern terminal multiplexer written in Rust that combines the reliability of GNU Screen with the features of Tmux, while adding innovative capabilities only possible with modern technology. This release adds major enhancements including GPU rendering, session versioning, plugin marketplace, and advanced input modes.
 
 ## Core Features
 
@@ -231,11 +231,62 @@ new_window = "c"
 | GPU Rendering | Planned | No | No |
 | Memory Safety | Yes | No | No |
 
+## New Features in v0.11.0
+
+### Session Versioning (Git-like)
+- **Branch Management**: Create and merge session branches
+- **Commit History**: Track session changes with commits
+- **Cherry-pick**: Apply specific changes from other branches
+- **Revert/Reset**: Undo changes or reset to previous states
+- **Three-way Merge**: Automatic conflict resolution
+
+### Per-Session Configurations
+- **Override Global Settings**: Each session can have custom configuration
+- **Session Templates**: Pre-configured templates for different workflows
+- **Environment Variables**: Session-specific environment
+- **Hooks**: Run commands on session events
+- **Hot Reload**: Configuration changes apply immediately
+
+### Advanced Input Modes
+- **Vim Mode**: Complete vi/vim modal editing support
+- **Emacs Mode**: Full emacs key bindings
+- **Key Chords**: Multi-key sequences for complex commands
+- **Leader Keys**: Customizable leader key sequences
+- **Mode Indicators**: Visual feedback for current mode
+
+### Plugin Marketplace
+- **Central Repository**: Browse and install plugins
+- **Dependency Management**: Automatic dependency resolution
+- **Reviews & Ratings**: Community feedback system
+- **Version Control**: Plugin versioning and updates
+- **WASM Plugins**: Secure sandboxed execution
+
+### GPU Acceleration
+- **Hardware Detection**: Automatic GPU capability detection
+- **Fallback Rendering**: Graceful degradation to terminal renderer
+- **Performance Profiling**: Real-time FPS monitoring
+- **MSAA Support**: Anti-aliasing for smooth text
+- **Adaptive Settings**: Automatic quality adjustments
+
+### Enhanced Status Bar
+- **System Monitoring**: Live CPU, memory, disk usage with indicators
+- **Git Integration**: Branch and repository status
+- **Battery Status**: Power level and charging state
+- **Custom Widgets**: Extensible widget system
+- **Visual Indicators**: Color-coded status information
+
+## Completed Enhancements
+- ✅ GPU-accelerated rendering (v0.11.0)
+- ✅ Plugin system with marketplace (v0.11.0)
+- ✅ Session versioning (v0.11.0)
+- ✅ Advanced input modes (v0.11.0)
+- ✅ Per-session configurations (v0.11.0)
+- ✅ Enhanced status bar (v0.11.0)
+
 ## Future Enhancements (Planned)
-- GPU-accelerated rendering
 - Remote session support (SSH)
-- Plugin system
-- Scripting support
 - Collaborative editing features
 - Time travel debugging
-- Advanced logging and metrics
+- Advanced scripting support
+- Terminal recording and playback
+- AI-powered command suggestions
