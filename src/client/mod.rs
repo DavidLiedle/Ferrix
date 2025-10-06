@@ -1252,11 +1252,29 @@ impl Client {
                     MouseAction::CompleteSelection { start, end } => {
                         // Complete selection and copy to clipboard
                         if let Some(text) = self.get_text_in_range(start, end) {
-                            // Try to copy to clipboard
-                            if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                                let _ = clipboard.set_text(&text);
-                                debug!("Copied to clipboard: {} chars", text.len());
+                            if !text.is_empty() {
+                                // Try to copy to clipboard
+                                match arboard::Clipboard::new() {
+                                    Ok(mut clipboard) => {
+                                        match clipboard.set_text(&text) {
+                                            Ok(_) => {
+                                                info!("Copied to clipboard: {} chars - '{}'", text.len(),
+                                                    if text.len() > 50 { &text[..50] } else { &text });
+                                            }
+                                            Err(e) => {
+                                                warn!("Failed to copy to clipboard: {}", e);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to create clipboard: {}", e);
+                                    }
+                                }
+                            } else {
+                                debug!("Empty selection, not copying");
                             }
+                        } else {
+                            warn!("get_text_in_range returned None for selection {:?} to {:?}", start, end);
                         }
 
                         // Clear the visual selection
@@ -1272,9 +1290,16 @@ impl Client {
                     MouseAction::SelectWord { x, y } => {
                         // Select word at position
                         if let Some(word) = self.get_word_at(x, y) {
-                            if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                                let _ = clipboard.set_text(&word);
-                                debug!("Selected word: {}", word);
+                            if !word.is_empty() {
+                                match arboard::Clipboard::new() {
+                                    Ok(mut clipboard) => {
+                                        match clipboard.set_text(&word) {
+                                            Ok(_) => info!("Selected word copied: '{}'", word),
+                                            Err(e) => warn!("Failed to copy word to clipboard: {}", e),
+                                        }
+                                    }
+                                    Err(e) => warn!("Failed to create clipboard for word: {}", e),
+                                }
                             }
                         }
                     }
@@ -1304,9 +1329,22 @@ impl Client {
         let screen = parser.render();
         let mut result = String::new();
 
-        // Normalize coordinates (ensure start <= end)
-        let (start_x, start_y) = start;
-        let (end_x, end_y) = end;
+        // Convert screen coordinates to pane-relative coordinates
+        let pane_count = current_layout.panes.len();
+        let (content_x, content_y) = if pane_count == 1 {
+            (focused_pane.x, focused_pane.y)
+        } else {
+            (focused_pane.x + 1, focused_pane.y + 1)
+        };
+
+        // Convert to pane-relative coordinates
+        let start_x = start.0.saturating_sub(content_x);
+        let start_y = start.1.saturating_sub(content_y);
+        let end_x = end.0.saturating_sub(content_x);
+        let end_y = end.1.saturating_sub(content_y);
+
+        debug!("Selection screen coords: ({},{}) to ({},{})", start.0, start.1, end.0, end.1);
+        debug!("Selection pane coords: ({},{}) to ({},{})", start_x, start_y, end_x, end_y);
 
         if start_y == end_y {
             // Single line selection
