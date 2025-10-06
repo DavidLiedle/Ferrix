@@ -244,7 +244,9 @@ impl Client {
 
         if is_tty {
             terminal::enable_raw_mode()?;
-            execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
+            execute!(stdout(), EnterAlternateScreen)?;
+            execute!(stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))?;
+            execute!(stdout(), cursor::Hide)?;
 
             // Enable mouse support if configured
             if self.mouse_handler.enabled {
