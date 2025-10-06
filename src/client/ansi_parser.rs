@@ -528,7 +528,11 @@ impl AnsiParser {
     }
 
     fn line_feed(&mut self) -> std::io::Result<()> {
-        self.cursor_y = (self.cursor_y + 1).min(self.height - 1);
+        self.cursor_y += 1;
+        if self.cursor_y >= self.height {
+            self.scroll_up();
+            self.cursor_y = self.height - 1;
+        }
         Ok(())
     }
 
@@ -540,7 +544,11 @@ impl AnsiParser {
     }
 
     fn index(&mut self) -> std::io::Result<()> {
-        self.cursor_y = (self.cursor_y + 1).min(self.height - 1);
+        self.cursor_y += 1;
+        if self.cursor_y >= self.height {
+            self.scroll_up();
+            self.cursor_y = self.height - 1;
+        }
         Ok(())
     }
 
