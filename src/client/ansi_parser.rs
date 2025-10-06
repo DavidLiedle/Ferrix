@@ -1415,18 +1415,6 @@ impl AnsiParser {
                 // Response: CSI row ; col R
                 let row = self.cursor_y + 1;  // Convert to 1-indexed
                 let col = self.cursor_x + 1;
-
-                // Debug log to file
-                use std::io::Write;
-                if let Ok(mut f) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("/tmp/ferrix_cursor_debug.log")
-                {
-                    let _ = writeln!(f, "[DSR] Reporting cursor at row={}, col={} [0-indexed: x={}, y={}]",
-                        row, col, self.cursor_x, self.cursor_y);
-                }
-
                 let response = format!("\x1b[{};{}R", row, col);
                 self.pending_responses.push(response.into_bytes());
             }
