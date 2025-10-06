@@ -812,12 +812,16 @@ impl AnsiParser {
             }
             // Line feed / newline
             0x0A => {
+                // Move down one line
                 self.cursor_y += 1;
                 if self.cursor_y >= self.height {
                     // Scroll up
                     self.scroll_up();
                     self.cursor_y = self.height - 1;
                 }
+                // Also do carriage return (move to column 0)
+                // This matches the behavior of most modern terminals where LF acts as newline
+                self.cursor_x = 0;
             }
             // Carriage return
             0x0D => {
