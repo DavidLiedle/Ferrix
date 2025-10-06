@@ -812,16 +812,12 @@ impl AnsiParser {
             }
             // Line feed / newline
             0x0A => {
-                // Move down one line
                 self.cursor_y += 1;
                 if self.cursor_y >= self.height {
                     // Scroll up
                     self.scroll_up();
                     self.cursor_y = self.height - 1;
                 }
-                // Also do carriage return (move to column 0)
-                // This matches the behavior of most modern terminals where LF acts as newline
-                self.cursor_x = 0;
             }
             // Carriage return
             0x0D => {
@@ -1029,6 +1025,24 @@ impl AnsiParser {
             }
             b's' => self.save_cursor(),
             b'u' => self.restore_cursor(),
+            b'n' => {
+                // DSR - Device Status Report
+                let mode = params.first().copied().unwrap_or(0);
+                match mode {
+                    5 => {
+                        // Device status - respond with "OK"
+                        self.pending_responses.push(b"\x1b[0n".to_vec());
+                    }
+                    6 => {
+                        // Cursor position report
+                        let row = self.cursor_y + 1;  // 1-indexed
+                        let col = self.cursor_x + 1;  // 1-indexed
+                        let response = format!("\x1b[{};{}R", row, col);
+                        self.pending_responses.push(response.into_bytes());
+                    }
+                    _ => {}
+                }
+            }
             _ => {} // Ignore unsupported sequences
         }
     }
@@ -1401,6 +1415,18 @@ impl AnsiParser {
                 // Response: CSI row ; col R
                 let row = self.cursor_y + 1;  // Convert to 1-indexed
                 let col = self.cursor_x + 1;
+
+                // Debug log to file
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("/tmp/ferrix_cursor_debug.log")
+                {
+                    let _ = writeln!(f, "[DSR] Reporting cursor at row={}, col={} [0-indexed: x={}, y={}]",
+                        row, col, self.cursor_x, self.cursor_y);
+                }
+
                 let response = format!("\x1b[{};{}R", row, col);
                 self.pending_responses.push(response.into_bytes());
             }
