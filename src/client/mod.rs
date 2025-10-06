@@ -1459,32 +1459,57 @@ impl Client {
 
                 execute!(stdout, crossterm::cursor::MoveTo(content_x, content_y + row_idx as u16))?;
 
+                // Track previous cell state to minimize escape sequences
+                let mut prev_attrs = crate::client::ansi_parser::AttributeFlags::new();
+                let mut prev_fg = crossterm::style::Color::Reset;
+                let mut prev_bg = crossterm::style::Color::Reset;
+
                 for cell in row.iter().take(content_width as usize) {
-                    // Apply text attributes
-                    for attr in cell.attributes.to_attributes() {
-                        use crossterm::style::Attribute as CrosstermAttr;
-                        let crossterm_attr = match attr {
-                            crossterm::style::Attribute::Bold => CrosstermAttr::Bold,
-                            crossterm::style::Attribute::Dim => CrosstermAttr::Dim,
-                            crossterm::style::Attribute::Italic => CrosstermAttr::Italic,
-                            crossterm::style::Attribute::Underlined => CrosstermAttr::Underlined,
-                            crossterm::style::Attribute::SlowBlink => CrosstermAttr::SlowBlink,
-                            crossterm::style::Attribute::Reverse => CrosstermAttr::Reverse,
-                            crossterm::style::Attribute::Hidden => CrosstermAttr::Hidden,
-                            crossterm::style::Attribute::CrossedOut => CrosstermAttr::CrossedOut,
-                            _ => continue,
-                        };
-                        execute!(stdout, SetAttribute(crossterm_attr))?;
+                    // Only change attributes if they differ from previous cell
+                    if cell.attributes != prev_attrs {
+                        // Reset if previous cell had attributes
+                        if prev_attrs != crate::client::ansi_parser::AttributeFlags::new() {
+                            execute!(stdout, crossterm::style::SetAttribute(crossterm::style::Attribute::Reset))?;
+                        }
+
+                        // Apply new attributes
+                        for attr in cell.attributes.to_attributes() {
+                            use crossterm::style::Attribute as CrosstermAttr;
+                            let crossterm_attr = match attr {
+                                crossterm::style::Attribute::Bold => CrosstermAttr::Bold,
+                                crossterm::style::Attribute::Dim => CrosstermAttr::Dim,
+                                crossterm::style::Attribute::Italic => CrosstermAttr::Italic,
+                                crossterm::style::Attribute::Underlined => CrosstermAttr::Underlined,
+                                crossterm::style::Attribute::SlowBlink => CrosstermAttr::SlowBlink,
+                                crossterm::style::Attribute::Reverse => CrosstermAttr::Reverse,
+                                crossterm::style::Attribute::Hidden => CrosstermAttr::Hidden,
+                                crossterm::style::Attribute::CrossedOut => CrosstermAttr::CrossedOut,
+                                _ => continue,
+                            };
+                            execute!(stdout, SetAttribute(crossterm_attr))?;
+                        }
+                        prev_attrs = cell.attributes;
                     }
 
-                    // Apply colors (they're already crossterm::Color)
-                    execute!(stdout, SetForegroundColor(cell.fg))?;
-                    execute!(stdout, SetBackgroundColor(cell.bg))?;
+                    // Only change colors if they differ
+                    if cell.fg != prev_fg {
+                        execute!(stdout, SetForegroundColor(cell.fg))?;
+                        prev_fg = cell.fg;
+                    }
+                    if cell.bg != prev_bg {
+                        execute!(stdout, SetBackgroundColor(cell.bg))?;
+                        prev_bg = cell.bg;
+                    }
 
                     // Write the character
                     write!(stdout, "{}", cell.ch)?;
+                }
 
-                    // Reset attributes for next cell
+                // Reset attributes and colors at end of row
+                if prev_attrs != crate::client::ansi_parser::AttributeFlags::new() {
+                    execute!(stdout, crossterm::style::SetAttribute(crossterm::style::Attribute::Reset))?;
+                }
+                if prev_fg != crossterm::style::Color::Reset || prev_bg != crossterm::style::Color::Reset {
                     execute!(stdout, ResetColor)?;
                 }
             }
