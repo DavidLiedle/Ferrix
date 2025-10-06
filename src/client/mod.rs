@@ -43,6 +43,8 @@ pub struct Client {
     config: Arc<RwLock<Config>>,
     key_binding_manager: Arc<RwLock<KeyBindingManager>>,
     prefix_mode: bool, // Track if we're waiting for the second key after prefix
+    // Mouse selection state (works outside copy mode)
+    active_selection: Option<((u16, u16), (u16, u16))>, // (start, end) in screen coordinates
 }
 
 impl Client {
@@ -81,6 +83,7 @@ impl Client {
             config: Arc::new(RwLock::new(config)),
             key_binding_manager: Arc::new(RwLock::new(key_binding_manager)),
             prefix_mode: false,
+            active_selection: None,
         })
     }
 
@@ -1226,16 +1229,25 @@ impl Client {
                         }
                     }
                     MouseAction::UpdateSelection { start, end } => {
-                        // Update visual selection in copy mode
+                        // Update visual selection (works both in and out of copy mode)
+                        self.active_selection = Some((start, end));
+
                         if self.copy_mode.is_active() {
                             // Send update to server to reflect changes in copy mode
                             if let Some(framed) = &mut self.framed {
                                 let input = format!("select:{},{} {},{}", start.0, start.1, end.0, end.1);
                                 let _ = framed.send(ClientMessage::CopyModeInput { key: input }).await;
                             }
-
-                            debug!("Mouse selection: {:?} to {:?}", start, end);
                         }
+
+                        // Trigger a redraw to show the selection
+                        if let Some(layout) = self.current_layout.clone() {
+                            if let Some(pane_info) = layout.panes.iter().find(|p| p.is_focused).cloned() {
+                                self.draw_pane_content(&pane_info).await?;
+                            }
+                        }
+
+                        debug!("Mouse selection: {:?} to {:?}", start, end);
                     }
                     MouseAction::CompleteSelection { start, end } => {
                         // Complete selection and copy to clipboard
@@ -1244,6 +1256,16 @@ impl Client {
                             if let Ok(mut clipboard) = arboard::Clipboard::new() {
                                 let _ = clipboard.set_text(&text);
                                 debug!("Copied to clipboard: {} chars", text.len());
+                            }
+                        }
+
+                        // Clear the visual selection
+                        self.active_selection = None;
+
+                        // Redraw to remove selection highlight
+                        if let Some(layout) = self.current_layout.clone() {
+                            if let Some(pane_info) = layout.panes.iter().find(|p| p.is_focused).cloned() {
+                                self.draw_pane_content(&pane_info).await?;
                             }
                         }
                     }
@@ -1329,6 +1351,37 @@ impl Client {
         }
 
         Some(result.trim_end().to_string())
+    }
+
+    fn is_cell_selected(&self, cell_x: u16, cell_y: u16, sel_start: (u16, u16), sel_end: (u16, u16)) -> bool {
+        // Normalize selection coordinates (ensure start is before end)
+        let (start_x, start_y) = sel_start;
+        let (end_x, end_y) = sel_end;
+
+        let (first_x, first_y, last_x, last_y) = if start_y < end_y || (start_y == end_y && start_x <= end_x) {
+            (start_x, start_y, end_x, end_y)
+        } else {
+            (end_x, end_y, start_x, start_y)
+        };
+
+        // Check if cell is within selection bounds
+        if cell_y < first_y || cell_y > last_y {
+            return false;
+        }
+
+        if cell_y == first_y && cell_y == last_y {
+            // Single line selection
+            cell_x >= first_x && cell_x <= last_x
+        } else if cell_y == first_y {
+            // First line of multi-line selection
+            cell_x >= first_x
+        } else if cell_y == last_y {
+            // Last line of multi-line selection
+            cell_x <= last_x
+        } else {
+            // Middle lines - fully selected
+            true
+        }
     }
 
     fn get_word_at(&self, x: u16, y: u16) -> Option<String> {
@@ -1466,7 +1519,16 @@ impl Client {
                 let mut prev_fg = crossterm::style::Color::Reset;
                 let mut prev_bg = crossterm::style::Color::Reset;
 
-                for cell in row.iter().take(content_width as usize) {
+                for (col_idx, cell) in row.iter().enumerate().take(content_width as usize) {
+                    // Check if this cell is within the active selection
+                    let cell_x = content_x + col_idx as u16;
+                    let cell_y = content_y + row_idx as u16;
+                    let is_selected = if let Some((sel_start, sel_end)) = self.active_selection {
+                        self.is_cell_selected(cell_x, cell_y, sel_start, sel_end)
+                    } else {
+                        false
+                    };
+
                     // Only change attributes if they differ from previous cell
                     if cell.attributes != prev_attrs {
                         // Reset if previous cell had attributes
@@ -1493,13 +1555,21 @@ impl Client {
                         prev_attrs = cell.attributes;
                     }
 
+                    // Apply selection highlighting (reverse video for selected cells)
+                    let (fg, bg) = if is_selected {
+                        // Use reverse video for selection
+                        (crossterm::style::Color::Black, crossterm::style::Color::White)
+                    } else {
+                        (cell.fg, cell.bg)
+                    };
+
                     // Only change colors if they differ
-                    if cell.fg != prev_fg {
-                        execute!(stdout, SetForegroundColor(cell.fg))?;
-                        prev_fg = cell.fg;
+                    if fg != prev_fg {
+                        execute!(stdout, SetForegroundColor(fg))?;
+                        prev_fg = fg;
                     }
-                    if cell.bg != prev_bg {
-                        execute!(stdout, SetBackgroundColor(cell.bg))?;
+                    if bg != prev_bg {
+                        execute!(stdout, SetBackgroundColor(bg))?;
                         prev_bg = cell.bg;
                     }
 
