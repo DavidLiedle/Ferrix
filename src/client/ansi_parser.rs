@@ -125,6 +125,8 @@ pub struct AnsiParser {
     attributes: AttributeFlags,
     /// Buffer for incomplete escape sequences
     escape_buffer: Vec<u8>,
+    /// Buffer for incomplete UTF-8 sequences
+    utf8_buffer: Vec<u8>,
     /// Whether we're currently parsing an escape sequence
     in_escape: bool,
     /// Saved cursor position for save/restore operations
@@ -178,6 +180,7 @@ impl AnsiParser {
             background: Color::Reset,
             attributes: AttributeFlags::new(),
             escape_buffer: Vec::new(),
+            utf8_buffer: Vec::new(),
             in_escape: false,
             saved_cursor: None,
             screen,
@@ -207,6 +210,20 @@ impl AnsiParser {
         // Clamp cursor to new bounds
         self.cursor_x = self.cursor_x.min(width.saturating_sub(1));
         self.cursor_y = self.cursor_y.min(height.saturating_sub(1));
+    }
+
+    /// Reset terminal to initial state (RIS - ESC c)
+    fn reset(&mut self) {
+        self.cursor_x = 0;
+        self.cursor_y = 0;
+        self.foreground = Color::Reset;
+        self.background = Color::Reset;
+        self.attributes = AttributeFlags::new();
+        self.saved_cursor = None;
+        self.clear_screen();
+        // Reset modes to defaults
+        self.modes.cursor_visible = true;
+        self.modes.auto_wrap = true;
     }
 
     /// Parse and render ANSI data to stdout
@@ -249,6 +266,10 @@ impl AnsiParser {
 
         // Check for CSI sequences (ESC [)
         if self.escape_buffer[1] == b'[' {
+            // Safety: If CSI gets too long, force completion
+            if self.escape_buffer.len() > 256 {
+                return true;
+            }
             // CSI sequences end with a letter
             if let Some(&last) = self.escape_buffer.last() {
                 return (b'A'..=b'Z').contains(&last) || (b'a'..=b'z').contains(&last);
@@ -257,17 +278,43 @@ impl AnsiParser {
 
         // Check for OSC sequences (ESC ])
         if self.escape_buffer[1] == b']' {
-            // OSC sequences end with BEL or ST
+            // OSC sequences end with BEL (0x07) or ST (ESC \)
             let len = self.escape_buffer.len();
+
+            // Safety: If OSC gets too long without terminator, force completion
+            // This prevents infinite accumulation from malformed sequences
+            if len > 1024 {
+                return true;
+            }
+
             if len >= 2 {
                 let last = self.escape_buffer[len - 1];
                 let second_last = if len >= 3 { self.escape_buffer[len - 2] } else { 0 };
                 return last == 0x07 || (second_last == 0x1B && last == b'\\');
             }
+            // OSC not complete yet, keep accumulating
+            return false;
         }
 
-        // Other simple two-character sequences
-        self.escape_buffer.len() >= 2
+        // Check for known two-character escape sequences
+        if self.escape_buffer.len() == 2 {
+            match self.escape_buffer[1] {
+                b'7' | b'8' | b'M' | b'D' | b'E' | b'c' => return true,
+                // CSI and OSC need more bytes, keep accumulating
+                b'[' | b']' => return false,
+                // Unknown sequence - consider complete to avoid hanging
+                _ => return true,
+            }
+        }
+
+        // For sequences longer than 2 bytes that aren't CSI/OSC, consider complete
+        // This handles malformed sequences
+        if self.escape_buffer.len() > 2 {
+            // Already checked CSI and OSC above, so this must be something else
+            return true;
+        }
+
+        false
     }
 
     fn process_escape_sequence(
@@ -768,17 +815,16 @@ impl AnsiParser {
             0x0D => {
                 self.cursor_x = 0;
             }
-            // Printable character
-            0x20..=0x7E | 0x80..=0xFF => {
-                // Place character at current position
+            // Printable character or UTF-8 continuation
+            0x20..=0x7E => {
+                // ASCII printable character - directly use it
                 if self.cursor_y < self.height && self.cursor_x < self.width {
                     let cell = &mut self.screen[self.cursor_y as usize][self.cursor_x as usize];
                     cell.ch = ch as char;
                     cell.fg = self.foreground;
                     cell.bg = self.background;
-                    cell.attributes = self.attributes; // AttributeFlags is Copy
+                    cell.attributes = self.attributes;
 
-                    // Advance cursor with auto-wrap support
                     self.cursor_x += 1;
                     if self.cursor_x >= self.width {
                         if self.modes.auto_wrap {
@@ -791,6 +837,47 @@ impl AnsiParser {
                         } else {
                             self.cursor_x = self.width - 1;
                         }
+                    }
+                }
+            }
+            0x80..=0xFF => {
+                // UTF-8 multi-byte character
+                self.utf8_buffer.push(ch);
+
+                // Try to decode the UTF-8 sequence
+                if let Ok(s) = std::str::from_utf8(&self.utf8_buffer) {
+                    // Successfully decoded - get the character
+                    if let Some(decoded_char) = s.chars().next() {
+                        // Place the decoded character
+                        if self.cursor_y < self.height && self.cursor_x < self.width {
+                            let cell = &mut self.screen[self.cursor_y as usize][self.cursor_x as usize];
+                            cell.ch = decoded_char;
+                            cell.fg = self.foreground;
+                            cell.bg = self.background;
+                            cell.attributes = self.attributes;
+
+                            self.cursor_x += 1;
+                            if self.cursor_x >= self.width {
+                                if self.modes.auto_wrap {
+                                    self.cursor_x = 0;
+                                    self.cursor_y += 1;
+                                    if self.cursor_y >= self.height {
+                                        self.scroll_up();
+                                        self.cursor_y = self.height - 1;
+                                    }
+                                } else {
+                                    self.cursor_x = self.width - 1;
+                                }
+                            }
+                        }
+                        // Clear the buffer after successful decode
+                        self.utf8_buffer.clear();
+                    }
+                } else {
+                    // Not yet complete or invalid - keep accumulating
+                    // Safety: clear buffer if it gets too long (invalid UTF-8)
+                    if self.utf8_buffer.len() > 4 {
+                        self.utf8_buffer.clear();
                     }
                 }
             }
@@ -808,7 +895,37 @@ impl AnsiParser {
             b']' => self.handle_osc_sequence(),
             b'7' => self.save_cursor(),
             b'8' => self.restore_cursor(),
-            _ => {}
+            b'M' => {
+                // RI - Reverse Index (move cursor up, scroll if at top)
+                if self.cursor_y > 0 {
+                    self.cursor_y -= 1;
+                }
+                // TODO: scroll down if at top of screen
+            }
+            b'D' => {
+                // IND - Index (move cursor down, scroll if at bottom)
+                self.cursor_y += 1;
+                if self.cursor_y >= self.height {
+                    self.scroll_up();
+                    self.cursor_y = self.height - 1;
+                }
+            }
+            b'E' => {
+                // NEL - Next Line (CR + LF)
+                self.cursor_x = 0;
+                self.cursor_y += 1;
+                if self.cursor_y >= self.height {
+                    self.scroll_up();
+                    self.cursor_y = self.height - 1;
+                }
+            }
+            b'c' => {
+                // RIS - Reset to Initial State
+                self.reset();
+            }
+            _ => {
+                // Unknown escape sequence - ignore
+            }
         }
     }
 
@@ -850,6 +967,23 @@ impl AnsiParser {
                 let n = params.first().copied().unwrap_or(1);
                 self.cursor_x = self.cursor_x.saturating_sub(n);
             }
+            b'E' => {
+                // CNL - Cursor Next Line
+                let n = params.first().copied().unwrap_or(1);
+                self.cursor_y = (self.cursor_y + n).min(self.height - 1);
+                self.cursor_x = 0;
+            }
+            b'F' => {
+                // CPL - Cursor Previous Line
+                let n = params.first().copied().unwrap_or(1);
+                self.cursor_y = self.cursor_y.saturating_sub(n);
+                self.cursor_x = 0;
+            }
+            b'G' => {
+                // CHA - Cursor Horizontal Absolute
+                let n = params.first().copied().unwrap_or(1).saturating_sub(1);
+                self.cursor_x = n.min(self.width - 1);
+            }
             b'H' | b'f' => {
                 // Move cursor to position
                 let row = params.first().copied().unwrap_or(1).saturating_sub(1);
@@ -888,8 +1022,9 @@ impl AnsiParser {
     }
 
     fn handle_osc_sequence(&mut self) {
-        // OSC sequences are for operating system commands
-        // We'll ignore most of these for now
+        // OSC sequences are for operating system commands (window title, etc.)
+        // We silently consume these sequences
+        // Future: Could implement window title setting, etc.
     }
 
     fn handle_sgr_simple(&mut self, params: &[u16]) {
