@@ -1660,13 +1660,8 @@ impl Client {
                 write!(stdout, "{}", display_line)?;
             }
         } else {
-            // No content yet, show pane info
-            execute!(stdout, crossterm::cursor::MoveTo(content_x, content_y))?;
-            if pane.is_focused {
-                write!(stdout, "🔸 Focused Pane {:.8}", pane.id.0)?;
-            } else {
-                write!(stdout, "⚪ Pane {:.8}", pane.id.0)?;
-            }
+            // No content yet - just show blank pane
+            // (the shell will render its own prompt when ready)
         }
 
         Ok(())
