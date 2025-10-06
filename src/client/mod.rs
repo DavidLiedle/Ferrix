@@ -165,6 +165,10 @@ impl Client {
                             framed.send(ClientMessage::Resize { cols: 80, rows: 24 }).await?;
                         }
 
+                        // Send Ctrl-L to refresh the prompt
+                        // This triggers the shell to redraw, showing the current prompt
+                        framed.send(ClientMessage::Input { data: vec![0x0C] }).await?;
+
                         // Layout will be sent automatically by server
                     }
                     ServerMessage::Error { message } => {
