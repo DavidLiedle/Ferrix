@@ -395,10 +395,12 @@ impl AnsiParser {
     fn process_character(
         &mut self,
         ch: u8,
-        pane_x: u16,
-        pane_y: u16,
-        stdout: &mut impl Write,
+        _pane_x: u16,
+        _pane_y: u16,
+        _stdout: &mut impl Write,
     ) -> std::io::Result<()> {
+        // Process character and store in cell buffer (not direct stdout)
+        // The actual rendering happens via render() method
         match ch {
             0x07 => {} // BEL - ignore
             0x08 => self.cursor_backward(1), // BS
@@ -408,33 +410,28 @@ impl AnsiParser {
             0x0E => {} // SO - ignore
             0x0F => {} // SI - ignore
             _ if ch >= 0x20 => {
-                // Printable character
-                let abs_x = pane_x + self.cursor_x;
-                let abs_y = pane_y + self.cursor_y;
+                // Store printable character in cell buffer
+                if self.cursor_y < self.height && self.cursor_x < self.width {
+                    let cell = &mut self.screen[self.cursor_y as usize][self.cursor_x as usize];
+                    cell.ch = ch as char;
+                    cell.fg = self.foreground;
+                    cell.bg = self.background;
+                    cell.attributes = self.attributes;
 
-                crossterm::execute!(stdout, MoveTo(abs_x, abs_y))?;
-
-                // Apply current colors and attributes
-                for attr in self.attributes.to_attributes() {
-                    crossterm::execute!(stdout, SetAttribute(attr))?;
-                }
-                if !matches!(self.foreground, Color::Reset) {
-                    crossterm::execute!(stdout, SetForegroundColor(self.foreground))?;
-                }
-                if !matches!(self.background, Color::Reset) {
-                    crossterm::execute!(stdout, SetBackgroundColor(self.background))?;
-                }
-
-                stdout.write_all(&[ch])?;
-
-                // Reset colors
-                crossterm::execute!(stdout, ResetColor)?;
-
-                // Advance cursor
-                self.cursor_x += 1;
-                if self.cursor_x >= self.width {
-                    self.cursor_x = 0;
-                    self.cursor_y = (self.cursor_y + 1).min(self.height - 1);
+                    // Advance cursor with auto-wrap
+                    self.cursor_x += 1;
+                    if self.cursor_x >= self.width {
+                        if self.modes.auto_wrap {
+                            self.cursor_x = 0;
+                            self.cursor_y += 1;
+                            if self.cursor_y >= self.height {
+                                self.scroll_up();
+                                self.cursor_y = self.height - 1;
+                            }
+                        } else {
+                            self.cursor_x = self.width - 1;
+                        }
+                    }
                 }
             }
             _ => {} // Other control characters - ignore
@@ -779,16 +776,20 @@ impl AnsiParser {
                     cell.ch = ch as char;
                     cell.fg = self.foreground;
                     cell.bg = self.background;
-                    cell.attributes = self.attributes.clone();
+                    cell.attributes = self.attributes; // AttributeFlags is Copy
 
-                    // Advance cursor
+                    // Advance cursor with auto-wrap support
                     self.cursor_x += 1;
                     if self.cursor_x >= self.width {
-                        self.cursor_x = 0;
-                        self.cursor_y += 1;
-                        if self.cursor_y >= self.height {
-                            self.scroll_up();
-                            self.cursor_y = self.height - 1;
+                        if self.modes.auto_wrap {
+                            self.cursor_x = 0;
+                            self.cursor_y += 1;
+                            if self.cursor_y >= self.height {
+                                self.scroll_up();
+                                self.cursor_y = self.height - 1;
+                            }
+                        } else {
+                            self.cursor_x = self.width - 1;
                         }
                     }
                 }
