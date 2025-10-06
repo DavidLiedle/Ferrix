@@ -1461,7 +1461,7 @@ impl Client {
 
                 for cell in row.iter().take(content_width as usize) {
                     // Apply text attributes
-                    for attr in &cell.attributes {
+                    for attr in cell.attributes.to_attributes() {
                         use crossterm::style::Attribute as CrosstermAttr;
                         let crossterm_attr = match attr {
                             crossterm::style::Attribute::Bold => CrosstermAttr::Bold,

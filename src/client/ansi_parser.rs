@@ -3,13 +3,76 @@ use crossterm::cursor::{MoveTo, Hide, Show};
 use std::io::Write;
 use crate::server::scrollback::CellScrollback;
 
+/// Compact attribute bitflags to avoid Vec allocations
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AttributeFlags {
+    flags: u8,
+}
+
+impl AttributeFlags {
+    const BOLD: u8 = 0b0000_0001;
+    const DIM: u8 = 0b0000_0010;
+    const ITALIC: u8 = 0b0000_0100;
+    const UNDERLINED: u8 = 0b0000_1000;
+    const SLOW_BLINK: u8 = 0b0001_0000;
+    const RAPID_BLINK: u8 = 0b0010_0000;
+    const REVERSE: u8 = 0b0100_0000;
+    const CROSSED_OUT: u8 = 0b1000_0000;
+
+    pub fn new() -> Self {
+        Self { flags: 0 }
+    }
+
+    pub fn set(&mut self, attr: Attribute) {
+        match attr {
+            Attribute::Bold => self.flags |= Self::BOLD,
+            Attribute::Dim => self.flags |= Self::DIM,
+            Attribute::Italic => self.flags |= Self::ITALIC,
+            Attribute::Underlined => self.flags |= Self::UNDERLINED,
+            Attribute::SlowBlink => self.flags |= Self::SLOW_BLINK,
+            Attribute::RapidBlink => self.flags |= Self::RAPID_BLINK,
+            Attribute::Reverse => self.flags |= Self::REVERSE,
+            Attribute::CrossedOut => self.flags |= Self::CROSSED_OUT,
+            _ => {} // Ignore other attributes for now
+        }
+    }
+
+    pub fn clear(&mut self, attr: Attribute) {
+        match attr {
+            Attribute::Bold => self.flags &= !Self::BOLD,
+            Attribute::Dim => self.flags &= !Self::DIM,
+            Attribute::Italic => self.flags &= !Self::ITALIC,
+            Attribute::Underlined => self.flags &= !Self::UNDERLINED,
+            Attribute::SlowBlink => self.flags &= !Self::SLOW_BLINK,
+            Attribute::RapidBlink => self.flags &= !Self::RAPID_BLINK,
+            Attribute::Reverse => self.flags &= !Self::REVERSE,
+            Attribute::CrossedOut => self.flags &= !Self::CROSSED_OUT,
+            _ => {}
+        }
+    }
+
+    pub fn to_attributes(&self) -> Vec<Attribute> {
+        let mut attrs = Vec::with_capacity(8);
+        if self.flags & Self::BOLD != 0 { attrs.push(Attribute::Bold); }
+        if self.flags & Self::DIM != 0 { attrs.push(Attribute::Dim); }
+        if self.flags & Self::ITALIC != 0 { attrs.push(Attribute::Italic); }
+        if self.flags & Self::UNDERLINED != 0 { attrs.push(Attribute::Underlined); }
+        if self.flags & Self::SLOW_BLINK != 0 { attrs.push(Attribute::SlowBlink); }
+        if self.flags & Self::RAPID_BLINK != 0 { attrs.push(Attribute::RapidBlink); }
+        if self.flags & Self::REVERSE != 0 { attrs.push(Attribute::Reverse); }
+        if self.flags & Self::CROSSED_OUT != 0 { attrs.push(Attribute::CrossedOut); }
+        attrs
+    }
+}
+
 /// A single cell in the terminal screen buffer
+/// Optimized to use bitflags instead of Vec<Attribute> to save memory
 #[derive(Clone, Debug)]
 pub struct Cell {
     pub ch: char,
     pub fg: Color,
     pub bg: Color,
-    pub attributes: Vec<Attribute>,
+    pub attributes: AttributeFlags,
 }
 
 impl Default for Cell {
@@ -18,7 +81,7 @@ impl Default for Cell {
             ch: ' ',
             fg: Color::Reset,
             bg: Color::Reset,
-            attributes: Vec::new(),
+            attributes: AttributeFlags::new(),
         }
     }
 }
@@ -59,7 +122,7 @@ pub struct AnsiParser {
     /// Current text attributes
     foreground: Color,
     background: Color,
-    attributes: Vec<Attribute>,
+    attributes: AttributeFlags,
     /// Buffer for incomplete escape sequences
     escape_buffer: Vec<u8>,
     /// Whether we're currently parsing an escape sequence
@@ -83,7 +146,7 @@ pub struct AnsiParser {
     /// Tab stops
     tab_stops: Vec<u16>,
     /// Saved attributes for cursor save/restore
-    saved_attrs: Option<(Color, Color, Vec<Attribute>)>,
+    saved_attrs: Option<(Color, Color, AttributeFlags)>,
     /// Pending responses to send back to PTY (for device status reports, etc)
     pending_responses: Vec<Vec<u8>>,
 }
@@ -113,7 +176,7 @@ impl AnsiParser {
             height,
             foreground: Color::Reset,
             background: Color::Reset,
-            attributes: Vec::new(),
+            attributes: AttributeFlags::new(),
             escape_buffer: Vec::new(),
             in_escape: false,
             saved_cursor: None,
@@ -352,8 +415,8 @@ impl AnsiParser {
                 crossterm::execute!(stdout, MoveTo(abs_x, abs_y))?;
 
                 // Apply current colors and attributes
-                for attr in &self.attributes {
-                    crossterm::execute!(stdout, SetAttribute(*attr))?;
+                for attr in self.attributes.to_attributes() {
+                    crossterm::execute!(stdout, SetAttribute(attr))?;
                 }
                 if !matches!(self.foreground, Color::Reset) {
                     crossterm::execute!(stdout, SetForegroundColor(self.foreground))?;
@@ -527,7 +590,7 @@ impl AnsiParser {
             // Reset all attributes
             self.foreground = Color::Reset;
             self.background = Color::Reset;
-            self.attributes.clear();
+            self.attributes = AttributeFlags::new();
             return Ok(());
         }
 
@@ -539,26 +602,32 @@ impl AnsiParser {
                     // Reset all
                     self.foreground = Color::Reset;
                     self.background = Color::Reset;
-                    self.attributes.clear();
+                    self.attributes = AttributeFlags::new();
                 }
-                1 => self.attributes.push(Attribute::Bold),
-                2 => self.attributes.push(Attribute::Dim),
-                3 => self.attributes.push(Attribute::Italic),
-                4 => self.attributes.push(Attribute::Underlined),
-                5 => self.attributes.push(Attribute::SlowBlink),
-                6 => self.attributes.push(Attribute::RapidBlink),
-                7 => self.attributes.push(Attribute::Reverse),
-                8 => self.attributes.push(Attribute::Hidden),
-                9 => self.attributes.push(Attribute::CrossedOut),
+                1 => self.attributes.set(Attribute::Bold),
+                2 => self.attributes.set(Attribute::Dim),
+                3 => self.attributes.set(Attribute::Italic),
+                4 => self.attributes.set(Attribute::Underlined),
+                5 => self.attributes.set(Attribute::SlowBlink),
+                6 => self.attributes.set(Attribute::RapidBlink),
+                7 => self.attributes.set(Attribute::Reverse),
+                8 => {}, // Hidden not supported in bitflags yet
+                9 => self.attributes.set(Attribute::CrossedOut),
 
                 // Reset specific attributes
-                21 | 22 => self.attributes.retain(|&a| a != Attribute::Bold && a != Attribute::Dim),
-                23 => self.attributes.retain(|&a| a != Attribute::Italic),
-                24 => self.attributes.retain(|&a| a != Attribute::Underlined),
-                25 => self.attributes.retain(|&a| a != Attribute::SlowBlink && a != Attribute::RapidBlink),
-                27 => self.attributes.retain(|&a| a != Attribute::Reverse),
-                28 => self.attributes.retain(|&a| a != Attribute::Hidden),
-                29 => self.attributes.retain(|&a| a != Attribute::CrossedOut),
+                21 | 22 => {
+                    self.attributes.clear(Attribute::Bold);
+                    self.attributes.clear(Attribute::Dim);
+                }
+                23 => self.attributes.clear(Attribute::Italic),
+                24 => self.attributes.clear(Attribute::Underlined),
+                25 => {
+                    self.attributes.clear(Attribute::SlowBlink);
+                    self.attributes.clear(Attribute::RapidBlink);
+                }
+                27 => self.attributes.clear(Attribute::Reverse),
+                28 => {}, // Hidden not supported
+                29 => self.attributes.clear(Attribute::CrossedOut),
 
                 // Foreground colors
                 30 => self.foreground = Color::Black,
@@ -827,7 +896,7 @@ impl AnsiParser {
             // Reset all attributes
             self.foreground = Color::Reset;
             self.background = Color::Reset;
-            self.attributes.clear();
+            self.attributes = AttributeFlags::new();
             return;
         }
 
@@ -837,16 +906,16 @@ impl AnsiParser {
                     // Reset all
                     self.foreground = Color::Reset;
                     self.background = Color::Reset;
-                    self.attributes.clear();
+                    self.attributes = AttributeFlags::new();
                 }
-                1 => self.attributes.push(crossterm::style::Attribute::Bold),
-                2 => self.attributes.push(crossterm::style::Attribute::Dim),
-                3 => self.attributes.push(crossterm::style::Attribute::Italic),
-                4 => self.attributes.push(crossterm::style::Attribute::Underlined),
-                5 => self.attributes.push(crossterm::style::Attribute::SlowBlink),
-                7 => self.attributes.push(crossterm::style::Attribute::Reverse),
-                8 => self.attributes.push(crossterm::style::Attribute::Hidden),
-                9 => self.attributes.push(crossterm::style::Attribute::CrossedOut),
+                1 => self.attributes.set(crossterm::style::Attribute::Bold),
+                2 => self.attributes.set(crossterm::style::Attribute::Dim),
+                3 => self.attributes.set(crossterm::style::Attribute::Italic),
+                4 => self.attributes.set(crossterm::style::Attribute::Underlined),
+                5 => self.attributes.set(crossterm::style::Attribute::SlowBlink),
+                7 => self.attributes.set(crossterm::style::Attribute::Reverse),
+                8 => {}, // Hidden not supported
+                9 => self.attributes.set(crossterm::style::Attribute::CrossedOut),
 
                 // Foreground colors
                 30 => self.foreground = Color::Black,

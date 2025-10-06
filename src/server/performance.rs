@@ -72,6 +72,12 @@ impl OutputBuffer {
         }
     }
 
+    /// Get current buffer usage percentage
+    pub async fn buffer_usage_percent(&self) -> f64 {
+        let buffer = self.buffer.read().await;
+        (buffer.len() as f64 / self.config.max_buffer_size as f64) * 100.0
+    }
+
     /// Write data to the buffer with backpressure handling
     pub async fn write(&self, data: Vec<u8>) -> Result<()> {
         let mut buffer = self.buffer.write().await;

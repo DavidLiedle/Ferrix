@@ -48,6 +48,30 @@ pub enum FerrixError {
 
 pub type Result<T> = std::result::Result<T, FerrixError>;
 
+/// Extension trait for Result to add context to errors
+pub trait ResultExt<T> {
+    /// Add context to an error
+    fn context(self, context: impl Into<String>) -> Result<T>;
+
+    /// Add context with lazy evaluation
+    fn with_context<F>(self, f: F) -> Result<T>
+    where
+        F: FnOnce() -> String;
+}
+
+impl<T, E: std::error::Error> ResultExt<T> for std::result::Result<T, E> {
+    fn context(self, context: impl Into<String>) -> Result<T> {
+        self.map_err(|e| FerrixError::Other(format!("{}: {}", context.into(), e)))
+    }
+
+    fn with_context<F>(self, f: F) -> Result<T>
+    where
+        F: FnOnce() -> String,
+    {
+        self.map_err(|e| FerrixError::Other(format!("{}: {}", f(), e)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
