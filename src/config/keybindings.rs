@@ -320,7 +320,7 @@ impl KeyBindingManager {
         );
         bindings.insert(
             KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('?') },
-            Action::Custom("show-keys".to_string()),
+            Action::ShowHelp,
         );
 
         // Layout presets

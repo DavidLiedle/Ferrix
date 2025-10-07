@@ -193,6 +193,91 @@ impl HelpOverlay {
         ]
     }
 
+    /// Render help overlay using crossterm directly (for non-ratatui terminals)
+    pub fn render_crossterm(&self) -> Result<(), std::io::Error> {
+        use crossterm::{
+            cursor::MoveTo,
+            style::{Color as CColor, SetForegroundColor, SetBackgroundColor, ResetColor, Attribute, SetAttribute},
+            execute, queue,
+        };
+        use std::io::{stdout, Write};
+
+        if !self.visible {
+            return Ok(());
+        }
+
+        let mut stdout = stdout();
+        let (width, height) = crossterm::terminal::size()?;
+
+        // Calculate centered overlay (80% of screen)
+        let overlay_width = (width as f32 * 0.8) as u16;
+        let overlay_height = (height as f32 * 0.8) as u16;
+        let start_x = (width - overlay_width) / 2;
+        let start_y = (height - overlay_height) / 2;
+
+        // Draw background box
+        for y in start_y..start_y + overlay_height {
+            queue!(stdout, MoveTo(start_x, y))?;
+            queue!(stdout, SetBackgroundColor(CColor::Black))?;
+            write!(stdout, "{}", " ".repeat(overlay_width as usize))?;
+        }
+
+        // Draw header
+        queue!(stdout, MoveTo(start_x + 2, start_y + 1))?;
+        queue!(stdout, SetForegroundColor(CColor::Cyan))?;
+        queue!(stdout, SetAttribute(Attribute::Bold))?;
+        write!(stdout, "Ferrix Help")?;
+        queue!(stdout, SetAttribute(Attribute::Reset))?;
+        queue!(stdout, SetForegroundColor(CColor::DarkGrey))?;
+        write!(stdout, " - Press 'q' or '?' to close | Tab to switch category")?;
+
+        // Get current category
+        let categories = self.get_categories();
+        let category = &categories[self.selected_category];
+
+        // Draw category title
+        queue!(stdout, MoveTo(start_x + 2, start_y + 3))?;
+        queue!(stdout, SetForegroundColor(CColor::Yellow))?;
+        queue!(stdout, SetAttribute(Attribute::Bold))?;
+        write!(stdout, "▶ {}", category.name)?;
+        queue!(stdout, SetAttribute(Attribute::Reset))?;
+
+        // Draw help items
+        let mut y = start_y + 5;
+        for item in &category.items {
+            if y >= start_y + overlay_height - 5 {
+                break; // Don't overflow
+            }
+            queue!(stdout, MoveTo(start_x + 4, y))?;
+            queue!(stdout, SetForegroundColor(CColor::Green))?;
+            write!(stdout, "{:<25}", item.keys)?;
+            queue!(stdout, SetForegroundColor(CColor::White))?;
+            write!(stdout, "{}", item.description)?;
+            y += 1;
+        }
+
+        // Draw category tabs at bottom
+        queue!(stdout, MoveTo(start_x + 2, start_y + overlay_height - 3))?;
+        queue!(stdout, SetForegroundColor(CColor::DarkGrey))?;
+        write!(stdout, "Categories: ")?;
+
+        for (i, cat) in categories.iter().enumerate() {
+            if i == self.selected_category {
+                queue!(stdout, SetForegroundColor(CColor::Cyan))?;
+                queue!(stdout, SetAttribute(Attribute::Bold))?;
+                write!(stdout, " [{}] ", cat.name)?;
+                queue!(stdout, SetAttribute(Attribute::Reset))?;
+            } else {
+                queue!(stdout, SetForegroundColor(CColor::DarkGrey))?;
+                write!(stdout, "  {}  ", cat.name)?;
+            }
+        }
+
+        queue!(stdout, ResetColor)?;
+        stdout.flush()?;
+        Ok(())
+    }
+
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         if !self.visible {
             return;

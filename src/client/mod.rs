@@ -1271,6 +1271,12 @@ impl Client {
         if let Some(layout) = self.current_layout.clone() {
             self.clear_screen().await?;
             self.draw_panes(&layout).await?;
+
+            // Render help overlay if visible
+            if self.help_overlay.is_visible() {
+                self.help_overlay.render_crossterm()
+                    .map_err(|e| FerrixError::Terminal(format!("Failed to render help: {}", e)))?;
+            }
         }
         Ok(())
     }
