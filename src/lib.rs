@@ -5,6 +5,7 @@ pub mod cli;
 pub mod client;
 pub mod config;
 pub mod error;
+pub mod format;
 pub mod input;
 pub mod protocol;
 pub mod server;

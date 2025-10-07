@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::error::{Result, FerrixError};
 use crate::protocol::{SessionId, WindowId, PaneId, SplitDirection};
+use crate::format::{FormatProvider, FormatValue};
 use super::window::Window;
 use super::snapshot::{SessionSnapshot, SnapshotMetadata, SessionState, WindowState, PaneState};
 use super::layout::NavigationDirection;
@@ -295,6 +296,52 @@ impl Session {
                     drop(window_guard);
                     let mut window_guard = window.write().await;
                     return window_guard.navigate_pane(direction).await;
+                }
+            }
+        }
+        Err(FerrixError::Other("No current window".to_string()))
+    }
+
+    /// Toggle between current and last pane (tmux last-pane)
+    pub async fn select_last_pane(&mut self) -> Result<()> {
+        if let Some(current_window_id) = &self.current_window {
+            for window in &self.windows {
+                let window_guard = window.read().await;
+                if window_guard.id == *current_window_id {
+                    drop(window_guard);
+                    let mut window_guard = window.write().await;
+                    return window_guard.select_last_pane().await;
+                }
+            }
+        }
+        Err(FerrixError::Other("No current window".to_string()))
+    }
+
+    /// Select a pane by its index (0-based)
+    pub fn select_pane_by_index(&mut self, index: usize) -> Result<()> {
+        if let Some(current_window_id) = &self.current_window {
+            for window in &self.windows {
+                // Need to block on the async read
+                let window_guard = futures::executor::block_on(window.read());
+                if window_guard.id == *current_window_id {
+                    drop(window_guard);
+                    let mut window_guard = futures::executor::block_on(window.write());
+                    return window_guard.select_pane_by_index(index);
+                }
+            }
+        }
+        Err(FerrixError::Other("No current window".to_string()))
+    }
+
+    /// Respawn a pane (restart its PTY)
+    pub async fn respawn_pane(&mut self, pane_id: PaneId) -> Result<()> {
+        if let Some(current_window_id) = &self.current_window {
+            for window in &self.windows {
+                let window_guard = window.read().await;
+                if window_guard.id == *current_window_id {
+                    drop(window_guard);
+                    let mut window_guard = window.write().await;
+                    return window_guard.respawn_pane(&pane_id).await;
                 }
             }
         }
@@ -1373,6 +1420,44 @@ impl Session {
         }
     }
 }
+
+// Format variable provider for Session
+impl FormatProvider for Session {
+    fn get_variable(&self, name: &str) -> Option<FormatValue> {
+        match name {
+            // Session identification
+            "session_id" => Some(FormatValue::String(self.id.0.to_string())),
+            "session_name" => Some(FormatValue::String(self.name.clone())),
+
+            // Session state
+            "session_created" => Some(FormatValue::Timestamp(self.created_at)),
+            "session_attached" => {
+                // TODO: Track attached clients count
+                Some(FormatValue::Number(1))
+            },
+            "session_windows" => Some(FormatValue::Number(self.windows.len() as i64)),
+
+            // Session flags
+            "session_locked" => Some(FormatValue::Boolean(self.locked)),
+            "pane_synchronized" => Some(FormatValue::Boolean(self.pane_sync_enabled)),
+
+            // Recording status
+            "session_recording" => Some(FormatValue::Boolean(self.recorder.is_some())),
+
+            // Layout info
+            "session_layout" => Some(FormatValue::String(
+                self.current_layout_preset.clone().unwrap_or_else(|| "unknown".to_string())
+            )),
+
+            // Version control (if enabled)
+            #[cfg(feature = "versioning")]
+            "session_versioned" => Some(FormatValue::Boolean(self.versioning.is_some())),
+
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

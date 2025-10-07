@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2025-10-07
+
+### Added
+- **Production-Ready Multiplexer Features**: Complete tmux/screen parity
+  - Last-pane toggle (Ctrl-b ;) for quick switching between recent panes
+  - Pane numbering system with 0-9 indexed direct selection
+  - Display-panes overlay with ASCII art numbers (1-second timeout)
+  - Pane respawning with remain-on-exit support
+  - Pane lifecycle tracking (dead/alive state, exit status)
+- **User Feedback System**: Real-time status bar messaging
+  - Color-coded message display (Info=Cyan, Success=Green, Warning=Yellow, Error=Red)
+  - 3-second message timeout with automatic cleanup
+  - Message queue (keeps last 5 messages)
+  - Protocol support for server-to-client DisplayMessage
+  - Integration with client status bar rendering
+
+### Verified
+- **Automatic Crash Recovery**: Full session restoration system (already implemented)
+  - Auto-save snapshots every 5 minutes
+  - Recovery file tracking (~/.ferrix/.ferrix_recovery)
+  - Session restoration on startup after crashes
+  - Clean shutdown detection (SIGTERM/SIGINT handlers)
+  - Recovery snapshots in ~/.ferrix/snapshots/auto/
+- **Multi-Client Session Support**: Multiple clients per session (already implemented)
+  - Broadcast architecture for output distribution
+  - Per-client session tracking
+  - Simultaneous attach capability
+  - Collaboration framework with role-based access
+- **Terminal Compatibility**: Comprehensive ANSI/VT emulation (already implemented)
+  - Full DEC private mode support
+  - Attribute flags optimization
+  - Color and styling support
+  - Alternate screen buffer
+  - Bracketed paste mode
+
+### Enhanced
+- **Protocol Messages**: Extended server-client communication
+  - SelectLastPane action and message
+  - SelectPaneByIndex for direct pane selection
+  - DisplayMessage for user notifications
+- **Keybindings**: New default bindings
+  - `;` - Last pane toggle
+  - `q` - Display panes overlay
+- **Window Management**: Improved pane tracking
+  - Pane order maintenance (Vec<PaneId>)
+  - Last pane reference tracking
+  - Automatic pane index updates on split/close
+
+### Fixed
+- **Borrow Checker**: Resolved pane respawn ownership issues
+  - Extracted dimension values before mutable operations
+  - Fixed pane_guard immutable/mutable borrow conflicts
+- **Initialization**: Added pane_order to Window constructor
+  - Ensures new windows start with proper pane tracking
+
+### Architecture
+- **Message Types**: Added client-side message infrastructure
+  - MessageType enum (Info, Success, Warning, Error)
+  - Message struct with timestamp tracking
+  - Automatic message expiration
+- **Client Status Bar**: Enhanced rendering
+  - Dynamic center section (messages vs. window info)
+  - Per-message-type color coding
+  - Terminal-safe rendering with ANSI codes
+
 ## [0.12.0] - 2025-10-07
 
 ### Added

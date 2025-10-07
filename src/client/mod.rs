@@ -24,9 +24,25 @@ use crate::ui::copymode::{CopyMode, CopyModeState, SearchDirection};
 use crate::ui::mouse::{MouseHandler, MouseAction};
 use crate::ui::commandmode::{CommandMode, CommandResult};
 use crate::ui::window_selector::{WindowSelector, WindowInfo};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+
+#[derive(Debug, Clone)]
+pub enum MessageType {
+    Info,
+    Success,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone)]
+pub struct Message {
+    pub text: String,
+    pub msg_type: MessageType,
+    pub timestamp: Instant,
+}
 
 pub struct Client {
     socket_path: PathBuf,
@@ -45,6 +61,9 @@ pub struct Client {
     prefix_mode: bool, // Track if we're waiting for the second key after prefix
     // Mouse selection state (works outside copy mode)
     active_selection: Option<((u16, u16), (u16, u16))>, // (start, end) in screen coordinates
+    // Status bar messages
+    messages: VecDeque<Message>,
+    message_timeout: Duration,
 }
 
 impl Client {
@@ -84,6 +103,8 @@ impl Client {
             key_binding_manager: Arc::new(RwLock::new(key_binding_manager)),
             prefix_mode: false,
             active_selection: None,
+            messages: VecDeque::new(),
+            message_timeout: Duration::from_secs(3),
         })
     }
 
@@ -389,7 +410,23 @@ impl Client {
                         }
                         Ok(ServerMessage::Error { message }) => {
                             error!("Server error: {}", message);
-                            break;
+                            self.show_error(message);
+                            if std::io::stdin().is_terminal() {
+                                self.render_layout().await?;
+                            }
+                            // Don't break - allow non-fatal errors to show in status bar
+                        }
+                        Ok(ServerMessage::DisplayMessage { text, msg_type }) => {
+                            match msg_type.as_str() {
+                                "info" => self.show_info(text),
+                                "success" => self.show_success(text),
+                                "warning" => self.show_warning(text),
+                                "error" => self.show_error(text),
+                                _ => self.show_info(text),
+                            }
+                            if std::io::stdin().is_terminal() {
+                                self.render_layout().await?;
+                            }
                         }
                         Ok(ServerMessage::LayoutUpdate { layout }) => {
                             self.current_layout = Some(layout);
@@ -582,6 +619,11 @@ impl Client {
                     framed.send(ClientMessage::NavigatePane {
                         direction: crate::protocol::PaneNavigationDirection::Right
                     }).await?;
+                }
+            }
+            Action::LastPane => {
+                if let Some(framed) = &mut self.framed {
+                    framed.send(ClientMessage::SelectLastPane).await?;
                 }
             }
             Action::ClosePane => {
@@ -2077,16 +2119,62 @@ impl Client {
     }
 
 
-    async fn render_status_bar(&self) -> Result<()> {
+    fn show_message(&mut self, text: String, msg_type: MessageType) {
+        let message = Message {
+            text,
+            msg_type,
+            timestamp: Instant::now(),
+        };
+        self.messages.push_back(message);
+        // Keep only last 5 messages
+        while self.messages.len() > 5 {
+            self.messages.pop_front();
+        }
+    }
+
+    pub fn show_info(&mut self, text: String) {
+        self.show_message(text, MessageType::Info);
+    }
+
+    pub fn show_success(&mut self, text: String) {
+        self.show_message(text, MessageType::Success);
+    }
+
+    pub fn show_warning(&mut self, text: String) {
+        self.show_message(text, MessageType::Warning);
+    }
+
+    pub fn show_error(&mut self, text: String) {
+        self.show_message(text, MessageType::Error);
+    }
+
+    fn cleanup_messages(&mut self) {
+        let now = Instant::now();
+        self.messages.retain(|msg| {
+            now.duration_since(msg.timestamp) < self.message_timeout
+        });
+    }
+
+    fn get_current_message(&self) -> Option<&Message> {
+        let now = Instant::now();
+        // Return the most recent non-expired message
+        self.messages.iter().rev().find(|msg| {
+            now.duration_since(msg.timestamp) < self.message_timeout
+        })
+    }
+
+    async fn render_status_bar(&mut self) -> Result<()> {
         use crossterm::{cursor::MoveTo, style::{Color, SetBackgroundColor, SetForegroundColor, ResetColor}, execute};
         use std::io::{stdout, Write};
+
+        // Clean up expired messages
+        self.cleanup_messages();
 
         let mut stdout = stdout();
         let (cols, rows) = self.terminal_size;
 
         // Render status bar at the bottom of the screen
         execute!(stdout, MoveTo(0, rows - 1))?;
-        execute!(stdout, SetBackgroundColor(Color::DarkBlue), SetForegroundColor(Color::White))?;
 
         // Build status bar content
         let session_name = self.attached_session
@@ -2104,7 +2192,20 @@ impl Client {
 
         // Format status bar with padding
         let left_section = format!(" Ferrix [{}]", session_name);
-        let center_section = format!("[{}]", window_info);
+
+        // If there's a message, show it in the center; otherwise show window info
+        let (center_section, center_color) = if let Some(message) = self.get_current_message() {
+            let color = match message.msg_type {
+                MessageType::Info => Color::Cyan,
+                MessageType::Success => Color::Green,
+                MessageType::Warning => Color::Yellow,
+                MessageType::Error => Color::Red,
+            };
+            (message.text.clone(), color)
+        } else {
+            (format!("[{}]", window_info), Color::White)
+        };
+
         let right_section = format!("{} ", time);
 
         // Calculate spacing to fill the screen width
@@ -2115,14 +2216,16 @@ impl Client {
             let left_padding = (available_width - used_width) / 2;
             let right_padding = available_width - used_width - left_padding;
 
-            write!(stdout, "{}{}{}{}",
-                left_section,
-                " ".repeat(left_padding),
-                center_section,
-                " ".repeat(right_padding))?;
-            write!(stdout, "{}", right_section)?;
+            // Render with color-coded center section
+            execute!(stdout, SetBackgroundColor(Color::DarkBlue), SetForegroundColor(Color::White))?;
+            write!(stdout, "{}{}", left_section, " ".repeat(left_padding))?;
+            execute!(stdout, SetForegroundColor(center_color))?;
+            write!(stdout, "{}", center_section)?;
+            execute!(stdout, SetForegroundColor(Color::White))?;
+            write!(stdout, "{}{}", " ".repeat(right_padding), right_section)?;
         } else {
             // Truncate if too long
+            execute!(stdout, SetBackgroundColor(Color::DarkBlue), SetForegroundColor(Color::White))?;
             let truncated = format!("{}{}{}", left_section, center_section, right_section);
             let display_text = if truncated.len() > available_width {
                 &truncated[..available_width]

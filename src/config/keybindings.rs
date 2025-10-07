@@ -72,6 +72,8 @@ pub enum Action {
     NavigateDown,
     NavigateLeft,
     NavigateRight,
+    LastPane,
+    DisplayPanes,
     ZoomPane,
     ClosePane,
     ResizePaneUp,
@@ -193,6 +195,8 @@ impl KeyBindingManager {
             "navigate-down" => Ok(Action::NavigateDown),
             "navigate-left" => Ok(Action::NavigateLeft),
             "navigate-right" => Ok(Action::NavigateRight),
+            "last-pane" => Ok(Action::LastPane),
+            "display-panes" => Ok(Action::DisplayPanes),
             "zoom-pane" => Ok(Action::ZoomPane),
             "close-pane" => Ok(Action::ClosePane),
             "resize-pane-up" => Ok(Action::ResizePaneUp),
@@ -277,6 +281,14 @@ impl KeyBindingManager {
         bindings.insert(
             KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Right },
             Action::NavigateRight,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char(';') },
+            Action::LastPane,
+        );
+        bindings.insert(
+            KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('q') },
+            Action::DisplayPanes,
         );
         bindings.insert(
             KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('z') },
@@ -610,6 +622,8 @@ impl KeyBindingManager {
                 Action::NavigateDown => "navigate-down".to_string(),
                 Action::NavigateLeft => "navigate-left".to_string(),
                 Action::NavigateRight => "navigate-right".to_string(),
+                Action::LastPane => "last-pane".to_string(),
+                Action::DisplayPanes => "display-panes".to_string(),
                 Action::ZoomPane => "zoom-pane".to_string(),
                 Action::ClosePane => "close-pane".to_string(),
                 Action::ResizePaneUp => "resize-pane-up".to_string(),
@@ -675,6 +689,8 @@ impl KeyBindingManager {
                 Action::NavigateDown => "navigate-down",
                 Action::NavigateLeft => "navigate-left",
                 Action::NavigateRight => "navigate-right",
+                Action::LastPane => "last-pane",
+                Action::DisplayPanes => "display-panes",
                 Action::ZoomPane => "zoom-pane",
                 Action::ClosePane => "close-pane",
                 Action::ResizePaneUp => "resize-pane-up",

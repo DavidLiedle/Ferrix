@@ -4,6 +4,7 @@ pub mod commandmode;
 pub mod mouse;
 pub mod search;
 pub mod window_selector;
+pub mod displaypanes;
 pub mod renderer_selector;
 // #[cfg(test)]
 // mod tests;

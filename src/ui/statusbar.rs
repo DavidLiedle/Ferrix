@@ -8,9 +8,27 @@ use ratatui::{
 };
 use sysinfo::System;
 use std::fs;
+use std::time::{Duration, Instant};
+use std::collections::VecDeque;
 
 use crate::config::{Config, StatusBarPosition};
 use crate::protocol::{SessionId, WindowId};
+use crate::format::FormatExpander;
+
+#[derive(Debug, Clone)]
+pub enum MessageType {
+    Info,
+    Success,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone)]
+pub struct Message {
+    pub text: String,
+    pub msg_type: MessageType,
+    pub timestamp: Instant,
+}
 
 pub struct StatusBar {
     config: Config,
@@ -24,6 +42,8 @@ pub struct StatusBar {
     session_locked: bool,
     pane_sync_enabled: bool,
     current_pane_name: Option<String>,
+    messages: VecDeque<Message>,
+    message_timeout: Duration,
 }
 
 #[derive(Clone)]
@@ -51,6 +71,8 @@ impl StatusBar {
             session_locked: false,
             pane_sync_enabled: false,
             current_pane_name: None,
+            messages: VecDeque::new(),
+            message_timeout: Duration::from_secs(3), // Show messages for 3 seconds
         }
     }
 
@@ -59,10 +81,59 @@ impl StatusBar {
         self.current_window = current;
     }
 
+    /// Display a message in the status bar
+    pub fn show_message(&mut self, text: String, msg_type: MessageType) {
+        let message = Message {
+            text,
+            msg_type,
+            timestamp: Instant::now(),
+        };
+        self.messages.push_back(message);
+
+        // Keep only the last 5 messages
+        while self.messages.len() > 5 {
+            self.messages.pop_front();
+        }
+    }
+
+    /// Convenience methods for different message types
+    pub fn show_info(&mut self, text: String) {
+        self.show_message(text, MessageType::Info);
+    }
+
+    pub fn show_success(&mut self, text: String) {
+        self.show_message(text, MessageType::Success);
+    }
+
+    pub fn show_warning(&mut self, text: String) {
+        self.show_message(text, MessageType::Warning);
+    }
+
+    pub fn show_error(&mut self, text: String) {
+        self.show_message(text, MessageType::Error);
+    }
+
+    /// Clean up expired messages
+    fn cleanup_messages(&mut self) {
+        let now = Instant::now();
+        self.messages.retain(|msg| now.duration_since(msg.timestamp) < self.message_timeout);
+    }
+
+    /// Get the current message to display (most recent non-expired)
+    fn get_current_message(&self) -> Option<&Message> {
+        let now = Instant::now();
+        self.messages.iter().rev().find(|msg| {
+            now.duration_since(msg.timestamp) < self.message_timeout
+        })
+    }
+
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         if !self.config.status_bar.enabled {
             return;
         }
+
+        // Clean up expired messages
+        self.cleanup_messages();
 
         let status_area = match self.config.status_bar.position {
             StatusBarPosition::Top => Rect {
@@ -85,8 +156,20 @@ impl StatusBar {
         let right_format = self.config.status_bar.right.clone();
 
         let left_text = self.parse_format(&left_format);
-        let center_text = self.parse_format(&center_format);
         let right_text = self.parse_format(&right_format);
+
+        // If there's a message, show it in the center; otherwise show normal center content
+        let (center_text, center_style) = if let Some(message) = self.get_current_message() {
+            let style = match message.msg_type {
+                MessageType::Info => Style::default().fg(Color::Cyan),
+                MessageType::Success => Style::default().fg(Color::Green),
+                MessageType::Warning => Style::default().fg(Color::Yellow),
+                MessageType::Error => Style::default().fg(Color::Red),
+            };
+            (Text::from(message.text.clone()), style)
+        } else {
+            (self.parse_format(&center_format), self.get_status_style())
+        };
 
         // Create layout for three sections
         let chunks = Layout::default()
@@ -107,9 +190,9 @@ impl StatusBar {
             .alignment(Alignment::Left);
         frame.render_widget(left_paragraph, chunks[0]);
 
-        // Render center section
+        // Render center section (with message if present)
         let center_paragraph = Paragraph::new(center_text)
-            .style(self.get_status_style())
+            .style(center_style)
             .alignment(Alignment::Center);
         frame.render_widget(center_paragraph, chunks[1]);
 
@@ -121,36 +204,77 @@ impl StatusBar {
     }
 
     fn parse_format(&mut self, format: &str) -> Text<'static> {
-        let mut result = String::new();
-        let mut chars = format.chars().peekable();
+        let mut expander = FormatExpander::new();
 
-        while let Some(ch) = chars.next() {
-            if ch == '{' {
-                let mut var_name = String::new();
-                let mut found_closing = false;
+        // Populate format variables
+        self.populate_format_variables(&mut expander);
 
-                for ch in chars.by_ref() {
-                    if ch == '}' {
-                        found_closing = true;
-                        break;
-                    }
-                    var_name.push(ch);
-                }
-
-                if found_closing {
-                    result.push_str(&self.get_variable_value(&var_name));
-                } else {
-                    result.push('{');
-                    result.push_str(&var_name);
-                }
-            } else {
-                result.push(ch);
-            }
-        }
+        // Expand the format string
+        let result = expander.expand(format).unwrap_or_else(|e| {
+            tracing::warn!("Format expansion error: {}", e);
+            format.to_string()
+        });
 
         Text::from(result)
     }
 
+    fn populate_format_variables(&mut self, expander: &mut FormatExpander) {
+        // Session variables
+        expander.set_variable("session_name", self.session_name.clone());
+        expander.set_variable("session_id", self.session_id.0.to_string());
+        expander.set_variable("session_windows", self.windows.len() as i64);
+        expander.set_variable("session_locked", self.session_locked);
+        expander.set_variable("pane_synchronized", self.pane_sync_enabled);
+
+        // Window variables
+        expander.set_variable("window_count", self.windows.len() as i64);
+        if let Some(current_window) = self.windows.iter().find(|w| Some(&w.id) == self.current_window.as_ref()) {
+            expander.set_variable("window_name", current_window.name.clone());
+            expander.set_variable("window_index", current_window.index as i64);
+            expander.set_variable("window_active", true);
+        }
+
+        // Pane variables
+        if let Some(pane_name) = &self.current_pane_name {
+            expander.set_variable("pane_title", pane_name.clone());
+        }
+
+        // Time variables
+        let now = Local::now();
+        expander.set_variable("time", now.format("%H:%M:%S").to_string());
+        expander.set_variable("date", now.format("%Y-%m-%d").to_string());
+        expander.set_variable("datetime", now.to_rfc3339());
+
+        // System variables
+        expander.set_variable("host", hostname::get()
+            .ok()
+            .and_then(|h| h.into_string().ok())
+            .unwrap_or_else(|| "unknown".to_string()));
+        expander.set_variable("user", std::env::var("USER").unwrap_or_else(|_| "unknown".to_string()));
+
+        // Git branch
+        if let Some(branch) = &self.git_branch {
+            expander.set_variable("git_branch", branch.clone());
+        }
+
+        // Battery
+        if let Some(level) = self.battery_level {
+            expander.set_variable("battery_percentage", level as i64);
+            expander.set_variable("battery", self.format_battery());
+        }
+
+        // System info
+        expander.set_variable("cpu", self.format_cpu());
+        expander.set_variable("memory", self.format_memory());
+        expander.set_variable("uptime", self.format_uptime());
+        expander.set_variable("load", self.format_load_average());
+
+        // Legacy compatibility - support both {var} and #{var} syntax
+        expander.set_variable("windows", self.format_windows());
+        expander.set_variable("session", self.session_name.clone());
+    }
+
+    #[allow(dead_code)]
     fn get_variable_value(&mut self, var_name: &str) -> String {
         // Handle time formatting
         if let Some(format) = var_name.strip_prefix("time:") {
@@ -581,7 +705,7 @@ mod tests {
         let mut statusbar = create_test_statusbar();
 
         // Test session variable
-        let result = statusbar.parse_format("{session}");
+        let result = statusbar.parse_format("#{session_name}");
         assert_eq!(result, Text::from("test-session"));
 
         // Test window count
@@ -594,12 +718,12 @@ mod tests {
             }
         ], None);
 
-        let result = statusbar.parse_format("{window_count}");
+        let result = statusbar.parse_format("#{window_count}");
         assert_eq!(result, Text::from("1"));
 
-        // Test unknown variable (should remain as-is)
-        let result = statusbar.parse_format("{unknown_var}");
-        assert_eq!(result, Text::from("{unknown_var}"));
+        // Test unknown variable (should remain as-is or empty)
+        let result = statusbar.parse_format("#{unknown_var}");
+        assert_eq!(result, Text::from(""));
     }
 
     #[test]
@@ -704,7 +828,7 @@ mod tests {
         ], None);
 
         // Test complex format string
-        let result = statusbar.parse_format("[{session}] Windows: {window_count} | {user}@{host}");
+        let result = statusbar.parse_format("[#{session_name}] Windows: #{window_count} | #{user}@#{host}");
         let text = format!("{}", result);
 
         // Should contain session name

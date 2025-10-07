@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::error::Result;
 use crate::protocol::{WindowId, PaneId, SplitDirection};
+use crate::format::{FormatProvider, FormatValue};
 use super::pane::Pane;
 use super::layout::{Layout, NavigationDirection};
 use super::activity::{ActivityMonitor, ActivityType};
@@ -14,11 +15,14 @@ pub struct Window {
     pub name: String,
     pub panes: HashMap<PaneId, Arc<RwLock<Pane>>>,
     pub current_pane: Option<PaneId>,
+    pub last_pane: Option<PaneId>,
     pub layout: Layout,
     pub width: u16,
     pub height: u16,
     pub zoomed_pane: Option<PaneId>,
     pub activity_monitor: ActivityMonitor,
+    /// Ordered list of pane IDs for indexing (index 0 = first pane, etc.)
+    pub pane_order: Vec<PaneId>,
 }
 
 impl Window {
@@ -93,11 +97,13 @@ impl Window {
             name,
             panes,
             current_pane: Some(pane_id.clone()),
-            layout: Layout::new(pane_id),
+            last_pane: None,
+            layout: Layout::new(pane_id.clone()),
             width: 80,
             height: 24,
             zoomed_pane: None,
             activity_monitor,
+            pane_order: vec![pane_id],
         }
     }
 
@@ -110,6 +116,8 @@ impl Window {
         if self.layout.split(pane_id, direction, new_pane_id.clone()) {
             // Enable activity monitoring for the new pane
             self.activity_monitor.enable_monitoring(&new_pane_id);
+            // Add new pane to the ordered list
+            self.pane_order.push(new_pane_id.clone());
             self.update_pane_dimensions().await?;
             Ok(new_pane_id)
         } else {
@@ -129,6 +137,9 @@ impl Window {
             // Clean up activity monitoring for the closed pane
             self.activity_monitor.cleanup_pane(pane_id);
 
+            // Remove from pane order
+            self.pane_order.retain(|id| id != pane_id);
+
             // Update current pane if needed
             if self.current_pane.as_ref() == Some(pane_id) {
                 self.current_pane = self.layout.get_all_panes().first().cloned();
@@ -144,10 +155,67 @@ impl Window {
     pub async fn navigate_pane(&mut self, direction: NavigationDirection) -> Result<()> {
         if let Some(current) = &self.current_pane {
             if let Some(new_pane_id) = self.layout.navigate(current, direction) {
+                // Save current pane as last_pane before switching
+                self.last_pane = self.current_pane.clone();
                 self.current_pane = Some(new_pane_id);
             }
         }
         Ok(())
+    }
+
+    /// Toggle between current and last pane (like tmux's last-pane)
+    pub async fn select_last_pane(&mut self) -> Result<()> {
+        if let Some(last) = &self.last_pane {
+            // Verify the last pane still exists
+            if self.panes.contains_key(last) {
+                // Swap current and last
+                let temp = self.current_pane.clone();
+                self.current_pane = Some(last.clone());
+                self.last_pane = temp;
+            } else {
+                // Last pane was closed, clear it
+                self.last_pane = None;
+            }
+        }
+        Ok(())
+    }
+
+    /// Select a pane by its index (0-based)
+    pub fn select_pane_by_index(&mut self, index: usize) -> Result<()> {
+        if index < self.pane_order.len() {
+            let pane_id = self.pane_order[index].clone();
+            // Save current as last before switching
+            self.last_pane = self.current_pane.clone();
+            self.current_pane = Some(pane_id);
+            Ok(())
+        } else {
+            Err(crate::error::FerrixError::Other(format!("Pane index {} out of range", index)))
+        }
+    }
+
+    /// Get the index of a pane (returns None if pane not found)
+    pub fn get_pane_index(&self, pane_id: &PaneId) -> Option<usize> {
+        self.pane_order.iter().position(|id| id == pane_id)
+    }
+
+    /// Get all pane IDs with their indices
+    pub fn get_pane_indices(&self) -> Vec<(usize, PaneId)> {
+        self.pane_order.iter().enumerate().map(|(i, id)| (i, id.clone())).collect()
+    }
+
+    /// Respawn a pane (restart its PTY)
+    pub async fn respawn_pane(&mut self, pane_id: &PaneId) -> Result<()> {
+        if let Some(pane) = self.panes.get(pane_id) {
+            let mut pane_guard = pane.write().await;
+            let cols = pane_guard.cols;
+            let rows = pane_guard.rows;
+            pane_guard.respawn()?;
+            // Resize the pane to current dimensions
+            pane_guard.resize(cols, rows).await?;
+            Ok(())
+        } else {
+            Err(crate::error::FerrixError::PaneNotFound(format!("{:?}", pane_id)))
+        }
     }
 
     async fn update_pane_dimensions(&mut self) -> Result<()> {
@@ -632,5 +700,40 @@ mod tests {
         let result = window.zoom_pane(&nonexistent_pane).await;
         assert!(result.is_ok()); // Should not error, but should not zoom
         assert!(!window.is_zoomed());
+    }
+}
+
+// Format variable provider for Window
+impl FormatProvider for Window {
+    fn get_variable(&self, name: &str) -> Option<FormatValue> {
+        match name {
+            // Window identification
+            "window_id" => Some(FormatValue::String(self.id.0.to_string())),
+            "window_name" => Some(FormatValue::String(self.name.clone())),
+
+            // Window state
+            "window_width" => Some(FormatValue::Number(self.width as i64)),
+            "window_height" => Some(FormatValue::Number(self.height as i64)),
+            "window_panes" => Some(FormatValue::Number(self.panes.len() as i64)),
+
+            // Window flags
+            "window_zoomed_flag" => Some(FormatValue::Boolean(self.zoomed_pane.is_some())),
+            "window_active" => {
+                // TODO: Track if this is the active window
+                Some(FormatValue::Boolean(true))
+            },
+
+            // Layout
+            "window_layout" => Some(FormatValue::String(
+                format!("{:?}", self.layout)
+            )),
+
+            // Activity monitoring (check any pane has unseen activity)
+            "window_activity_flag" => Some(FormatValue::Boolean(
+                self.panes.keys().any(|pane_id| self.activity_monitor.has_unseen_activity(pane_id))
+            )),
+
+            _ => None,
+        }
     }
 }

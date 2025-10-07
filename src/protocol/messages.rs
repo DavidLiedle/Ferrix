@@ -56,6 +56,10 @@ pub enum ClientMessage {
     NavigatePane {
         direction: PaneNavigationDirection,
     },
+    SelectLastPane,
+    SelectPaneByIndex {
+        index: usize,
+    },
     ClosePane {
         pane_id: PaneId,
     },
@@ -307,6 +311,10 @@ pub enum ServerMessage {
     },
     Error {
         message: String,
+    },
+    DisplayMessage {
+        text: String,
+        msg_type: String,  // "info", "success", "warning", "error"
     },
     Pong,
     Authenticated {

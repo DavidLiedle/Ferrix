@@ -181,9 +181,9 @@ impl Default for StatusBarConfig {
         Self {
             enabled: true,
             position: StatusBarPosition::Bottom,
-            left: "[{session}] {windows} {git_branch}".to_string(),
-            center: "{cpu} {memory} {battery}".to_string(),
-            right: "{user}@{host} {time:%H:%M:%S}".to_string(),
+            left: "[#{session_name}] #{windows} #{git_branch}".to_string(),
+            center: "#{cpu} #{memory} #{battery}".to_string(),
+            right: "#{user}@#{host} #{time}".to_string(),
             refresh_rate: 1000,
             height: 1,
         }

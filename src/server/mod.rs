@@ -12,6 +12,7 @@ pub mod recovery;
 pub mod session_manager;
 pub mod activity;
 pub mod scrollback;
+pub mod hooks;
 
 // ============================================================================
 // TIER 2: Advanced Features (feature-gated)
@@ -60,12 +61,14 @@ use crate::protocol::{ClientMessage, FerrixCodec, ServerMessage, SessionId, Clie
 use session::Session;
 use snapshot::SnapshotManager;
 use recovery::RecoveryManager;
+use hooks::{HookManager, HookEvent, HookContext};
 
 #[derive(Clone)]
 pub struct Server {
     sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
     clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
     keybinding_manager: Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
+    hooks: Arc<RwLock<HookManager>>,
     socket_path: PathBuf,
 }
 
@@ -81,6 +84,7 @@ impl Server {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             clients: Arc::new(RwLock::new(HashMap::new())),
             keybinding_manager: Arc::new(RwLock::new(crate::config::keybindings::KeyBindingManager::new())),
+            hooks: Arc::new(RwLock::new(HookManager::new())),
             socket_path,
         }
     }
@@ -149,10 +153,11 @@ impl Server {
                     let sessions = self.sessions.clone();
                     let clients = self.clients.clone();
                     let keybinding_manager = self.keybinding_manager.clone();
+                    let hooks = self.hooks.clone();
                     let client_id_log = client_id;
 
                     tokio::spawn(async move {
-                        if let Err(e) = handle_client(stream, client_id, sessions, clients, keybinding_manager).await {
+                        if let Err(e) = handle_client(stream, client_id, sessions, clients, keybinding_manager, hooks).await {
                             error!("Error handling client {}: {}", client_id_log.0, e);
                         }
                     });
@@ -171,6 +176,7 @@ async fn handle_client(
     sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
     clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
     keybinding_manager: Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
+    hooks: Arc<RwLock<HookManager>>,
 ) -> Result<()> {
     info!("New client connected: {}", client_id.0);
 
@@ -201,6 +207,7 @@ async fn handle_client(
                             &sessions,
                             &clients,
                             &keybinding_manager,
+                            &hooks,
                         ).await?;
 
                         if let Some(resp) = response {
@@ -234,6 +241,7 @@ pub async fn handle_message(
     sessions: &Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
     clients: &Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
     keybinding_manager: &Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
+    hooks: &Arc<RwLock<HookManager>>,
 ) -> Result<Option<ServerMessage>> {
     match message {
         ClientMessage::CreateSession { name } => {
@@ -286,6 +294,14 @@ pub async fn handle_message(
 
             info!("Created session: {} ({})", session_name, session_id.0);
 
+            // Trigger SessionCreated hook
+            {
+                let mut hooks_guard = hooks.write().await;
+                let context = HookContext::new("session-created".to_string())
+                    .with_session(session_id.clone());
+                let _ = hooks_guard.trigger(HookEvent::SessionCreated, context).await;
+            }
+
             Ok(Some(ServerMessage::SessionCreated {
                 session_id,
                 name: session_name,
@@ -307,6 +323,14 @@ pub async fn handle_message(
                 // This is started when the session is created, not when clients attach
 
                 info!("Client {} attached to session {}", client_id.0, session_id.0);
+
+                // Trigger ClientAttached hook
+                {
+                    let mut hooks_guard = hooks.write().await;
+                    let context = HookContext::new("client-attached".to_string())
+                        .with_session(session_id.clone());
+                    let _ = hooks_guard.trigger(HookEvent::ClientAttached, context).await;
+                }
 
                 // Send layout info immediately after attach
                 let session_guard = session.read().await;
@@ -330,14 +354,26 @@ pub async fn handle_message(
         }
 
         ClientMessage::DetachSession => {
-            {
+            let detached_session_id = {
                 let mut clients_guard = clients.write().await;
                 if let Some(client) = clients_guard.get_mut(client_id) {
+                    let session_id = client.attached_session.clone();
                     client.attached_session = None;
+                    session_id
+                } else {
+                    None
                 }
-            }
+            };
 
             info!("Client {} detached from session", client_id.0);
+
+            // Trigger ClientDetached hook
+            if let Some(session_id) = detached_session_id {
+                let mut hooks_guard = hooks.write().await;
+                let context = HookContext::new("client-detached".to_string())
+                    .with_session(session_id);
+                let _ = hooks_guard.trigger(HookEvent::ClientDetached, context).await;
+            }
 
             Ok(Some(ServerMessage::SessionDetached))
         }
@@ -374,6 +410,15 @@ pub async fn handle_message(
 
             if sessions_guard.remove(&session_id).is_some() {
                 info!("Killed session {}", session_id.0);
+
+                // Trigger SessionClosed hook
+                {
+                    let mut hooks_guard = hooks.write().await;
+                    let context = HookContext::new("session-closed".to_string())
+                        .with_session(session_id.clone());
+                    let _ = hooks_guard.trigger(HookEvent::SessionClosed, context).await;
+                }
+
                 Ok(Some(ServerMessage::SessionKilled { session_id }))
             } else {
                 Ok(Some(ServerMessage::Error {
@@ -404,6 +449,14 @@ pub async fn handle_message(
                     if let Some(session) = sessions_guard.get(session_id) {
                         let mut session_guard = session.write().await;
                         session_guard.resize(cols, rows).await?;
+
+                        // Trigger ClientResized hook
+                        {
+                            let mut hooks_guard = hooks.write().await;
+                            let context = HookContext::new("client-resized".to_string())
+                                .with_session(session_id.clone());
+                            let _ = hooks_guard.trigger(HookEvent::ClientResized, context).await;
+                        }
 
                         // Send updated layout after resize
                         if let Some(layout) = session_guard.get_layout_info().await {
@@ -712,6 +765,80 @@ pub async fn handle_message(
                             }
                             Err(e) => Ok(Some(ServerMessage::Error {
                                 message: format!("Failed to navigate pane: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::SelectLastPane => {
+            if let Some(client) = clients.read().await.get(client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+
+                        match session_guard.select_last_pane().await {
+                            Ok(()) => {
+                                // Send layout update to reflect focus change
+                                if let Some(layout) = session_guard.get_layout_info().await {
+                                    Ok(Some(ServerMessage::LayoutUpdate { layout }))
+                                } else {
+                                    Ok(None)
+                                }
+                            }
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to select last pane: {}", e),
+                            }))
+                        }
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: "Session not found".to_string(),
+                        }))
+                    }
+                } else {
+                    Ok(Some(ServerMessage::Error {
+                        message: "Not attached to a session".to_string(),
+                    }))
+                }
+            } else {
+                Ok(Some(ServerMessage::Error {
+                    message: "Client not found".to_string(),
+                }))
+            }
+        }
+
+        ClientMessage::SelectPaneByIndex { index } => {
+            if let Some(client) = clients.read().await.get(client_id) {
+                if let Some(session_id) = &client.attached_session {
+                    let mut sessions_guard = sessions.write().await;
+                    if let Some(session) = sessions_guard.get_mut(session_id) {
+                        let mut session_guard = session.write().await;
+
+                        match session_guard.select_pane_by_index(index) {
+                            Ok(()) => {
+                                // Send layout update to reflect focus change
+                                if let Some(layout) = session_guard.get_layout_info().await {
+                                    Ok(Some(ServerMessage::LayoutUpdate { layout }))
+                                } else {
+                                    Ok(None)
+                                }
+                            }
+                            Err(e) => Ok(Some(ServerMessage::Error {
+                                message: format!("Failed to select pane by index: {}", e),
                             }))
                         }
                     } else {

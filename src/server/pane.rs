@@ -1,5 +1,6 @@
 use crate::error::Result;
 use crate::protocol::PaneId;
+use crate::format::{FormatProvider, FormatValue};
 use super::pty::Pty;
 use super::scrollback::LineScrollback;
 use std::path::PathBuf;
@@ -13,6 +14,9 @@ pub struct Pane {
     pub command: String,
     pub scrollback: LineScrollback,
     pub cursor_position: (u16, u16),
+    pub remain_on_exit: bool,
+    pub exit_status: Option<i32>,
+    pub is_dead: bool,
 }
 
 impl Pane {
@@ -31,6 +35,9 @@ impl Pane {
             command: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
             scrollback: LineScrollback::new(scrollback_lines),
             cursor_position: (0, 0),
+            remain_on_exit: false,
+            exit_status: None,
+            is_dead: false,
         };
 
         if let Err(e) = pane.start_pty() {
@@ -66,6 +73,32 @@ impl Pane {
             return pty.read().await;
         }
         Ok(None)
+    }
+
+    /// Mark the pane as dead (PTY has exited)
+    pub fn mark_dead(&mut self, exit_status: Option<i32>) {
+        self.is_dead = true;
+        self.exit_status = exit_status;
+        self.pty = None;
+    }
+
+    /// Check if the pane is dead (PTY has exited)
+    pub fn is_dead(&self) -> bool {
+        self.is_dead
+    }
+
+    /// Respawn the pane (restart the PTY)
+    pub fn respawn(&mut self) -> Result<()> {
+        tracing::info!("Respawning pane {}", self.id.0);
+        self.is_dead = false;
+        self.exit_status = None;
+        self.start_pty()?;
+        Ok(())
+    }
+
+    /// Enable or disable remain-on-exit
+    pub fn set_remain_on_exit(&mut self, remain: bool) {
+        self.remain_on_exit = remain;
     }
 }
 
@@ -185,5 +218,54 @@ mod tests {
         assert_ne!(pane1.id, pane2.id);
         assert_eq!(pane1.id, pane_id1);
         assert_eq!(pane2.id, pane_id2);
+    }
+}
+
+// Format variable provider for Pane
+impl FormatProvider for Pane {
+    fn get_variable(&self, name: &str) -> Option<FormatValue> {
+        match name {
+            // Pane identification
+            "pane_id" => Some(FormatValue::String(self.id.0.to_string())),
+
+            // Pane size
+            "pane_width" => Some(FormatValue::Number(self.cols as i64)),
+            "pane_height" => Some(FormatValue::Number(self.rows as i64)),
+
+            // Pane state
+            "pane_current_command" => Some(FormatValue::String(self.command.clone())),
+            "pane_current_path" => Some(FormatValue::String(
+                self.working_directory.display().to_string()
+            )),
+
+            // PTY status
+            "pane_pid" => {
+                // TODO: Add get_child_pid() to PTY
+                Some(FormatValue::Number(0))
+            },
+            "pane_active" => {
+                // TODO: Track if this is the active pane
+                Some(FormatValue::Boolean(true))
+            },
+            "pane_dead" => Some(FormatValue::Boolean(self.pty.is_none())),
+
+            // Cursor information
+            "cursor_x" => Some(FormatValue::Number(self.cursor_position.0 as i64)),
+            "cursor_y" => Some(FormatValue::Number(self.cursor_position.1 as i64)),
+
+            // Scrollback
+            "scroll_position" => {
+                // TODO: Add scroll position tracking to scrollback
+                Some(FormatValue::Number(0))
+            },
+            "history_size" => Some(FormatValue::Number(
+                self.scrollback.max_lines() as i64
+            )),
+            "history_bytes" => Some(FormatValue::Number(
+                self.scrollback.memory_usage() as i64
+            )),
+
+            _ => None,
+        }
     }
 }

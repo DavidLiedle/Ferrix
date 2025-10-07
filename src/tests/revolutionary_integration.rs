@@ -1,4 +1,4 @@
-#[cfg(test)]
+#[cfg(all(test, feature = "ai-assist", feature = "collaboration", feature = "time-travel"))]
 mod revolutionary_integration_tests {
     use crate::ai::CommandAssistant;
     use crate::server::collaboration::CollaborativeSession;

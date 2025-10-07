@@ -23,19 +23,26 @@
 
 Ferrix is a modern terminal multiplexer that combines the reliability of GNU Screen with features from Tmux, while exploring new possibilities with Rust's safety and performance. The name combines "Fe" (iron - representing Rust's memory safety) with "Matrix" (representing the matrix of terminal sessions).
 
-> **⚠️ Development Status**: Ferrix is in active development. While core terminal multiplexing functionality works, many advanced features are still experimental or in-progress. For production use, consider mature alternatives like tmux or screen.
+> **🎉 Production Ready (v0.13.0)**: Ferrix has reached production-ready status with complete tmux/screen parity, automatic crash recovery, and multi-client session support. All Tier 0 blockers are complete!
 
 ## ✨ Features
 
-### Currently Working (v0.10.2)
+### Core Multiplexing (Production-Ready)
 - ✅ **Session Management** - Create, attach, detach, list, and kill sessions
+- ✅ **Multi-Client Support** - Multiple clients can attach to the same session simultaneously
+- ✅ **Automatic Crash Recovery** - Auto-save every 5 minutes, restore sessions after crashes
 - ✅ **Client-Server Architecture** - Robust separation with async Rust
 - ✅ **Multiple Windows & Panes** - Split panes, navigate between them, and manage layouts
+- ✅ **Last-Pane Toggle** - Quick switch between recent panes (Ctrl-b ;)
+- ✅ **Pane Numbering** - Direct pane selection with 0-9 indices
+- ✅ **Display-Panes Overlay** - Visual pane numbers with ASCII art (Ctrl-b q)
+- ✅ **Pane Respawning** - Restart dead panes with remain-on-exit support
 - ✅ **PTY Process Management** - Each pane runs its own independent terminal
 - ✅ **Detach/Reattach** - Seamlessly disconnect and reconnect to sessions
 - ✅ **Visual Pane Rendering** - Borders, focus indication, and content display
+- ✅ **User Feedback System** - Color-coded status bar messages (info/success/warning/error)
 - ✅ **Session Snapshots** - Save and restore complete session state including layouts
-- ✅ **Enhanced Status Bar** - Shows session info, window/pane counts, activity indicators, and time
+- ✅ **Enhanced Status Bar** - Session info, window/pane counts, messages, and time
 - ✅ **Copy Mode** - Visual selection, yank to clipboard, search functionality
 - ✅ **Configuration System** - Generate and validate TOML configuration with hot reload
 - ✅ **Scrollback Buffer** - Optimized scrollback with configurable capacity
@@ -45,9 +52,10 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 - ✅ **Window Renaming** - Rename windows for better organization
 - ✅ **Pane Zoom** - Focus on a single pane by zooming it to full window
 - ✅ **Keybinding Customization** - Load custom keybindings from config, runtime modification
-- ✅ **Auto-Save Intervals** - Automatic session snapshots at configurable intervals
-- ✅ **Full ANSI/VT100 Terminal Emulation** - Complete support for vim, less, htop, and other TUI apps
+- ✅ **Full ANSI/VT100 Terminal Emulation** - Complete DEC modes, colors, attributes
 - ✅ **Command Mode** - 30+ tmux-compatible commands for advanced control
+- ✅ **Hooks System** - Event-driven hooks for session lifecycle events
+- ✅ **Format System** - Customizable status bar formatting with conditionals
 - ✅ **Plugin System** - WASM-based plugin architecture with hot loading
 - ✅ **Session Recording & Replay** - Record and replay terminal sessions with compression
 - ✅ **Remote Sessions** - TCP/TLS support for remote multiplexing
