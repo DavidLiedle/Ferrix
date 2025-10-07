@@ -927,28 +927,29 @@ impl Client {
                 stdout.execute(ResetColor)?;
 
                 // Highlight selection if in visual mode
-                if let (Some(start), Some(end)) = (self.copy_mode.selection_start(), self.copy_mode.selection_end()) {
-                    // Render line with selection highlighting
+                if self.is_line_selected(line_idx) {
+                    let (start_col, end_col) = self.get_selection_range_for_line(line_idx);
+                    self.render_line_with_selection(line, line_idx, start_col, end_col, &mut stdout)?;
+
+                    // Highlight cursor at end of line if needed
+                    if line_idx == cursor_row && cursor_col == line.len() {
+                        stdout.execute(SetBackgroundColor(CrosstermColor::DarkGrey))?;
+                        write!(stdout, " ")?;
+                        stdout.execute(ResetColor)?;
+                    }
+                } else if self.copy_mode.selection_start().is_some() {
+                    // Selection exists but not on this line - render normally
                     for (col_idx, ch) in line.chars().enumerate() {
-                        let is_selected = self.is_char_selected(line_idx, col_idx, start, end);
-                        let is_cursor = line_idx == cursor_row && col_idx == cursor_col;
-
-                        if is_selected {
-                            stdout.execute(SetBackgroundColor(CrosstermColor::DarkBlue))?;
-                            stdout.execute(SetForegroundColor(CrosstermColor::White))?;
-                        }
-                        if is_cursor && !is_selected {
+                        if line_idx == cursor_row && col_idx == cursor_col {
                             stdout.execute(SetBackgroundColor(CrosstermColor::DarkGrey))?;
-                        }
-
-                        write!(stdout, "{}", ch)?;
-
-                        if is_selected || is_cursor {
+                            write!(stdout, "{}", ch)?;
                             stdout.execute(ResetColor)?;
+                        } else {
+                            write!(stdout, "{}", ch)?;
                         }
                     }
 
-                    // Highlight cursor at end of line if needed
+                    // Show cursor at end of line
                     if line_idx == cursor_row && cursor_col == line.len() {
                         stdout.execute(SetBackgroundColor(CrosstermColor::DarkGrey))?;
                         write!(stdout, " ")?;
@@ -2342,7 +2343,6 @@ impl Client {
     }
 
 
-    #[allow(dead_code)]
     fn is_line_selected(&self, line_idx: usize) -> bool {
         if let (Some(start), Some(end)) = (self.copy_mode.selection_start(), self.copy_mode.selection_end()) {
             let (start_row, _) = start;
@@ -2355,7 +2355,6 @@ impl Client {
         }
     }
 
-    #[allow(dead_code)]
     fn get_selection_range_for_line(&self, line_idx: usize) -> (usize, usize) {
         if let (Some(start), Some(end)) = (self.copy_mode.selection_start(), self.copy_mode.selection_end()) {
             let (start_row, start_col) = start;
@@ -2385,7 +2384,6 @@ impl Client {
         }
     }
 
-    #[allow(dead_code)]
     fn render_line_with_selection(&self, line: &str, _line_idx: usize, start_col: usize, end_col: usize, stdout: &mut std::io::Stdout) -> Result<()> {
         use crossterm::{style::{Color, SetBackgroundColor, SetForegroundColor, ResetColor}, execute};
         use std::io::Write;
