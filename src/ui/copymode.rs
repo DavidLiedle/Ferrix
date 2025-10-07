@@ -19,8 +19,6 @@ pub enum SearchDirection {
 
 pub struct CopyMode {
     active: bool,
-    #[allow(dead_code)]
-    mode: CopyModeStyle,
     state: CopyModeState,
     buffer: Vec<String>,
     cursor_row: usize,
@@ -39,12 +37,11 @@ pub struct CopyMode {
 }
 
 impl CopyMode {
-    pub fn new(mode: CopyModeStyle) -> Self {
+    pub fn new(_mode: CopyModeStyle) -> Self {
         let clipboard = Clipboard::new().ok();
 
         Self {
             active: false,
-            mode,
             state: CopyModeState::Normal,
             buffer: Vec::new(),
             cursor_row: 0,

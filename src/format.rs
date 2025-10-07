@@ -365,38 +365,6 @@ impl FormatExpander {
         Ok(value.to_string())
     }
 
-    /// Extract variable name from format string (legacy method, kept for compatibility)
-    #[allow(dead_code)]
-    fn extract_variable_name(&self, chars: &mut std::iter::Peekable<std::str::Chars>) -> Result<String> {
-        let mut name = String::new();
-
-        while let Some(&ch) = chars.peek() {
-            if ch == '}' {
-                chars.next(); // consume '}'
-                break;
-            } else if ch == ':' {
-                // Modifier syntax
-                chars.next();
-                // Skip to closing brace
-                while let Some(&ch) = chars.peek() {
-                    chars.next();
-                    if ch == '}' {
-                        break;
-                    }
-                }
-                break;
-            } else {
-                name.push(ch);
-                chars.next();
-            }
-        }
-
-        if name.is_empty() {
-            return Err(FerrixError::Other("Empty variable name".to_string()));
-        }
-
-        Ok(name)
-    }
 }
 
 impl Default for FormatExpander {
