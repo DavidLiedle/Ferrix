@@ -240,11 +240,8 @@ pub struct VimModeHandler {
     mode: InputMode,
     chord_detector: ChordDetector,
     repeat_count: Option<usize>,
-    #[allow(dead_code)]
     last_command: Option<String>,
-    #[allow(dead_code)]
     registers: HashMap<char, String>,
-    #[allow(dead_code)]
     current_register: Option<char>,
 }
 
@@ -272,6 +269,36 @@ impl VimModeHandler {
 
     pub fn get_mode(&self) -> InputMode {
         self.mode
+    }
+
+    /// Store text in a named register (e.g., "a, "b, etc.)
+    pub fn set_register(&mut self, register: char, content: String) {
+        self.registers.insert(register, content);
+    }
+
+    /// Get text from a named register
+    pub fn get_register(&self, register: char) -> Option<&String> {
+        self.registers.get(&register)
+    }
+
+    /// Set which register to use for next yank/delete/paste
+    pub fn select_register(&mut self, register: char) {
+        self.current_register = Some(register);
+    }
+
+    /// Get the currently selected register, or default to unnamed register
+    pub fn current_register(&self) -> Option<char> {
+        self.current_register
+    }
+
+    /// Store the last command for repeat with '.'
+    pub fn set_last_command(&mut self, command: String) {
+        self.last_command = Some(command);
+    }
+
+    /// Get the last command for repeating
+    pub fn last_command(&self) -> Option<&String> {
+        self.last_command.as_ref()
     }
 
     pub fn set_mode(&mut self, mode: InputMode) {
