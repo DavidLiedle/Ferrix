@@ -216,8 +216,8 @@ Ferrix takes security seriously and has undergone comprehensive security audits:
 
 ### Security Audits
 For detailed security information, see:
-- [**SECURITY_AUDIT.md**](SECURITY_AUDIT.md) - Comprehensive security analysis and hardening measures
-- [**DEPENDENCY_AUDIT.md**](DEPENDENCY_AUDIT.md) - Dependency security status and mitigation strategies
+- [**SECURITY_AUDIT.md**](docs/SECURITY_AUDIT.md) - Comprehensive security analysis and hardening measures
+- [**DEPENDENCY_AUDIT.md**](docs/DEPENDENCY_AUDIT.md) - Dependency security status and mitigation strategies
 - [**DEPLOYMENT.md**](docs/DEPLOYMENT.md) - Production deployment security best practices
 
 ### Reporting Vulnerabilities
@@ -280,7 +280,7 @@ See [benches/performance.rs](benches/performance.rs) for detailed benchmarks.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see the [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) for the project roadmap and architecture details.
+Contributions are welcome! Please see the [DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the project roadmap and architecture details.
 
 ### Development Setup
 

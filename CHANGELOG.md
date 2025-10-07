@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Project Organization**: Cleaned up repository structure
+  - Moved documentation to `docs/` directory (DEVELOPMENT_PLAN, SECURITY_AUDIT, etc.)
+  - Moved test scripts to `tests/scripts/` directory
+  - Updated all references to moved files
+  - Kept README.md, CHANGELOG.md, SECURITY.md in root (standard practice)
+
+## [0.14.1] - 2025-10-07
+
+### Changed
+- **Honest Alpha Labeling**: Updated from "Production Ready" to "Alpha Release"
+  - Added comprehensive Known Limitations section to README
+  - Documented critical issues preventing production use
+  - Clear warnings and recommendations
+
+### Fixed
+- **Error Handling**: Fixed 7 critical `unwrap()` calls in production code paths
+  - Client digit conversion, server time conversion, window pane iteration
+  - Mouse selection handling, format string parsing
+  - Keybinding parsing (4 fixes)
+- **Code Quality**: Auto-fixed 6 clippy warnings
+  - Removed unused imports
+  - Improved code patterns
+
 ## [0.13.0] - 2025-10-07
 
 ### Added
