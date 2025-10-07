@@ -407,9 +407,9 @@ impl StatusBar {
     }
 
     fn parse_color(&self, color_str: &str) -> Color {
-        if color_str.starts_with('#') {
+        if let Some(stripped) = color_str.strip_prefix('#') {
             // Parse hex color
-            if let Ok(hex) = u32::from_str_radix(&color_str[1..], 16) {
+            if let Ok(hex) = u32::from_str_radix(stripped, 16) {
                 let r = ((hex >> 16) & 0xFF) as u8;
                 let g = ((hex >> 8) & 0xFF) as u8;
                 let b = (hex & 0xFF) as u8;

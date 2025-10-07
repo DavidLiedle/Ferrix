@@ -1,6 +1,5 @@
 // Allow clippy lints that would require significant refactoring
 #![allow(clippy::inherent_to_string)]
-#![allow(clippy::manual_strip)]
 #![allow(clippy::collapsible_if)]
 #![allow(clippy::single_match)]
 #![allow(clippy::needless_borrow)]
