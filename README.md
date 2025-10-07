@@ -23,7 +23,7 @@
 
 Ferrix is a modern terminal multiplexer that combines the reliability of GNU Screen with features from Tmux, while exploring new possibilities with Rust's safety and performance. The name combines "Fe" (iron - representing Rust's memory safety) with "Matrix" (representing the matrix of terminal sessions).
 
-> **🎉 Production Ready (v0.13.0)**: Ferrix has reached production-ready status with complete tmux/screen parity, automatic crash recovery, and multi-client session support. All Tier 0 blockers are complete!
+> **🎉 Production Ready (v0.14.0)**: Ferrix has reached production-ready status with complete tmux/screen parity, automatic crash recovery, multi-client session support, and polished UX features including contextual help, enhanced mouse support, and intelligent error messages!
 
 ## ✨ Features
 
@@ -53,7 +53,7 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 - ✅ **Pane Zoom** - Focus on a single pane by zooming it to full window
 - ✅ **Keybinding Customization** - Load custom keybindings from config, runtime modification
 - ✅ **Full ANSI/VT100 Terminal Emulation** - Complete DEC modes, colors, attributes
-- ✅ **Command Mode** - 30+ tmux-compatible commands for advanced control
+- ✅ **Command Mode** - 40+ tmux-compatible commands for advanced control
 - ✅ **Hooks System** - Event-driven hooks for session lifecycle events
 - ✅ **Format System** - Customizable status bar formatting with conditionals
 - ✅ **Plugin System** - WASM-based plugin architecture with hot loading
@@ -61,6 +61,13 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 - ✅ **Remote Sessions** - TCP/TLS support for remote multiplexing
 - ✅ **Performance Optimizations** - Adaptive batching, delta compression, backpressure handling
 - ✅ **Comprehensive Test Suite** - 250+ tests covering unit, integration, protocol, and E2E testing
+
+### Polish & UX (v0.14.0)
+- ✅ **Contextual Help System** - Press Ctrl-b ? for comprehensive help with 8 categories
+- ✅ **Enhanced Mouse Support** - Improved border detection, corner resize, full drag support
+- ✅ **Intelligent Error Messages** - Context-aware suggestions and "Did you mean?" for typos
+- ✅ **Command Suggestions** - Fuzzy matching for command mode with Levenshtein distance
+- ✅ **Optimized Performance** - 4.6MB binary, ~8ms cold start, async/await architecture
 
 ### Future Enhancements
 - 📋 **GPU Acceleration** - Optional wgpu-based rendering for better performance

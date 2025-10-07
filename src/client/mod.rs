@@ -24,6 +24,7 @@ use crate::ui::copymode::{CopyMode, CopyModeState, SearchDirection};
 use crate::ui::mouse::{MouseHandler, MouseAction};
 use crate::ui::commandmode::{CommandMode, CommandResult};
 use crate::ui::window_selector::{WindowSelector, WindowInfo};
+use crate::ui::help::HelpOverlay;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -56,6 +57,7 @@ pub struct Client {
     command_mode: CommandMode,
     mouse_handler: MouseHandler,
     window_selector: WindowSelector,
+    help_overlay: HelpOverlay,
     config: Arc<RwLock<Config>>,
     key_binding_manager: Arc<RwLock<KeyBindingManager>>,
     prefix_mode: bool, // Track if we're waiting for the second key after prefix
@@ -99,6 +101,7 @@ impl Client {
             command_mode: CommandMode::new(),
             mouse_handler: MouseHandler::new(mouse_enabled),
             window_selector: WindowSelector::new(),
+            help_overlay: HelpOverlay::new(),
             config: Arc::new(RwLock::new(config)),
             key_binding_manager: Arc::new(RwLock::new(key_binding_manager)),
             prefix_mode: false,
@@ -444,6 +447,14 @@ impl Client {
     }
 
     async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<bool> {
+        // If help overlay is visible, handle help keys
+        if self.help_overlay.is_visible() {
+            if self.help_overlay.handle_key(key_event) {
+                self.render_layout().await?;
+                return Ok(false);
+            }
+        }
+
         // If window selector is visible, handle window selector keys
         if self.window_selector.is_visible() {
             return self.handle_window_selector_key(key_event).await;
@@ -780,6 +791,16 @@ impl Client {
                         }
                     }
                 }
+            }
+            Action::ShowHelp => {
+                // Toggle help overlay
+                if self.help_overlay.is_visible() {
+                    self.help_overlay.hide();
+                } else {
+                    self.help_overlay.show();
+                }
+                // Render with help overlay
+                self.render_layout().await?;
             }
             Action::Custom(command) => {
                 // Handle custom commands
@@ -1358,6 +1379,77 @@ impl Client {
                                 }
                             }
                         }
+                    }
+                    MouseAction::StartResize { pane: _, direction: _ } => {
+                        // Visual feedback could be added here (cursor change, etc.)
+                    }
+                    MouseAction::ResizePanes { pane: _, delta_x, delta_y, direction } => {
+                        use crate::ui::mouse::MouseResizeMode;
+                        use crate::protocol::ResizeDirection;
+
+                        // Only send resize commands periodically (every few pixels) to avoid flooding
+                        if delta_x.abs() >= 3 || delta_y.abs() >= 3 {
+                            if let Some(framed) = &mut self.framed {
+                                // Send resize based on direction and delta
+                                match direction {
+                                    MouseResizeMode::Horizontal if delta_x > 0 => {
+                                        framed.send(ClientMessage::ResizePane {
+                                            direction: ResizeDirection::Right,
+                                            amount: delta_x,
+                                        }).await?;
+                                    }
+                                    MouseResizeMode::Horizontal if delta_x < 0 => {
+                                        framed.send(ClientMessage::ResizePane {
+                                            direction: ResizeDirection::Left,
+                                            amount: -delta_x,
+                                        }).await?;
+                                    }
+                                    MouseResizeMode::Vertical if delta_y > 0 => {
+                                        framed.send(ClientMessage::ResizePane {
+                                            direction: ResizeDirection::Down,
+                                            amount: delta_y,
+                                        }).await?;
+                                    }
+                                    MouseResizeMode::Vertical if delta_y < 0 => {
+                                        framed.send(ClientMessage::ResizePane {
+                                            direction: ResizeDirection::Up,
+                                            amount: -delta_y,
+                                        }).await?;
+                                    }
+                                    MouseResizeMode::Both => {
+                                        // For corner resize, prioritize larger delta
+                                        if delta_x.abs() > delta_y.abs() {
+                                            if delta_x > 0 {
+                                                framed.send(ClientMessage::ResizePane {
+                                                    direction: ResizeDirection::Right,
+                                                    amount: delta_x,
+                                                }).await?;
+                                            } else {
+                                                framed.send(ClientMessage::ResizePane {
+                                                    direction: ResizeDirection::Left,
+                                                    amount: -delta_x,
+                                                }).await?;
+                                            }
+                                        } else if delta_y > 0 {
+                                            framed.send(ClientMessage::ResizePane {
+                                                direction: ResizeDirection::Down,
+                                                amount: delta_y,
+                                            }).await?;
+                                        } else {
+                                            framed.send(ClientMessage::ResizePane {
+                                                direction: ResizeDirection::Up,
+                                                amount: -delta_y,
+                                            }).await?;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    MouseAction::EndResize => {
+                        debug!("Ended resize operation");
+                        // Clean up any resize visual feedback
                     }
                     _ => {}
                 }

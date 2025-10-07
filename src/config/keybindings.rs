@@ -96,6 +96,9 @@ pub enum Action {
     // Config
     ReloadConfig,
 
+    // Help
+    ShowHelp,
+
     // Advanced
     SaveSnapshot,
     RestoreSnapshot,
@@ -216,6 +219,7 @@ impl KeyBindingManager {
             "paste-buffer" => Ok(Action::PasteBuffer),
             "enter-command-mode" => Ok(Action::EnterCommandMode),
             "reload-config" => Ok(Action::ReloadConfig),
+            "show-help" => Ok(Action::ShowHelp),
             "save-snapshot" => Ok(Action::SaveSnapshot),
             "restore-snapshot" => Ok(Action::RestoreSnapshot),
             _ => Ok(Action::Custom(action_str.to_string())),
@@ -566,7 +570,7 @@ impl KeyBindingManager {
         // Help
         bindings.insert(
             KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char('?') },
-            Action::Custom("show-keys".to_string()),
+            Action::ShowHelp,
         );
 
         // Number keys for window selection (0-9)
@@ -637,6 +641,7 @@ impl KeyBindingManager {
                 Action::PasteBuffer => "paste-buffer".to_string(),
                 Action::EnterCommandMode => "enter-command-mode".to_string(),
                 Action::ReloadConfig => "reload-config".to_string(),
+                Action::ShowHelp => "show-help".to_string(),
                 Action::SaveSnapshot => "save-snapshot".to_string(),
                 Action::RestoreSnapshot => "restore-snapshot".to_string(),
                 Action::Custom(s) => s.clone(),
@@ -704,6 +709,7 @@ impl KeyBindingManager {
                 Action::PasteBuffer => "paste-buffer",
                 Action::EnterCommandMode => "enter-command-mode",
                 Action::ReloadConfig => "reload-config",
+                Action::ShowHelp => "show-help",
                 Action::SaveSnapshot => "save-snapshot",
                 Action::RestoreSnapshot => "restore-snapshot",
                 Action::Custom(s) => s,

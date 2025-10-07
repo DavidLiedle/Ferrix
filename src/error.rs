@@ -48,6 +48,61 @@ pub enum FerrixError {
 
 pub type Result<T> = std::result::Result<T, FerrixError>;
 
+impl FerrixError {
+    /// Get helpful suggestion for this error
+    pub fn suggestion(&self) -> Option<String> {
+        match self {
+            FerrixError::SessionNotFound(name) => {
+                Some(format!(
+                    "Session '{}' not found. Try:\n  • ferrix list - to see available sessions\n  • ferrix new -s {} - to create this session",
+                    name, name
+                ))
+            }
+            FerrixError::NotConnected => {
+                Some(
+                    "Not connected to Ferrix server. Try:\n  • ferrix server - to start the server\n  • Check if the server is running: ps aux | grep ferrix".to_string()
+                )
+            }
+            FerrixError::Config(msg) if msg.contains("not found") || msg.contains("No such file") => {
+                Some(
+                    "Configuration file not found. Try:\n  • ferrix generate-config - to create a default config\n  • Check ~/.config/ferrix/ferrix.toml".to_string()
+                )
+            }
+            FerrixError::Pty(msg) if msg.contains("shell") || msg.contains("spawn") => {
+                Some(
+                    "Failed to spawn shell. Try:\n  • Check SHELL environment variable: echo $SHELL\n  • Verify shell exists: which $SHELL\n  • Try a different shell: SHELL=/bin/bash ferrix ...".to_string()
+                )
+            }
+            FerrixError::WindowNotFound(_) => {
+                Some(
+                    "Window not found. Try:\n  • Ctrl-b w - to list windows\n  • Ctrl-b c - to create a new window".to_string()
+                )
+            }
+            FerrixError::PaneNotFound(_) => {
+                Some(
+                    "Pane not found. Try:\n  • Ctrl-b q - to display pane numbers\n  • Check if panes were closed".to_string()
+                )
+            }
+            FerrixError::Ipc(msg) if msg.contains("socket") || msg.contains("connection") => {
+                Some(
+                    "Cannot connect to server. Try:\n  • ferrix server - to start the server\n  • rm /tmp/ferrix-*.sock - to clean up stale sockets\n  • Check permissions on /tmp".to_string()
+                )
+            }
+            _ => None,
+        }
+    }
+
+    /// Format error with suggestion for user display
+    pub fn display_with_suggestion(&self) -> String {
+        let base_msg = format!("Error: {}", self);
+        if let Some(suggestion) = self.suggestion() {
+            format!("{}\n\n{}", base_msg, suggestion)
+        } else {
+            base_msg
+        }
+    }
+}
+
 /// Extension trait for Result to add context to errors
 pub trait ResultExt<T> {
     /// Add context to an error

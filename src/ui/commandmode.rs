@@ -495,8 +495,112 @@ impl CommandMode {
                 }
             }
             _ => {
-                CommandResult::Error(format!("Unknown command: {}", command))
+                // Unknown command - try to find similar commands
+                self.suggest_similar_command(command)
             }
+        }
+    }
+
+    /// Get list of all valid commands
+    fn get_valid_commands(&self) -> Vec<&'static str> {
+        vec![
+            "q", "quit",
+            "w", "write",
+            "wq", "x",
+            "split", "sp",
+            "vsplit", "vsp",
+            "new",
+            "close",
+            "next", "n",
+            "prev", "p",
+            "detach",
+            "list", "ls",
+            "resize",
+            "copy",
+            "layout",
+            "save-layout",
+            "help", "h",
+            "set",
+            "rename-window", "renamew",
+            "rename-session", "rename",
+            "window", "win",
+            "show-pane-numbers", "display-panes",
+            "swap-pane", "swapp",
+            "sync-panes", "synchronize-panes",
+            "kill-session",
+            "kill-window", "killw",
+            "source", "source-file",
+            "list-keys", "lsk",
+            "bind", "bind-key",
+            "unbind", "unbind-key",
+            "show-environment", "showenv",
+            "capture-pane",
+            "pipe-pane",
+        ]
+    }
+
+    /// Calculate Levenshtein distance between two strings
+    fn levenshtein_distance(s1: &str, s2: &str) -> usize {
+        let len1 = s1.len();
+        let len2 = s2.len();
+
+        if len1 == 0 {
+            return len2;
+        }
+        if len2 == 0 {
+            return len1;
+        }
+
+        let mut matrix = vec![vec![0; len2 + 1]; len1 + 1];
+
+        // Initialize first column and row
+        for i in 0..=len1 {
+            matrix[i][0] = i;
+        }
+        for j in 0..=len2 {
+            matrix[0][j] = j;
+        }
+
+        // Calculate distances
+        for (i, c1) in s1.chars().enumerate() {
+            for (j, c2) in s2.chars().enumerate() {
+                let cost = if c1 == c2 { 0 } else { 1 };
+                matrix[i + 1][j + 1] = (matrix[i][j + 1] + 1)
+                    .min(matrix[i + 1][j] + 1)
+                    .min(matrix[i][j] + cost);
+            }
+        }
+
+        matrix[len1][len2]
+    }
+
+    /// Find similar commands and suggest them
+    fn suggest_similar_command(&self, command: &str) -> CommandResult {
+        let valid_commands = self.get_valid_commands();
+
+        // Find commands with smallest edit distance
+        let mut distances: Vec<(&str, usize)> = valid_commands
+            .iter()
+            .map(|&cmd| (cmd, Self::levenshtein_distance(command, cmd)))
+            .collect();
+
+        distances.sort_by_key(|&(_, dist)| dist);
+
+        // Only suggest if distance is reasonable (≤ 3 edits)
+        let suggestions: Vec<&str> = distances
+            .iter()
+            .take(3)
+            .filter(|&&(_, dist)| dist <= 3)
+            .map(|&(cmd, _)| cmd)
+            .collect();
+
+        if suggestions.is_empty() {
+            CommandResult::Error(format!("Unknown command: '{}'. Type ':help' for available commands", command))
+        } else if suggestions.len() == 1 {
+            CommandResult::Error(format!("Unknown command: '{}'. Did you mean '{}'?", command, suggestions[0]))
+        } else {
+            let suggestion_list = suggestions.join("', '");
+            CommandResult::Error(format!("Unknown command: '{}'. Did you mean one of: '{}'?", command, suggestion_list))
         }
     }
 
@@ -562,17 +666,114 @@ impl ParsedCommand {
 }
 #[cfg(test)]
 mod tests {
-    
+    use super::*;
 
     #[test]
     fn test_command_mode_activation() {
-        // Test command mode activation
-        assert!(true);
+        let mut cmd = CommandMode::new();
+        assert!(!cmd.is_active());
+
+        cmd.enter();
+        assert!(cmd.is_active());
+
+        cmd.exit();
+        assert!(!cmd.is_active());
     }
 
     #[test]
     fn test_command_parsing() {
-        // Test command parsing
-        assert!(true);
+        let cmd = CommandMode::new();
+
+        // Create a command mode with input
+        let mut cmd_with_input = CommandMode::new();
+        cmd_with_input.input = "split horizontal".to_string();
+
+        let parsed = cmd_with_input.parse_command().unwrap();
+        assert_eq!(parsed.command, "split");
+        assert_eq!(parsed.args.len(), 1);
+        assert_eq!(parsed.args[0], "horizontal");
+    }
+
+    #[test]
+    fn test_command_suggestion_exact_match() {
+        let mut cmd = CommandMode::new();
+        cmd.input = "split".to_string();
+
+        // Exact match should work without suggestion
+        let result = cmd.execute_command();
+        match result {
+            CommandResult::Message(_) => {
+                // Success - split is a valid command
+            }
+            _ => panic!("Expected Message result for valid command"),
+        }
+    }
+
+    #[test]
+    fn test_command_suggestion_typo() {
+        let mut cmd = CommandMode::new();
+        cmd.input = "slpit".to_string(); // Common typo for "split"
+
+        let result = cmd.execute_command();
+        match result {
+            CommandResult::Error(msg) => {
+                assert!(msg.contains("Did you mean"));
+                assert!(msg.contains("split"));
+            }
+            _ => panic!("Expected Error with suggestion for typo"),
+        }
+    }
+
+    #[test]
+    fn test_command_suggestion_multiple_matches() {
+        let mut cmd = CommandMode::new();
+        cmd.input = "sp".to_string(); // Could match "split", "sp", "swap-pane", etc.
+
+        let result = cmd.execute_command();
+        // "sp" is actually a valid abbreviation, so it should work
+        match result {
+            CommandResult::Message(_) => {
+                // Success - sp is a valid abbreviation for split
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn test_command_suggestion_no_match() {
+        let mut cmd = CommandMode::new();
+        cmd.input = "xyzabc".to_string(); // No similar commands
+
+        let result = cmd.execute_command();
+        match result {
+            CommandResult::Error(msg) => {
+                assert!(msg.contains("Unknown command"));
+                assert!(msg.contains("Type ':help' for available commands"));
+            }
+            _ => panic!("Expected Error for unknown command"),
+        }
+    }
+
+    #[test]
+    fn test_levenshtein_distance() {
+        assert_eq!(CommandMode::levenshtein_distance("", ""), 0);
+        assert_eq!(CommandMode::levenshtein_distance("split", "split"), 0);
+        assert_eq!(CommandMode::levenshtein_distance("split", "slpit"), 2); // 2 substitutions
+        assert_eq!(CommandMode::levenshtein_distance("split", "spit"), 1);  // 1 deletion
+        assert_eq!(CommandMode::levenshtein_distance("quit", "qit"), 1);    // 1 deletion
+        assert_eq!(CommandMode::levenshtein_distance("vsplit", "vsplti"), 2); // 1 deletion + 1 insertion
+    }
+
+    #[test]
+    fn test_valid_commands_list() {
+        let cmd = CommandMode::new();
+        let commands = cmd.get_valid_commands();
+
+        // Verify some key commands are present
+        assert!(commands.contains(&"split"));
+        assert!(commands.contains(&"quit"));
+        assert!(commands.contains(&"help"));
+        assert!(commands.contains(&"resize"));
+        assert!(commands.contains(&"list"));
     }
 }
