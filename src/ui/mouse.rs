@@ -91,10 +91,12 @@ impl MouseHandler {
                     }
                 } else if self.selecting {
                     self.update_selection(event.column, event.row);
-                    return Ok(Some(MouseAction::UpdateSelection {
-                        start: self.selection_start.unwrap(),
-                        end: (event.column, event.row)
-                    }));
+                    if let Some(start) = self.selection_start {
+                        return Ok(Some(MouseAction::UpdateSelection {
+                            start,
+                            end: (event.column, event.row)
+                        }));
+                    }
                 }
             }
 

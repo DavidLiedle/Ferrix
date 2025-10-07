@@ -448,11 +448,9 @@ impl Client {
 
     async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<bool> {
         // If help overlay is visible, handle help keys
-        if self.help_overlay.is_visible() {
-            if self.help_overlay.handle_key(key_event) {
-                self.render_layout().await?;
-                return Ok(false);
-            }
+        if self.help_overlay.is_visible() && self.help_overlay.handle_key(key_event) {
+            self.render_layout().await?;
+            return Ok(false);
         }
 
         // If window selector is visible, handle window selector keys
@@ -844,7 +842,8 @@ impl Client {
                 return Ok(false);
             }
             KeyCode::Char(c) if c.is_ascii_digit() => {
-                let index = c.to_digit(10).unwrap() as usize;
+                let index = c.to_digit(10)
+                    .ok_or_else(|| FerrixError::Other("Invalid digit".to_string()))? as usize;
                 if let Some(window_id) = self.window_selector.select_by_index(index) {
                     self.window_selector.hide();
 

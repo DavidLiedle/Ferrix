@@ -351,11 +351,12 @@ impl KeyBindingManager {
 
         // Number keys for window selection
         for i in 0..=9 {
-            let digit = char::from_digit(i as u32, 10).unwrap();
-            bindings.insert(
-                KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char(digit) },
-                Action::SelectWindow(i),
-            );
+            if let Some(digit) = char::from_digit(i as u32, 10) {
+                bindings.insert(
+                    KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char(digit) },
+                    Action::SelectWindow(i),
+                );
+            }
         }
 
         Self {
@@ -385,7 +386,7 @@ impl KeyBindingManager {
         }
 
         if parts.len() > 1 {
-            key_part = parts.last().unwrap();
+            key_part = parts.last().ok_or_else(|| FerrixError::Config("Invalid key binding format".to_string()))?;
         }
 
         let code = match key_part.to_lowercase().as_str() {
@@ -403,7 +404,9 @@ impl KeyBindingManager {
             "end" => KeyCode::End,
             "pageup" => KeyCode::PageUp,
             "pagedown" => KeyCode::PageDown,
-            s if s.len() == 1 => KeyCode::Char(s.chars().next().unwrap()),
+            s if s.len() == 1 => {
+                KeyCode::Char(s.chars().next().ok_or_else(|| FerrixError::Config("Empty key string".to_string()))?)
+            },
             s => return Err(FerrixError::Config(format!("Invalid key: {}", s))),
         };
 
@@ -575,11 +578,12 @@ impl KeyBindingManager {
 
         // Number keys for window selection (0-9)
         for i in 0..=9 {
-            let digit = char::from_digit(i as u32, 10).unwrap();
-            bindings.insert(
-                KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char(digit) },
-                Action::SelectWindow(i),
-            );
+            if let Some(digit) = char::from_digit(i as u32, 10) {
+                bindings.insert(
+                    KeyBinding { modifiers: KeyModifiers::empty(), code: KeyCode::Char(digit) },
+                    Action::SelectWindow(i),
+                );
+            }
         }
 
         Self {

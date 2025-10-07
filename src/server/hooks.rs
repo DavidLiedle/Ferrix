@@ -251,7 +251,7 @@ impl HookManager {
     pub fn set_global_hook(&mut self, event: HookEvent, command: String) {
         self.global_hooks
             .entry(event)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(command);
     }
 
@@ -259,9 +259,9 @@ impl HookManager {
     pub fn set_session_hook(&mut self, session_id: SessionId, event: HookEvent, command: String) {
         self.session_hooks
             .entry(session_id)
-            .or_insert_with(HashMap::new)
+            .or_default()
             .entry(event)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(command);
     }
 

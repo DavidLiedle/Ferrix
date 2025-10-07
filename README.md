@@ -23,11 +23,11 @@
 
 Ferrix is a modern terminal multiplexer that combines the reliability of GNU Screen with features from Tmux, while exploring new possibilities with Rust's safety and performance. The name combines "Fe" (iron - representing Rust's memory safety) with "Matrix" (representing the matrix of terminal sessions).
 
-> **🎉 Production Ready (v0.14.1)**: Ferrix has reached production-ready status with complete tmux/screen parity, automatic crash recovery, multi-client session support, and polished UX features including a fully functional contextual help system, enhanced mouse support, and intelligent error messages!
+> **⚠️ Alpha Release (v0.14.1)**: Ferrix is feature-complete with tmux/screen parity, but still in alpha testing. It includes automatic crash recovery, multi-client session support, and polished UX features including contextual help, enhanced mouse support, and intelligent error messages. **Not recommended for production use yet** - see [Known Limitations](#known-limitations) below.
 
 ## ✨ Features
 
-### Core Multiplexing (Production-Ready)
+### Core Multiplexing (Feature-Complete)
 - ✅ **Session Management** - Create, attach, detach, list, and kill sessions
 - ✅ **Multi-Client Support** - Multiple clients can attach to the same session simultaneously
 - ✅ **Automatic Crash Recovery** - Auto-save every 5 minutes, restore sessions after crashes
@@ -224,6 +224,42 @@ For detailed security information, see:
 See [SECURITY.md](SECURITY.md) for information on reporting security vulnerabilities.
 
 **Security Status**: ✅ All critical vulnerabilities addressed for v1.0 release
+
+## ⚠️ Known Limitations
+
+**Alpha Quality Warning**: Ferrix is feature-complete but has known issues that prevent production use:
+
+### Critical Issues
+- **Error Handling**: ~200 `unwrap()` calls in production code paths that could cause panics
+- **Code Quality**: 26 clippy warnings including unused code and inefficient patterns
+- **Incomplete Features**:
+  - Hook system execution not implemented (TODO in server/hooks.rs)
+  - Pane/window activity tracking incomplete
+  - Scroll position tracking not fully implemented
+
+### Testing Status
+- ✅ 248 unit tests passing
+- ⚠️ Limited stress testing and edge case coverage
+- ⚠️ Crash recovery needs more real-world testing
+- ⚠️ Multi-client scenarios need extensive testing
+
+### What Works Well
+- Core multiplexing (sessions, windows, panes)
+- Terminal emulation (ANSI/VT100)
+- Configuration system
+- Copy mode and keybindings
+- Help system and UX features
+
+### Before v1.0
+We need to:
+1. Replace all `unwrap()` with proper error handling
+2. Fix all clippy warnings
+3. Complete TODO items in critical paths
+4. Add comprehensive integration tests
+5. Perform stress testing (long-running sessions, many clients)
+6. Security audit for production readiness
+
+**Recommendation**: Use for development/testing only. For production terminal multiplexing, stick with tmux or GNU Screen until we reach v1.0.
 
 ## 📊 Architecture & Performance
 

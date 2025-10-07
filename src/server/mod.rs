@@ -1689,8 +1689,10 @@ pub async fn handle_message(
                 if let Some(session) = sessions_guard.get(&sid) {
                     let session_guard = session.read().await;
                     let interval_minutes = session_guard.auto_save_interval.as_secs() / 60;
-                    let next_save = session_guard.last_auto_save.map(|last| {
-                        last + chrono::Duration::from_std(session_guard.auto_save_interval).unwrap()
+                    let next_save = session_guard.last_auto_save.and_then(|last| {
+                        chrono::Duration::from_std(session_guard.auto_save_interval)
+                            .ok()
+                            .map(|duration| last + duration)
                     });
 
                     Ok(Some(ServerMessage::AutoSaveStatusInfo {

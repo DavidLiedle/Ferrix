@@ -30,8 +30,8 @@ impl Window {
         // Clear existing panes (except the first one)
         let first_pane_id = if let Some(id) = &self.current_pane {
             id.clone()
-        } else if !self.panes.is_empty() {
-            self.panes.keys().next().unwrap().clone()
+        } else if let Some(first_pane) = self.panes.keys().next() {
+            first_pane.clone()
         } else {
             // Create a new pane if no panes exist
             let pane_id = PaneId(Uuid::new_v4());

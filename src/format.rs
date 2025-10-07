@@ -334,10 +334,11 @@ impl FormatExpander {
         if modifier.starts_with('s') {
             if let Some(rest) = modifier.strip_prefix('s') {
                 if rest.len() >= 3 {
-                    let delimiter = rest.chars().next().unwrap();
-                    let parts: Vec<&str> = rest[1..].split(delimiter).collect();
-                    if parts.len() >= 2 {
-                        return Ok(value.replace(parts[0], parts[1]));
+                    if let Some(delimiter) = rest.chars().next() {
+                        let parts: Vec<&str> = rest[1..].split(delimiter).collect();
+                        if parts.len() >= 2 {
+                            return Ok(value.replace(parts[0], parts[1]));
+                        }
                     }
                 }
             }

@@ -197,8 +197,7 @@ impl HelpOverlay {
     pub fn render_crossterm(&self) -> Result<(), std::io::Error> {
         use crossterm::{
             cursor::MoveTo,
-            style::{Color as CColor, SetForegroundColor, SetBackgroundColor, ResetColor, Attribute, SetAttribute},
-            execute, queue,
+            style::{Color as CColor, SetForegroundColor, SetBackgroundColor, ResetColor, Attribute, SetAttribute}, queue,
         };
         use std::io::{stdout, Write};
 
