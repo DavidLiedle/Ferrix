@@ -1,6 +1,3 @@
-// Allow clippy lints that would require significant refactoring
-#![allow(clippy::inherent_to_string)]
-
 // ============================================================================
 // CORE MODULES (always available)
 // ============================================================================

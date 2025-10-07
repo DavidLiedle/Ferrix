@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::path::PathBuf;
 use crossterm::event::{KeyCode, KeyModifiers};
 use serde::{Deserialize, Serialize};
@@ -11,8 +12,8 @@ pub struct KeyBinding {
     pub code: KeyCode,
 }
 
-impl KeyBinding {
-    pub fn to_string(&self) -> String {
+impl fmt::Display for KeyBinding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut parts = Vec::new();
 
         if self.modifiers.contains(KeyModifiers::CONTROL) {
@@ -44,7 +45,7 @@ impl KeyBinding {
         };
 
         parts.push(&key_str);
-        parts.join("-")
+        write!(f, "{}", parts.join("-"))
     }
 }
 
@@ -446,7 +447,7 @@ impl KeyBindingManager {
         for (key, action) in &self.bindings {
             if !self.custom_bindings.contains_key(key) {
                 result.push((
-                    format!("prefix + {}", key.to_string()),
+                    format!("prefix + {}", key),
                     format!("{:?}", action),
                     false,
                 ));
@@ -456,7 +457,7 @@ impl KeyBindingManager {
         // Add custom bindings (overrides)
         for (key, action) in &self.custom_bindings {
             result.push((
-                format!("prefix + {}", key.to_string()),
+                format!("prefix + {}", key),
                 format!("{:?}", action),
                 true,
             ));
@@ -676,7 +677,7 @@ impl KeyBindingManager {
 
         let mut content = String::new();
         content.push_str("# Ferrix Keybindings Export\n");
-        content.push_str(&format!("prefix = \"{}\"\n\n", self.prefix.to_string()));
+        content.push_str(&format!("prefix = \"{}\"\n\n", self.prefix));
         content.push_str("[custom]\n");
 
         for (key, action) in &self.custom_bindings {
@@ -718,7 +719,7 @@ impl KeyBindingManager {
                 Action::RestoreSnapshot => "restore-snapshot",
                 Action::Custom(s) => s,
             };
-            content.push_str(&format!("{} = \"{}\"\n", key.to_string(), action_str));
+            content.push_str(&format!("{} = \"{}\"\n", key, action_str));
         }
 
         let mut file = File::create(path)
