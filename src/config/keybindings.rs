@@ -132,13 +132,13 @@ pub struct KeyBindingManager {
 
 impl Default for KeyBindingManager {
     fn default() -> Self {
-        Self::new()
+        Self::with_defaults()
     }
 }
 
 impl KeyBindingManager {
     pub fn new() -> Self {
-        let mut manager = Self::default();
+        let mut manager = Self::with_defaults();
 
         // Try to load custom keybindings from config
         if let Ok(config) = super::Config::load() {
@@ -226,7 +226,7 @@ impl KeyBindingManager {
         }
     }
 
-    pub fn default() -> Self {
+    pub fn with_defaults() -> Self {
         let mut bindings = HashMap::new();
 
         // Default key bindings (after prefix key)
