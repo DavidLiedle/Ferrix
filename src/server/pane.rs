@@ -109,6 +109,55 @@ impl Drop for Pane {
     }
 }
 
+// Format variable provider for Pane
+impl FormatProvider for Pane {
+    fn get_variable(&self, name: &str) -> Option<FormatValue> {
+        match name {
+            // Pane identification
+            "pane_id" => Some(FormatValue::String(self.id.0.to_string())),
+
+            // Pane size
+            "pane_width" => Some(FormatValue::Number(self.cols as i64)),
+            "pane_height" => Some(FormatValue::Number(self.rows as i64)),
+
+            // Pane state
+            "pane_current_command" => Some(FormatValue::String(self.command.clone())),
+            "pane_current_path" => Some(FormatValue::String(
+                self.working_directory.display().to_string()
+            )),
+
+            // PTY status
+            "pane_pid" => {
+                // TODO: Add get_child_pid() to PTY
+                Some(FormatValue::Number(0))
+            },
+            "pane_active" => {
+                // TODO: Track if this is the active pane
+                Some(FormatValue::Boolean(true))
+            },
+            "pane_dead" => Some(FormatValue::Boolean(self.pty.is_none())),
+
+            // Cursor information
+            "cursor_x" => Some(FormatValue::Number(self.cursor_position.0 as i64)),
+            "cursor_y" => Some(FormatValue::Number(self.cursor_position.1 as i64)),
+
+            // Scrollback
+            "scroll_position" => {
+                // TODO: Add scroll position tracking to scrollback
+                Some(FormatValue::Number(0))
+            },
+            "history_size" => Some(FormatValue::Number(
+                self.scrollback.max_lines() as i64
+            )),
+            "history_bytes" => Some(FormatValue::Number(
+                self.scrollback.memory_usage() as i64
+            )),
+
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,54 +267,5 @@ mod tests {
         assert_ne!(pane1.id, pane2.id);
         assert_eq!(pane1.id, pane_id1);
         assert_eq!(pane2.id, pane_id2);
-    }
-}
-
-// Format variable provider for Pane
-impl FormatProvider for Pane {
-    fn get_variable(&self, name: &str) -> Option<FormatValue> {
-        match name {
-            // Pane identification
-            "pane_id" => Some(FormatValue::String(self.id.0.to_string())),
-
-            // Pane size
-            "pane_width" => Some(FormatValue::Number(self.cols as i64)),
-            "pane_height" => Some(FormatValue::Number(self.rows as i64)),
-
-            // Pane state
-            "pane_current_command" => Some(FormatValue::String(self.command.clone())),
-            "pane_current_path" => Some(FormatValue::String(
-                self.working_directory.display().to_string()
-            )),
-
-            // PTY status
-            "pane_pid" => {
-                // TODO: Add get_child_pid() to PTY
-                Some(FormatValue::Number(0))
-            },
-            "pane_active" => {
-                // TODO: Track if this is the active pane
-                Some(FormatValue::Boolean(true))
-            },
-            "pane_dead" => Some(FormatValue::Boolean(self.pty.is_none())),
-
-            // Cursor information
-            "cursor_x" => Some(FormatValue::Number(self.cursor_position.0 as i64)),
-            "cursor_y" => Some(FormatValue::Number(self.cursor_position.1 as i64)),
-
-            // Scrollback
-            "scroll_position" => {
-                // TODO: Add scroll position tracking to scrollback
-                Some(FormatValue::Number(0))
-            },
-            "history_size" => Some(FormatValue::Number(
-                self.scrollback.max_lines() as i64
-            )),
-            "history_bytes" => Some(FormatValue::Number(
-                self.scrollback.memory_usage() as i64
-            )),
-
-            _ => None,
-        }
     }
 }

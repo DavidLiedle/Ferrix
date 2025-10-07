@@ -1828,11 +1828,9 @@ impl Client {
         }
 
         // Use thin line characters for a more minimal, trim look
-        let (h_line, v_line, tl_corner, tr_corner, bl_corner, br_corner) = if pane.is_focused {
-            ('─', '│', '┌', '┐', '└', '┘')  // Focused: normal weight
-        } else {
-            ('─', '│', '┌', '┐', '└', '┘')  // Unfocused: same for now, could use lighter chars
-        };
+        // TODO: Could differentiate focused/unfocused panes with different border styles
+        let (h_line, v_line, tl_corner, tr_corner, bl_corner, br_corner) =
+            ('─', '│', '┌', '┐', '└', '┘');
 
         // Top border
         execute!(stdout, crossterm::cursor::MoveTo(pane.x, pane.y))?;

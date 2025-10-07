@@ -410,6 +410,41 @@ impl Window {
     }
 }
 
+// Format variable provider for Window
+impl FormatProvider for Window {
+    fn get_variable(&self, name: &str) -> Option<FormatValue> {
+        match name {
+            // Window identification
+            "window_id" => Some(FormatValue::String(self.id.0.to_string())),
+            "window_name" => Some(FormatValue::String(self.name.clone())),
+
+            // Window state
+            "window_width" => Some(FormatValue::Number(self.width as i64)),
+            "window_height" => Some(FormatValue::Number(self.height as i64)),
+            "window_panes" => Some(FormatValue::Number(self.panes.len() as i64)),
+
+            // Window flags
+            "window_zoomed_flag" => Some(FormatValue::Boolean(self.zoomed_pane.is_some())),
+            "window_active" => {
+                // TODO: Track if this is the active window
+                Some(FormatValue::Boolean(true))
+            },
+
+            // Layout
+            "window_layout" => Some(FormatValue::String(
+                format!("{:?}", self.layout)
+            )),
+
+            // Activity monitoring (check any pane has unseen activity)
+            "window_activity_flag" => Some(FormatValue::Boolean(
+                self.panes.keys().any(|pane_id| self.activity_monitor.has_unseen_activity(pane_id))
+            )),
+
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -700,40 +735,5 @@ mod tests {
         let result = window.zoom_pane(&nonexistent_pane).await;
         assert!(result.is_ok()); // Should not error, but should not zoom
         assert!(!window.is_zoomed());
-    }
-}
-
-// Format variable provider for Window
-impl FormatProvider for Window {
-    fn get_variable(&self, name: &str) -> Option<FormatValue> {
-        match name {
-            // Window identification
-            "window_id" => Some(FormatValue::String(self.id.0.to_string())),
-            "window_name" => Some(FormatValue::String(self.name.clone())),
-
-            // Window state
-            "window_width" => Some(FormatValue::Number(self.width as i64)),
-            "window_height" => Some(FormatValue::Number(self.height as i64)),
-            "window_panes" => Some(FormatValue::Number(self.panes.len() as i64)),
-
-            // Window flags
-            "window_zoomed_flag" => Some(FormatValue::Boolean(self.zoomed_pane.is_some())),
-            "window_active" => {
-                // TODO: Track if this is the active window
-                Some(FormatValue::Boolean(true))
-            },
-
-            // Layout
-            "window_layout" => Some(FormatValue::String(
-                format!("{:?}", self.layout)
-            )),
-
-            // Activity monitoring (check any pane has unseen activity)
-            "window_activity_flag" => Some(FormatValue::Boolean(
-                self.panes.keys().any(|pane_id| self.activity_monitor.has_unseen_activity(pane_id))
-            )),
-
-            _ => None,
-        }
     }
 }

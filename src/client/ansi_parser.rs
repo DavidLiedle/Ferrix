@@ -108,7 +108,7 @@ enum MouseMode {
     X10,        // ?1000
     Button,     // ?1002
     Any,        // ?1003
-    SGR,        // ?1006
+    Sgr,        // ?1006 (Select Graphic Rendition)
 }
 
 /// ANSI escape sequence parser for terminal emulation
@@ -1174,7 +1174,7 @@ impl AnsiParser {
                 1000 => self.modes.mouse_tracking = MouseMode::X10,
                 1002 => self.modes.mouse_tracking = MouseMode::Button,
                 1003 => self.modes.mouse_tracking = MouseMode::Any,
-                1006 => self.modes.mouse_tracking = MouseMode::SGR,
+                1006 => self.modes.mouse_tracking = MouseMode::Sgr,
                 1047 => self.use_alternate_screen(false)?,
                 1048 => self.save_cursor_with_attrs(),
                 1049 => {

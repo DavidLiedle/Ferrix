@@ -1162,6 +1162,7 @@ impl Session {
 
 // Core session methods (always available)
 impl Session {
+    #[allow(dead_code)]
     async fn restore_from_snapshot(&mut self, snapshot: super::snapshot::SessionSnapshot) {
         // Restore session metadata
         self.name = snapshot.session.name;

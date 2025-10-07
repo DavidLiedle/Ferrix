@@ -74,10 +74,8 @@ impl InputProcessor {
                     }
                 } else {
                     // Default chord processing
-                    if let Some(action) = self.chord_detector.process_key(key) {
-                        if let chord::ChordAction::Command(cmd) = action {
-                            actions.push(InputAction::ExecuteCommand(cmd));
-                        }
+                    if let Some(chord::ChordAction::Command(cmd)) = self.chord_detector.process_key(key) {
+                        actions.push(InputAction::ExecuteCommand(cmd));
                     }
                 }
             }

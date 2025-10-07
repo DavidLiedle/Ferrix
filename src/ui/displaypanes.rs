@@ -87,7 +87,7 @@ impl DisplayPanes {
     }
 
     /// Render the display-panes overlay
-    pub fn render(&self, frame: &mut Frame, area: Rect) {
+    pub fn render(&self, frame: &mut Frame, _area: Rect) {
         if !self.visible {
             return;
         }

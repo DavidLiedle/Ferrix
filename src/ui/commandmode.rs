@@ -731,11 +731,8 @@ mod tests {
 
         let result = cmd.execute_command();
         // "sp" is actually a valid abbreviation, so it should work
-        match result {
-            CommandResult::Message(_) => {
-                // Success - sp is a valid abbreviation for split
-            }
-            _ => {}
+        if let CommandResult::Message(_) = result {
+            // Success - sp is a valid abbreviation for split
         }
     }
 
