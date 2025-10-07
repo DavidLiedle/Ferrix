@@ -127,7 +127,6 @@ pub struct KeyBindingManager {
     prefix: KeyBinding,
     bindings: HashMap<KeyBinding, Action>,
     custom_bindings: HashMap<KeyBinding, Action>,
-    #[allow(dead_code)]
     config_path: Option<PathBuf>,
 }
 
@@ -770,7 +769,15 @@ impl KeyBindingManager {
             }
         }
 
+        // Store the config path for potential reload
+        self.config_path = Some(path.to_path_buf());
+
         Ok(count)
+    }
+
+    /// Get the path to the loaded config file, if any
+    pub fn config_path(&self) -> Option<&PathBuf> {
+        self.config_path.as_ref()
     }
 }
 #[cfg(test)]
