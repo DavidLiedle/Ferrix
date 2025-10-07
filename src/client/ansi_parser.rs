@@ -146,7 +146,6 @@ pub struct AnsiParser {
     /// Scrolling region (top, bottom) - 0-indexed
     scroll_region: Option<(u16, u16)>,
     /// Tab stops
-    #[allow(dead_code)]
     tab_stops: Vec<u16>,
     /// Saved attributes for cursor save/restore
     saved_attrs: Option<(Color, Color, AttributeFlags)>,
@@ -540,8 +539,14 @@ impl AnsiParser {
     }
 
     fn tab(&mut self) -> std::io::Result<()> {
-        // Move to next tab stop (every 8 columns)
-        let next_tab = ((self.cursor_x / 8) + 1) * 8;
+        // Move to next tab stop using custom tab stops if available
+        let next_tab = self.tab_stops.iter()
+            .find(|&&stop| stop > self.cursor_x)
+            .copied()
+            .unwrap_or_else(|| {
+                // Fallback to default 8-column tab stops
+                ((self.cursor_x / 8) + 1) * 8
+            });
         self.cursor_x = next_tab.min(self.width - 1);
         Ok(())
     }
