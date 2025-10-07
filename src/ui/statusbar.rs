@@ -327,14 +327,8 @@ impl StatusBar {
 
     fn format_battery(&self) -> String {
         if let Some(level) = self.battery_level {
-            let icon = if level > 80.0 {
+            let icon = if level > 40.0 {
                 "🔋"
-            } else if level > 60.0 {
-                "🔋"
-            } else if level > 40.0 {
-                "🔋"
-            } else if level > 20.0 {
-                "🪫"
             } else {
                 "🪫"
             };

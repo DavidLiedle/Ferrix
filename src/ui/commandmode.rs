@@ -161,10 +161,8 @@ impl CommandMode {
             let result = match parsed.command.as_str() {
                 // Quit commands
                 "q" | "quit" => {
-                    if parsed.args.is_empty() {
+                    if parsed.args.is_empty() || parsed.args[0] == "!" {
                         CommandResult::Quit
-                    } else if parsed.args[0] == "!" {
-                        CommandResult::Quit // Force quit
                     } else {
                         CommandResult::Error("Usage: :q or :q!".to_string())
                     }

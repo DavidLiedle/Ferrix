@@ -1,7 +1,6 @@
 // Allow clippy lints that would require significant refactoring
 #![allow(clippy::inherent_to_string)]
 #![allow(clippy::type_complexity)]
-#![allow(clippy::if_same_then_else)]
 
 // ============================================================================
 // CORE MODULES (always available)
