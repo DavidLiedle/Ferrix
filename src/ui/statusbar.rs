@@ -274,7 +274,7 @@ impl StatusBar {
         expander.set_variable("session", self.session_name.clone());
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     fn get_variable_value(&mut self, var_name: &str) -> String {
         // Handle time formatting
         if let Some(format) = var_name.strip_prefix("time:") {
