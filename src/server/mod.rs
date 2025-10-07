@@ -63,9 +63,12 @@ use snapshot::SnapshotManager;
 use recovery::RecoveryManager;
 use hooks::{HookManager, HookEvent, HookContext};
 
+// Type alias for the sessions map to reduce complexity
+type SessionMap = Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>;
+
 #[derive(Clone)]
 pub struct Server {
-    sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
+    sessions: SessionMap,
     clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
     keybinding_manager: Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
     hooks: Arc<RwLock<HookManager>>,
@@ -90,7 +93,7 @@ impl Server {
     }
 
     /// Get sessions reference for remote server access
-    pub fn sessions(&self) -> Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>> {
+    pub fn sessions(&self) -> SessionMap {
         self.sessions.clone()
     }
 
@@ -173,7 +176,7 @@ impl Server {
 async fn handle_client(
     stream: tokio::net::UnixStream,
     client_id: ClientId,
-    sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
+    sessions: SessionMap,
     clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
     keybinding_manager: Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
     hooks: Arc<RwLock<HookManager>>,
@@ -238,7 +241,7 @@ async fn handle_client(
 pub async fn handle_message(
     message: ClientMessage,
     client_id: &ClientId,
-    sessions: &Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
+    sessions: &SessionMap,
     clients: &Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
     keybinding_manager: &Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
     hooks: &Arc<RwLock<HookManager>>,
