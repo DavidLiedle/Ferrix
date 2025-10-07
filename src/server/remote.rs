@@ -395,12 +395,16 @@ impl RemoteClient {
 /// Active remote session
 pub struct RemoteSession {
     framed: Framed<Stream, crate::protocol::FerrixClientCodec>,
-    #[allow(dead_code)]
     client_id: ClientId,
     session_id: Option<SessionId>,
 }
 
 impl RemoteSession {
+    /// Get the client ID for this remote session
+    pub fn client_id(&self) -> &ClientId {
+        &self.client_id
+    }
+
     /// Send a message to the remote server
     pub async fn send(&mut self, message: ClientMessage) -> Result<()> {
         self.framed.send(message).await
