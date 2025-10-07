@@ -140,13 +140,12 @@ impl Layout {
 
                 if first_contains || second_contains {
                     // Determine if we should adjust this split
-                    let should_adjust = match (&direction, split_dir) {
+                    let should_adjust = matches!((&direction, split_dir),
                         (crate::protocol::ResizeDirection::Left | crate::protocol::ResizeDirection::Right,
-                         SplitDirection::Vertical) => true,
+                         SplitDirection::Vertical) |
                         (crate::protocol::ResizeDirection::Up | crate::protocol::ResizeDirection::Down,
-                         SplitDirection::Horizontal) => true,
-                        _ => false,
-                    };
+                         SplitDirection::Horizontal)
+                    );
 
                     if should_adjust {
                         // Calculate new ratio based on resize direction
