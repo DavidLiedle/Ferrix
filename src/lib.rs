@@ -3,7 +3,6 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::if_same_then_else)]
 #![allow(clippy::ptr_arg)]
-#![allow(clippy::needless_range_loop)]
 
 // ============================================================================
 // CORE MODULES (always available)
