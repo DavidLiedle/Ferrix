@@ -1,5 +1,4 @@
 // Allow clippy lints that would require significant refactoring
-#![allow(clippy::field_reassign_with_default)]
 #![allow(clippy::inherent_to_string)]
 #![allow(clippy::manual_strip)]
 #![allow(clippy::collapsible_if)]

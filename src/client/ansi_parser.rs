@@ -168,9 +168,11 @@ impl AnsiParser {
             tab_stops.push(i);
         }
 
-        let mut modes = DecModes::default();
-        modes.cursor_visible = true;  // Cursor visible by default
-        modes.auto_wrap = true;       // Auto-wrap enabled by default
+        let modes = DecModes {
+            cursor_visible: true,  // Cursor visible by default
+            auto_wrap: true,       // Auto-wrap enabled by default
+            ..Default::default()
+        };
 
         Self {
             cursor_x: 0,
