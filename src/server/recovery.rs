@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, interval};
@@ -125,7 +125,7 @@ impl RecoveryManager {
         Ok(recovered)
     }
 
-    async fn update_recovery_file(&self, snapshot_path: &PathBuf) -> Result<()> {
+    async fn update_recovery_file(&self, snapshot_path: &Path) -> Result<()> {
         let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S");
         let entry = format!("{}\t{}\n", timestamp, snapshot_path.display());
 
