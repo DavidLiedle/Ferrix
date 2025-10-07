@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand, CommandFactory};
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "ferrix")]

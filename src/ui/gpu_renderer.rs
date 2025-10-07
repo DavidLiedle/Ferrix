@@ -78,9 +78,12 @@ pub struct GpuRenderer {
 }
 
 struct GlyphCache {
+    #[allow(dead_code)]
     texture: wgpu::Texture,
     texture_view: TextureView,
+    #[allow(dead_code)]
     atlas_width: u32,
+    #[allow(dead_code)]
     atlas_height: u32,
     glyphs: std::collections::HashMap<char, GlyphInfo>,
 }

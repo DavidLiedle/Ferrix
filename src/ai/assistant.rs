@@ -90,6 +90,12 @@ pub enum SuggestionCategory {
     Macro,
 }
 
+impl Default for CommandAssistant {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommandAssistant {
     pub fn new() -> Self {
         Self {

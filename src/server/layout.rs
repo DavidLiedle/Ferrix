@@ -250,8 +250,8 @@ impl Layout {
             };
 
             if is_valid {
-                let dx = (center_x as i32 - curr_center_x as i32).abs() as u32;
-                let dy = (center_y as i32 - curr_center_y as i32).abs() as u32;
+                let dx = (center_x as i32 - curr_center_x as i32).unsigned_abs();
+                let dy = (center_y as i32 - curr_center_y as i32).unsigned_abs();
                 let distance = dx * dx + dy * dy;
 
                 if distance < best_distance {

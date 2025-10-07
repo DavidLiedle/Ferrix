@@ -1,3 +1,6 @@
+// ============================================================================
+// TIER 1: Core Server Modules (always available)
+// ============================================================================
 pub mod session;
 pub mod window;
 pub mod pane;
@@ -6,16 +9,35 @@ pub mod layout;
 pub mod layout_presets;
 pub mod snapshot;
 pub mod recovery;
-pub mod collaboration;
-pub mod timetravel;
-pub mod remote;
-pub mod versioning;
 pub mod session_manager;
-pub mod scrollback;
 pub mod activity;
+pub mod scrollback;
+
+// ============================================================================
+// TIER 2: Advanced Features (feature-gated)
+// ============================================================================
 pub mod recording;
-pub mod performance;
+
+#[cfg(feature = "remote")]
+pub mod remote;
+
+#[cfg(feature = "remote")]
 pub mod rate_limiter;
+
+#[cfg(feature = "performance")]
+pub mod performance;
+
+// ============================================================================
+// TIER 3: Experimental Features (feature-gated)
+// ============================================================================
+#[cfg(feature = "versioning")]
+pub mod versioning;
+
+#[cfg(feature = "collaboration")]
+pub mod collaboration;
+
+#[cfg(feature = "time-travel")]
+pub mod timetravel;
 // #[cfg(test)]
 // mod pty_tests;
 // #[cfg(test)]
@@ -127,7 +149,7 @@ impl Server {
                     let sessions = self.sessions.clone();
                     let clients = self.clients.clone();
                     let keybinding_manager = self.keybinding_manager.clone();
-                    let client_id_log = client_id.clone();
+                    let client_id_log = client_id;
 
                     tokio::spawn(async move {
                         if let Err(e) = handle_client(stream, client_id, sessions, clients, keybinding_manager).await {
@@ -157,9 +179,9 @@ async fn handle_client(
     {
         let mut clients_guard = clients.write().await;
         clients_guard.insert(
-            client_id.clone(),
+            client_id,
             ClientConnection {
-                id: client_id.clone(),
+                id: client_id,
                 attached_session: None,
                 sender: tx.clone(),
             },
@@ -527,7 +549,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::CreateWindow { name } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -561,7 +583,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::SwitchWindow { window_id } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -592,7 +614,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::CloseWindow { window_id } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -623,7 +645,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::SplitPane { direction } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -663,7 +685,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::NavigatePane { direction } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -710,7 +732,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::ClosePane { pane_id } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -741,7 +763,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::ResizePane { direction, amount } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -777,7 +799,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::NextWindow => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -813,7 +835,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::PreviousWindow => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -849,7 +871,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::ZoomPane => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -881,7 +903,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::KillPane => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -926,7 +948,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::ListWindows => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let sessions_guard = sessions.read().await;
                     if let Some(session) = sessions_guard.get(session_id) {
@@ -951,7 +973,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::ApplyLayoutPreset { preset_name } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let sessions_guard = sessions.read().await;
                     if let Some(session) = sessions_guard.get(session_id) {
@@ -981,7 +1003,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::CycleLayout => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let sessions_guard = sessions.read().await;
                     if let Some(session) = sessions_guard.get(session_id) {
@@ -1026,7 +1048,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::EnterCopyMode => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -1069,7 +1091,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::ExitCopyMode => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -1098,7 +1120,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::CopyModeInput { key } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -1137,7 +1159,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::TogglePaneSync => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -1162,7 +1184,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::SetPaneSync { enabled } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -1187,7 +1209,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::LockSession => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -1212,7 +1234,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::UnlockSession => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -1237,7 +1259,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::SetSessionLock { locked } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -1262,7 +1284,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::RenameWindow { window_id, new_name } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -1296,7 +1318,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::ToggleActivityMonitoring { pane_id } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -1332,7 +1354,7 @@ pub async fn handle_message(
         }
 
         ClientMessage::SetActivityMonitoring { pane_id, enabled } => {
-            if let Some(client) = clients.read().await.get(&client_id) {
+            if let Some(client) = clients.read().await.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
                     let mut sessions_guard = sessions.write().await;
                     if let Some(session) = sessions_guard.get_mut(session_id) {
@@ -1475,7 +1497,7 @@ pub async fn handle_message(
             let target_session_id = if let Some(sid) = session_id {
                 Some(sid)
             } else {
-                clients.read().await.get(&client_id)
+                clients.read().await.get(client_id)
                     .and_then(|c| c.attached_session.clone())
             };
 
@@ -1504,7 +1526,7 @@ pub async fn handle_message(
             let target_session_id = if let Some(sid) = session_id {
                 Some(sid)
             } else {
-                clients.read().await.get(&client_id)
+                clients.read().await.get(client_id)
                     .and_then(|c| c.attached_session.clone())
             };
 
@@ -1531,7 +1553,7 @@ pub async fn handle_message(
             let target_session_id = if let Some(sid) = session_id {
                 Some(sid)
             } else {
-                clients.read().await.get(&client_id)
+                clients.read().await.get(client_id)
                     .and_then(|c| c.attached_session.clone())
             };
 
@@ -1752,7 +1774,7 @@ pub async fn handle_message(
 
             let speed = speed.unwrap_or(1.0);
             let clients_clone = clients.clone();
-            let client_id_clone = client_id.clone();
+            let client_id_clone = *client_id;
 
             tokio::spawn(async move {
                 match SessionPlayer::load(&path) {
@@ -1771,7 +1793,7 @@ pub async fn handle_message(
                         // Play the recording
                         if let Err(e) = player.play(speed, |event| {
                             let clients_clone2 = clients_clone.clone();
-                            let client_id_clone2 = client_id_clone.clone();
+                            let client_id_clone2 = client_id_clone;
 
                             Box::pin(async move {
                                 use crate::server::recording::RecordingEvent;
@@ -1860,6 +1882,7 @@ pub async fn handle_message(
         }
 
         // Session versioning commands
+        #[cfg(feature = "versioning")]
         ClientMessage::InitVersioning { session_id } => {
             let sessions_guard = sessions.read().await;
             if let Some(session) = sessions_guard.get(&session_id) {
@@ -1879,6 +1902,7 @@ pub async fn handle_message(
             }
         }
 
+        #[cfg(feature = "versioning")]
         ClientMessage::CommitSession { session_id, message } => {
             let sessions_guard = sessions.read().await;
             if let Some(session) = sessions_guard.get(&session_id) {
@@ -1903,6 +1927,7 @@ pub async fn handle_message(
             }
         }
 
+        #[cfg(feature = "versioning")]
         ClientMessage::CreateBranch { session_id, branch_name, description: _ } => {
             let sessions_guard = sessions.read().await;
             if let Some(session) = sessions_guard.get(&session_id) {
@@ -1925,6 +1950,7 @@ pub async fn handle_message(
             }
         }
 
+        #[cfg(feature = "versioning")]
         ClientMessage::CheckoutBranch { session_id, branch_name } => {
             let sessions_guard = sessions.read().await;
             if let Some(session) = sessions_guard.get(&session_id) {
@@ -1947,13 +1973,14 @@ pub async fn handle_message(
             }
         }
 
+        #[cfg(feature = "versioning")]
         ClientMessage::MergeBranch { session_id, branch_name, strategy } => {
             let sessions_guard = sessions.read().await;
             if let Some(session) = sessions_guard.get(&session_id) {
                 let mut session_guard = session.write().await;
                 let auto_resolve = strategy == "auto";
                 match session_guard.merge_branch(&branch_name, auto_resolve).await {
-                    Ok((conflicts, resolved)) => {
+                    Ok((conflicts, _resolved)) => {
                         Ok(Some(ServerMessage::MergeCompleted {
                             session_id: session_id.clone(),
                             branch_name: branch_name.clone(),
@@ -1971,6 +1998,7 @@ pub async fn handle_message(
             }
         }
 
+        #[cfg(feature = "versioning")]
         ClientMessage::ListBranches { session_id } => {
             let sessions_guard = sessions.read().await;
             if let Some(session) = sessions_guard.get(&session_id) {
@@ -1997,6 +2025,7 @@ pub async fn handle_message(
             }
         }
 
+        #[cfg(feature = "versioning")]
         ClientMessage::ShowLog { session_id, limit } => {
             let sessions_guard = sessions.read().await;
             if let Some(session) = sessions_guard.get(&session_id) {
@@ -2023,6 +2052,7 @@ pub async fn handle_message(
             }
         }
 
+        #[cfg(feature = "versioning")]
         ClientMessage::ShowDiff { session_id, from_commit, to_commit } => {
             let sessions_guard = sessions.read().await;
             if let Some(session) = sessions_guard.get(&session_id) {

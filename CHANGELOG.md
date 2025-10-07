@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2025-10-07
+
+### Added
+- **Feature Flag Architecture**: Comprehensive tiered feature system for modular builds
+  - 4-tier architecture: Core (always enabled), Advanced, Experimental, UI
+  - Minimal build: 4.6MB (52% smaller than full build)
+  - Full build: 9.7MB (all features enabled)
+  - À la carte feature selection for custom builds
+  - See FEATURES.md for complete documentation
+- **Build Optimization**: Conditional compilation throughout codebase
+  - Optional dependencies: `git2`, `wasmtime`, `wgpu`, `bcrypt`, etc.
+  - Feature-gated modules: `remote`, `versioning`, `plugin`, `ai-assist`, etc.
+  - Recording, clipboard, and scrollback always enabled (core functionality)
+
+### Changed
+- **Cargo.toml**: Restructured with optional dependencies and feature flags
+  - Tier 1 (Core): clipboard, scrollback, recording
+  - Tier 2 (Advanced): remote, performance
+  - Tier 3 (Experimental): versioning, collaboration, time-travel, plugin, ai-assist
+  - Tier 4 (UI): gpu, battery-status
+- **Module Structure**: Added conditional compilation attributes throughout
+  - lib.rs: Feature-gated module declarations
+  - server/mod.rs: Conditional module imports
+  - main.rs: Feature-gated command handlers with helpful error messages
+
+### Fixed
+- **Build System**: impl block structure in session.rs (line 1029)
+  - Recording methods moved to always-available impl block
+  - Versioning methods properly isolated in feature-gated impl block
+  - Fixed nested impl block causing compilation errors
+- **Import Guards**: Added proper `#[cfg]` guards for all optional dependencies
+  - bcrypt added to remote feature dependencies
+  - All feature-gated imports properly conditional
+
+### Documentation
+- Created FEATURES.md with comprehensive feature flag documentation
+- Updated README.md with feature flag build instructions
+- Added build size comparisons and feature tier descriptions
+
 ## [0.11.0] - 2025-10-05
 
 ### Added

@@ -34,10 +34,14 @@ pub struct Session {
     pub auto_save_enabled: bool,
     pub auto_save_interval: Duration,
     pub last_auto_save: Option<chrono::DateTime<chrono::Utc>>,
+
     pub recorder: Option<SessionRecorder>,
+
     pub current_layout_index: usize,
     pub current_layout_preset: Option<String>,
     pub session_config: Option<crate::config::session_config::SessionConfig>,
+
+    #[cfg(feature = "versioning")]
     pub versioning: Option<Box<super::versioning::SessionVersioning>>,
 }
 
@@ -68,10 +72,14 @@ impl Session {
             auto_save_enabled: false,
             auto_save_interval: Duration::from_secs(300), // Default 5 minutes
             last_auto_save: None,
+
             recorder: None,
+
             current_layout_index: 0,
             current_layout_preset: Some("single".to_string()),
             session_config: None,
+
+            #[cfg(feature = "versioning")]
             versioning: None,
         }
     }
@@ -608,8 +616,7 @@ impl Session {
     }
 
     pub async fn get_copy_mode_state(&self) -> Option<CopyModeState> {
-        if let Some(copy_mode) = &self.copy_mode {
-            Some(CopyModeState {
+        self.copy_mode.as_ref().map(|copy_mode| CopyModeState {
                 cursor_row: copy_mode.cursor_row(),
                 cursor_col: copy_mode.cursor_col(),
                 selection_start: copy_mode.selection_start(),
@@ -623,9 +630,6 @@ impl Session {
                     crate::ui::copymode::CopyModeState::Search(_) => "SEARCH".to_string(),
                 },
             })
-        } else {
-            None
-        }
     }
 
     async fn get_current_pane_buffer(&mut self) -> Vec<String> {
@@ -833,10 +837,14 @@ impl Session {
             auto_save_enabled: false,
             auto_save_interval: Duration::from_secs(300),
             last_auto_save: None,
+
             recorder: None,
+
             current_layout_index: 0,
             current_layout_preset: Some("single".to_string()),
             session_config: None,
+
+            #[cfg(feature = "versioning")]
             versioning: None,
         }
     }
@@ -1021,6 +1029,350 @@ impl Session {
     }
 }
 
+#[cfg(feature = "versioning")]
+impl Session {
+    // Versioning methods
+    pub async fn init_versioning(&mut self) -> Result<()> {
+        use super::versioning::SessionVersioning;
+
+        if self.versioning.is_some() {
+            return Err(FerrixError::Other("Versioning already initialized".to_string()));
+        }
+
+        let mut versioning = SessionVersioning::new(self.id.clone())?;
+
+        // Create initial commit with current state
+        let snapshot = self.to_snapshot().await;
+        versioning.init_with_snapshot(snapshot)?;
+
+        self.versioning = Some(Box::new(versioning));
+        Ok(())
+    }
+
+    pub async fn commit_changes(&mut self, message: &str, author: &str) -> Result<super::versioning::CommitId> {
+        // Create snapshot before borrowing versioning
+        let snapshot = self.to_snapshot().await;
+
+        let versioning = self.versioning.as_mut()
+            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
+
+        versioning.commit(snapshot, message, author)
+    }
+
+    pub async fn create_branch(&mut self, name: &str, from_commit: Option<&str>) -> Result<()> {
+        let versioning = self.versioning.as_mut()
+            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
+
+        versioning.create_branch(name, from_commit)
+    }
+
+    pub async fn checkout_branch(&mut self, name: &str) -> Result<()> {
+        let versioning = self.versioning.as_mut()
+            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
+
+        let snapshot = versioning.checkout_branch(name)?;
+        self.restore_from_snapshot(snapshot).await;
+        Ok(())
+    }
+
+    pub async fn merge_branch(&mut self, source: &str, auto_resolve: bool) -> Result<(Vec<String>, Vec<String>)> {
+        let versioning = self.versioning.as_mut()
+            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
+
+        let (merged_snapshot, conflicts, resolved) = versioning.merge_branch(source, auto_resolve)?;
+
+        if conflicts.is_empty() {
+            self.restore_from_snapshot(merged_snapshot).await;
+        }
+
+        Ok((conflicts, resolved))
+    }
+
+    pub fn list_branches(&self) -> Vec<super::versioning::Branch> {
+        self.versioning.as_ref()
+            .map(|v| v.list_branches())
+            .unwrap_or_default()
+    }
+
+    pub fn get_current_branch(&self) -> Option<&str> {
+        self.versioning.as_ref()
+            .and_then(|v| v.current_branch())
+    }
+
+    pub fn get_commit_log(&self, limit: usize) -> Vec<super::versioning::Commit> {
+        self.versioning.as_ref()
+            .map(|v| v.get_log(limit))
+            .unwrap_or_default()
+    }
+
+    pub fn diff_commits(&self, from: Option<&str>, to: Option<&str>) -> Result<String> {
+        let versioning = self.versioning.as_ref()
+            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
+
+        versioning.diff(from, to)
+    }
+}
+
+// Core session methods (always available)
+impl Session {
+    async fn restore_from_snapshot(&mut self, snapshot: super::snapshot::SessionSnapshot) {
+        // Restore session metadata
+        self.name = snapshot.session.name;
+        self.created_at = snapshot.session.created_at;
+
+        // Clear existing windows
+        self.windows.clear();
+
+        // Restore windows and panes from snapshot
+        if snapshot.windows.is_empty() {
+            // Fallback: create a default window if no windows in snapshot
+            let window_id = WindowId(Uuid::new_v4());
+            let default_window = Window::new(window_id.clone(), "bash".to_string());
+            self.windows.push(Arc::new(RwLock::new(default_window)));
+            self.current_window = Some(window_id);
+        } else {
+            // Restore windows
+            for window_state in &snapshot.windows {
+                let mut window = Window::new(window_state.id.clone(), window_state.name.clone());
+
+                // Restore window properties
+                window.layout = window_state.layout.clone();
+                window.current_pane = window_state.current_pane.clone();
+                window.width = window_state.width;
+                window.height = window_state.height;
+
+                // Clear the default pane that Window::new creates
+                window.panes.clear();
+
+                // Restore panes for this window
+                for pane_state in &snapshot.panes {
+                    if pane_state.window_id == window_state.id {
+                        let mut pane = super::pane::Pane::new(pane_state.id.clone());
+
+                        // Restore pane properties
+                        pane.working_directory = pane_state.working_directory.clone();
+                        pane.command = pane_state.command.clone();
+                        pane.cols = pane_state.cols;
+                        pane.rows = pane_state.rows;
+                        pane.scrollback.from_vec(pane_state.scrollback.clone());
+                        pane.cursor_position = pane_state.cursor_position;
+
+                        window.panes.insert(pane_state.id.clone(), Arc::new(RwLock::new(pane)));
+                    }
+                }
+
+                // If no panes were restored, create a default one
+                if window.panes.is_empty() {
+                    let pane_id = PaneId(Uuid::new_v4());
+                    let default_pane = super::pane::Pane::new(pane_id.clone());
+                    window.panes.insert(pane_id.clone(), Arc::new(RwLock::new(default_pane)));
+                    window.current_pane = Some(pane_id);
+                }
+
+                self.windows.push(Arc::new(RwLock::new(window)));
+            }
+
+            // Restore current window
+            self.current_window = snapshot.session.current_window.clone();
+        }
+
+        // Restore environment variables if provided
+        for (key, value) in snapshot.environment {
+            std::env::set_var(key, value);
+        }
+
+        // Restore configuration if provided
+        if let Some(config_value) = snapshot.config {
+            // Try to deserialize the config value into SessionConfig
+            if let Ok(config) = serde_json::from_value::<crate::config::session_config::SessionConfig>(config_value) {
+                self.session_config = Some(config);
+            }
+        }
+    }
+
+    pub async fn to_snapshot(&self) -> super::snapshot::SessionSnapshot {
+        use super::snapshot::{SessionSnapshot, SessionState, WindowState, PaneState, SnapshotMetadata};
+        use chrono::Utc;
+
+        let mut all_panes = Vec::new();
+
+        let windows: Vec<WindowState> = self.windows.iter().enumerate().map(|(idx, w)| {
+            let window = w.blocking_read();
+
+            // Collect panes from this window
+            let mut window_panes: std::collections::HashMap<String, PaneState> = std::collections::HashMap::new();
+            for (pane_id, pane_arc) in &window.panes {
+                let pane = pane_arc.blocking_read();
+                let pane_state = PaneState {
+                    id: pane.id.clone(),
+                    window_id: window.id.clone(),
+                    working_directory: pane.working_directory.clone(),
+                    command: pane.command.clone(),
+                    cols: pane.cols,
+                    rows: pane.rows,
+                    scrollback: vec![], // Scrollback lines - simplified for now
+                    cursor_position: pane.cursor_position,
+                };
+                window_panes.insert(pane_id.0.to_string(), pane_state.clone());
+                all_panes.push(pane_state);
+            }
+
+            // Get terminal dimensions from first pane or use defaults
+            let (width, height) = window.panes.values().next()
+                .map(|p| {
+                    let pane = p.blocking_read();
+                    (pane.cols, pane.rows)
+                })
+                .unwrap_or((80, 24));
+
+            WindowState {
+                id: window.id.clone(),
+                session_id: self.id.clone(),
+                name: window.name.clone(),
+                index: idx,
+                layout: window.layout.clone(),
+                current_pane: window.current_pane.clone(),
+                width,
+                height,
+                panes: window_panes,
+            }
+        }).collect();
+
+        // Collect environment variables
+        let environment: Vec<(String, String)> = std::env::vars()
+            .filter(|(k, _)| {
+                // Only save relevant environment variables
+                matches!(k.as_str(), "TERM" | "SHELL" | "PATH" | "HOME" | "USER" | "EDITOR")
+            })
+            .collect();
+
+        // Calculate checksum of snapshot data using md5 (recording is always enabled)
+        let snapshot_data = format!("{:?}{:?}{:?}", self.name, windows.len(), all_panes.len());
+        let checksum = format!("{:x}", md5::compute(snapshot_data.as_bytes()));
+
+        SessionSnapshot {
+            metadata: SnapshotMetadata {
+                id: Uuid::new_v4(),
+                name: format!("Snapshot of {}", self.name),
+                description: "Session snapshot".to_string(),
+                created_at: Utc::now(),
+                ferrix_version: env!("CARGO_PKG_VERSION").to_string(),
+                checksum: Some(checksum),
+            },
+            session: SessionState {
+                id: self.id.clone(),
+                name: self.name.clone(),
+                current_window: self.current_window.clone(),
+                created_at: self.created_at,
+                environment: environment.clone(),
+            },
+            windows,
+            panes: all_panes,
+            created_at: Utc::now(),
+            environment: environment.into_iter().collect(),
+            config: None,
+        }
+    }
+
+    // Recording methods
+    pub async fn start_recording(&mut self, output_path: PathBuf) -> Result<()> {
+        if self.recorder.is_some() {
+            return Err(FerrixError::Other("Recording already in progress".to_string()));
+        }
+
+        let metadata = super::recording::RecordingMetadata {
+            version: 1,
+            session_id: self.id.clone(),
+            session_name: self.name.clone(),
+            created_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            duration_ms: None,
+            terminal_size: (80, 24), // Will be updated on first resize
+            shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
+            user: std::env::var("USER").unwrap_or_else(|_| "unknown".to_string()),
+            hostname: hostname::get()
+                .ok()
+                .and_then(|h| h.into_string().ok())
+                .unwrap_or_else(|| "unknown".to_string()),
+            compressed: output_path.extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext == "gz")
+                .unwrap_or(false),
+        };
+
+        self.recorder = Some(SessionRecorder::new(metadata, output_path)?);
+        Ok(())
+    }
+
+    pub async fn stop_recording(&mut self) -> Result<(u64, u64)> {
+        if let Some(mut recorder) = self.recorder.take() {
+            recorder.stop().await
+        } else {
+            Err(FerrixError::Other("No recording in progress".to_string()))
+        }
+    }
+
+    pub async fn pause_recording(&mut self) -> Result<()> {
+        if let Some(recorder) = &mut self.recorder {
+            recorder.pause();
+            Ok(())
+        } else {
+            Err(FerrixError::Other("No recording in progress".to_string()))
+        }
+    }
+
+    pub async fn resume_recording(&mut self) -> Result<()> {
+        if let Some(recorder) = &mut self.recorder {
+            recorder.resume();
+            Ok(())
+        } else {
+            Err(FerrixError::Other("No recording in progress".to_string()))
+        }
+    }
+
+    pub async fn get_recording_status(&self) -> RecordingStatus {
+        if let Some(recorder) = &self.recorder {
+            RecordingStatus {
+                is_recording: true,
+                is_paused: recorder.is_paused(),
+                output_path: Some(recorder.get_output_path()),
+                duration_secs: recorder.get_duration().as_secs(),
+                event_count: recorder.get_event_count(),
+            }
+        } else {
+            RecordingStatus {
+                is_recording: false,
+                is_paused: false,
+                output_path: None,
+                duration_secs: 0,
+                event_count: 0,
+            }
+        }
+    }
+
+    // Record output from a pane (should be called when output is received)
+    pub async fn record_output(&mut self, data: Vec<u8>) {
+        if let Some(recorder) = &mut self.recorder {
+            recorder.record_output(data).await.ok();
+        }
+    }
+
+    // Record input to a pane (should be called when input is sent)
+    pub async fn record_input(&mut self, data: Vec<u8>) {
+        if let Some(recorder) = &mut self.recorder {
+            recorder.record_input(data).await.ok();
+        }
+    }
+
+    // Record terminal resize event
+    pub async fn record_resize(&mut self, cols: u16, rows: u16) {
+        if let Some(recorder) = &mut self.recorder {
+            recorder.record_resize(cols, rows).await.ok();
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1277,350 +1629,5 @@ mod tests {
         let window_list = session.list_windows();
         assert_eq!(window_list.len(), 1);
         assert_eq!(window_list[0].name, "new-name");
-    }
-}
-
-impl Session {
-    // Versioning methods
-    pub async fn init_versioning(&mut self) -> Result<()> {
-        use super::versioning::SessionVersioning;
-
-        if self.versioning.is_some() {
-            return Err(FerrixError::Other("Versioning already initialized".to_string()));
-        }
-
-        let mut versioning = SessionVersioning::new(self.id.clone())?;
-
-        // Create initial commit with current state
-        let snapshot = self.to_snapshot().await;
-        versioning.init_with_snapshot(snapshot)?;
-
-        self.versioning = Some(Box::new(versioning));
-        Ok(())
-    }
-
-    pub async fn commit_changes(&mut self, message: &str, author: &str) -> Result<super::versioning::CommitId> {
-        // Create snapshot before borrowing versioning
-        let snapshot = self.to_snapshot().await;
-
-        let versioning = self.versioning.as_mut()
-            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
-
-        versioning.commit(snapshot, message, author)
-    }
-
-    pub async fn create_branch(&mut self, name: &str, from_commit: Option<&str>) -> Result<()> {
-        let versioning = self.versioning.as_mut()
-            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
-
-        versioning.create_branch(name, from_commit)
-    }
-
-    pub async fn checkout_branch(&mut self, name: &str) -> Result<()> {
-        let versioning = self.versioning.as_mut()
-            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
-
-        let snapshot = versioning.checkout_branch(name)?;
-        self.restore_from_snapshot(snapshot).await;
-        Ok(())
-    }
-
-    pub async fn merge_branch(&mut self, source: &str, auto_resolve: bool) -> Result<(Vec<String>, Vec<String>)> {
-        let versioning = self.versioning.as_mut()
-            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
-
-        let (merged_snapshot, conflicts, resolved) = versioning.merge_branch(source, auto_resolve)?;
-
-        if conflicts.is_empty() {
-            self.restore_from_snapshot(merged_snapshot).await;
-        }
-
-        Ok((conflicts, resolved))
-    }
-
-    pub fn list_branches(&self) -> Vec<super::versioning::Branch> {
-        self.versioning.as_ref()
-            .map(|v| v.list_branches())
-            .unwrap_or_default()
-    }
-
-    pub fn get_current_branch(&self) -> Option<&str> {
-        self.versioning.as_ref()
-            .and_then(|v| v.current_branch())
-    }
-
-    pub fn get_commit_log(&self, limit: usize) -> Vec<super::versioning::Commit> {
-        self.versioning.as_ref()
-            .map(|v| v.get_log(limit))
-            .unwrap_or_default()
-    }
-
-    pub fn diff_commits(&self, from: Option<&str>, to: Option<&str>) -> Result<String> {
-        let versioning = self.versioning.as_ref()
-            .ok_or_else(|| FerrixError::Other("Versioning not initialized".to_string()))?;
-
-        versioning.diff(from, to)
-    }
-
-    async fn restore_from_snapshot(&mut self, snapshot: super::snapshot::SessionSnapshot) {
-        // Restore session metadata
-        self.name = snapshot.session.name;
-        self.created_at = snapshot.session.created_at;
-
-        // Clear existing windows
-        self.windows.clear();
-
-        // Restore windows and panes from snapshot
-        if snapshot.windows.is_empty() {
-            // Fallback: create a default window if no windows in snapshot
-            let window_id = WindowId(Uuid::new_v4());
-            let default_window = Window::new(window_id.clone(), "bash".to_string());
-            self.windows.push(Arc::new(RwLock::new(default_window)));
-            self.current_window = Some(window_id);
-        } else {
-            // Restore windows
-            for window_state in &snapshot.windows {
-                let mut window = Window::new(window_state.id.clone(), window_state.name.clone());
-
-                // Restore window properties
-                window.layout = window_state.layout.clone();
-                window.current_pane = window_state.current_pane.clone();
-                window.width = window_state.width;
-                window.height = window_state.height;
-
-                // Clear the default pane that Window::new creates
-                window.panes.clear();
-
-                // Restore panes for this window
-                for pane_state in &snapshot.panes {
-                    if pane_state.window_id == window_state.id {
-                        let mut pane = super::pane::Pane::new(pane_state.id.clone());
-
-                        // Restore pane properties
-                        pane.working_directory = pane_state.working_directory.clone();
-                        pane.command = pane_state.command.clone();
-                        pane.cols = pane_state.cols;
-                        pane.rows = pane_state.rows;
-                        pane.scrollback.from_vec(pane_state.scrollback.clone());
-                        pane.cursor_position = pane_state.cursor_position;
-
-                        window.panes.insert(pane_state.id.clone(), Arc::new(RwLock::new(pane)));
-                    }
-                }
-
-                // If no panes were restored, create a default one
-                if window.panes.is_empty() {
-                    let pane_id = PaneId(Uuid::new_v4());
-                    let default_pane = super::pane::Pane::new(pane_id.clone());
-                    window.panes.insert(pane_id.clone(), Arc::new(RwLock::new(default_pane)));
-                    window.current_pane = Some(pane_id);
-                }
-
-                self.windows.push(Arc::new(RwLock::new(window)));
-            }
-
-            // Restore current window
-            self.current_window = snapshot.session.current_window.clone();
-        }
-
-        // Restore environment variables if provided
-        for (key, value) in snapshot.environment {
-            std::env::set_var(key, value);
-        }
-
-        // Restore configuration if provided
-        if let Some(config_value) = snapshot.config {
-            // Try to deserialize the config value into SessionConfig
-            if let Ok(config) = serde_json::from_value::<crate::config::session_config::SessionConfig>(config_value) {
-                self.session_config = Some(config);
-            }
-        }
-    }
-
-    pub async fn to_snapshot(&self) -> super::snapshot::SessionSnapshot {
-        use super::snapshot::{SessionSnapshot, SessionState, WindowState, PaneState, SnapshotMetadata};
-        
-        use chrono::Utc;
-        use sha2::{Sha256, Digest};
-
-        let mut all_panes = Vec::new();
-
-        let windows: Vec<WindowState> = self.windows.iter().enumerate().map(|(idx, w)| {
-            let window = w.blocking_read();
-
-            // Collect panes from this window
-            let mut window_panes: std::collections::HashMap<String, PaneState> = std::collections::HashMap::new();
-            for (pane_id, pane_arc) in &window.panes {
-                let pane = pane_arc.blocking_read();
-                let pane_state = PaneState {
-                    id: pane.id.clone(),
-                    window_id: window.id.clone(),
-                    working_directory: pane.working_directory.clone(),
-                    command: pane.command.clone(),
-                    cols: pane.cols,
-                    rows: pane.rows,
-                    scrollback: vec![], // Scrollback lines - simplified for now
-                    cursor_position: pane.cursor_position,
-                };
-                window_panes.insert(pane_id.0.to_string(), pane_state.clone());
-                all_panes.push(pane_state);
-            }
-
-            // Get terminal dimensions from first pane or use defaults
-            let (width, height) = window.panes.values().next()
-                .map(|p| {
-                    let pane = p.blocking_read();
-                    (pane.cols, pane.rows)
-                })
-                .unwrap_or((80, 24));
-
-            WindowState {
-                id: window.id.clone(),
-                session_id: self.id.clone(),
-                name: window.name.clone(),
-                index: idx,
-                layout: window.layout.clone(),
-                current_pane: window.current_pane.clone(),
-                width,
-                height,
-                panes: window_panes,
-            }
-        }).collect();
-
-        // Collect environment variables
-        let environment: Vec<(String, String)> = std::env::vars()
-            .filter(|(k, _)| {
-                // Only save relevant environment variables
-                matches!(k.as_str(), "TERM" | "SHELL" | "PATH" | "HOME" | "USER" | "EDITOR")
-            })
-            .collect();
-
-        // Calculate checksum of snapshot data
-        let snapshot_data = format!("{:?}{:?}{:?}", self.name, windows.len(), all_panes.len());
-        let mut hasher = Sha256::new();
-        hasher.update(snapshot_data.as_bytes());
-        let checksum = format!("{:x}", hasher.finalize());
-
-        SessionSnapshot {
-            metadata: SnapshotMetadata {
-                id: Uuid::new_v4(),
-                name: format!("Snapshot of {}", self.name),
-                description: "Session snapshot".to_string(),
-                created_at: Utc::now(),
-                ferrix_version: env!("CARGO_PKG_VERSION").to_string(),
-                checksum: Some(checksum),
-            },
-            session: SessionState {
-                id: self.id.clone(),
-                name: self.name.clone(),
-                current_window: self.current_window.clone(),
-                created_at: self.created_at,
-                environment: environment.clone(),
-            },
-            windows,
-            panes: all_panes,
-            created_at: Utc::now(),
-            environment: environment.into_iter().collect(),
-            config: None,
-        }
-    }
-
-    // Recording methods
-    pub async fn start_recording(&mut self, output_path: PathBuf) -> Result<()> {
-        if self.recorder.is_some() {
-            return Err(FerrixError::Other("Recording already in progress".to_string()));
-        }
-
-        let metadata = super::recording::RecordingMetadata {
-            version: 1,
-            session_id: self.id.clone(),
-            session_name: self.name.clone(),
-            created_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-            duration_ms: None,
-            terminal_size: (80, 24), // Will be updated on first resize
-            shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
-            user: std::env::var("USER").unwrap_or_else(|_| "unknown".to_string()),
-            hostname: hostname::get()
-                .ok()
-                .and_then(|h| h.into_string().ok())
-                .unwrap_or_else(|| "unknown".to_string()),
-            compressed: output_path.extension()
-                .and_then(|ext| ext.to_str())
-                .map(|ext| ext == "gz")
-                .unwrap_or(false),
-        };
-
-        self.recorder = Some(SessionRecorder::new(metadata, output_path)?);
-        Ok(())
-    }
-
-    pub async fn stop_recording(&mut self) -> Result<(u64, u64)> {
-        if let Some(mut recorder) = self.recorder.take() {
-            recorder.stop().await
-        } else {
-            Err(FerrixError::Other("No recording in progress".to_string()))
-        }
-    }
-
-    pub async fn pause_recording(&mut self) -> Result<()> {
-        if let Some(recorder) = &mut self.recorder {
-            recorder.pause();
-            Ok(())
-        } else {
-            Err(FerrixError::Other("No recording in progress".to_string()))
-        }
-    }
-
-    pub async fn resume_recording(&mut self) -> Result<()> {
-        if let Some(recorder) = &mut self.recorder {
-            recorder.resume();
-            Ok(())
-        } else {
-            Err(FerrixError::Other("No recording in progress".to_string()))
-        }
-    }
-
-    pub async fn get_recording_status(&self) -> RecordingStatus {
-        if let Some(recorder) = &self.recorder {
-            RecordingStatus {
-                is_recording: true,
-                is_paused: recorder.is_paused(),
-                output_path: Some(recorder.get_output_path()),
-                duration_secs: recorder.get_duration().as_secs(),
-                event_count: recorder.get_event_count(),
-            }
-        } else {
-            RecordingStatus {
-                is_recording: false,
-                is_paused: false,
-                output_path: None,
-                duration_secs: 0,
-                event_count: 0,
-            }
-        }
-    }
-
-    // Record output from a pane (should be called when output is received)
-    pub async fn record_output(&mut self, data: Vec<u8>) {
-        if let Some(recorder) = &mut self.recorder {
-            recorder.record_output(data).await.ok();
-        }
-    }
-
-    // Record input to a pane (should be called when input is sent)
-    pub async fn record_input(&mut self, data: Vec<u8>) {
-        if let Some(recorder) = &mut self.recorder {
-            recorder.record_input(data).await.ok();
-        }
-    }
-
-    // Record terminal resize event
-    pub async fn record_resize(&mut self, cols: u16, rows: u16) {
-        if let Some(recorder) = &mut self.recorder {
-            recorder.record_resize(cols, rows).await.ok();
-        }
     }
 }

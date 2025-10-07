@@ -35,6 +35,12 @@ pub struct ScrollbackSearch {
     max_history: usize,
 }
 
+impl Default for ScrollbackSearch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScrollbackSearch {
     pub fn new() -> Self {
         Self {

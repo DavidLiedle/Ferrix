@@ -16,6 +16,7 @@ pub struct SessionVersioning {
     commits: HashMap<CommitId, Commit>,
     head: CommitId,
     staging_area: Option<SessionSnapshot>,
+    #[allow(dead_code)]
     config: VersioningConfig,
 }
 
@@ -546,6 +547,7 @@ impl SessionVersioning {
         Ok(conflicts)
     }
 
+    #[allow(dead_code)]
     fn calculate_diff(&self, from: &SessionSnapshot, to: &SessionSnapshot) -> SessionDiff {
         let mut diff = SessionDiff {
             windows_added: Vec::new(),

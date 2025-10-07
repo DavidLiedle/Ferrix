@@ -75,7 +75,7 @@ impl SessionManager {
             let mut session_clients = self.session_clients.write().await;
             session_clients.entry(session_id.clone())
                 .or_insert_with(HashSet::new)
-                .insert(client_id.clone());
+                .insert(client_id);
         }
 
         // Update client's attached session
@@ -168,8 +168,7 @@ impl SessionManager {
                                 // Get list of attached clients
                                 let client_ids = {
                                     let session_clients_guard = session_clients.read().await;
-                                    session_clients_guard.get(&session_id)
-                                        .map(|set| set.clone())
+                                    session_clients_guard.get(&session_id).cloned()
                                         .unwrap_or_default()
                                 };
 

@@ -20,6 +20,12 @@ pub struct CommandMode {
     last_message: Option<String>,
 }
 
+impl Default for CommandMode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CommandMode {
     pub fn new() -> Self {
         Self {

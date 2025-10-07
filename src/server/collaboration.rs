@@ -108,6 +108,12 @@ pub enum CollaborationEvent {
     },
 }
 
+impl Default for CollaborationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CollaborationManager {
     pub fn new() -> Self {
         Self {
@@ -127,7 +133,7 @@ impl CollaborationManager {
         let (tx, _rx) = broadcast::channel(1000);
 
         let owner = Participant {
-            client_id: owner_id.clone(),
+            client_id: owner_id,
             username: owner_name,
             role: ParticipantRole::Owner,
             cursor_position: None,
@@ -138,7 +144,7 @@ impl CollaborationManager {
         };
 
         let mut participants = HashMap::new();
-        participants.insert(owner_id.clone(), owner);
+        participants.insert(owner_id, owner);
 
         let session = CollaborativeSession {
             session_id: session_id.clone(),
@@ -224,7 +230,7 @@ impl CollaborationManager {
         }
 
         let participant = Participant {
-            client_id: client_id.clone(),
+            client_id,
             username,
             role,
             cursor_position: None,
@@ -234,7 +240,7 @@ impl CollaborationManager {
             color: self.assign_color(session.participants.len()),
         };
 
-        session.participants.insert(client_id.clone(), participant.clone());
+        session.participants.insert(client_id, participant.clone());
 
         // Broadcast join event
         let event = CollaborationEvent::ParticipantJoined {
@@ -271,7 +277,7 @@ impl CollaborationManager {
                 } else {
                     // Transfer ownership to next participant
                     if let Some((new_owner_id, participant)) = session.participants.iter_mut().next() {
-                        session.owner_id = new_owner_id.clone();
+                        session.owner_id = *new_owner_id;
                         participant.role = ParticipantRole::Owner;
                     }
                 }
@@ -417,10 +423,8 @@ impl CollaborationManager {
     }
 
     fn assign_color(&self, index: usize) -> String {
-        let colors = vec![
-            "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FECA57",
-            "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E2",
-        ];
+        let colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FECA57",
+            "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E2"];
         colors[index % colors.len()].to_string()
     }
 }
@@ -434,9 +438,9 @@ impl CollaborativeSession {
     ) -> Self {
         let mut participants = HashMap::new();
         participants.insert(
-            owner_id.clone(),
+            owner_id,
             Participant {
-                client_id: owner_id.clone(),
+                client_id: owner_id,
                 username: "Owner".to_string(),
                 role: ParticipantRole::Owner,
                 cursor_position: None,

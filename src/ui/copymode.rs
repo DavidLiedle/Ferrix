@@ -19,6 +19,7 @@ pub enum SearchDirection {
 
 pub struct CopyMode {
     active: bool,
+    #[allow(dead_code)]
     mode: CopyModeStyle,
     state: CopyModeState,
     buffer: Vec<String>,
@@ -630,7 +631,7 @@ mod tests {
     fn test_copy_mode_initialization() {
         let copymode = create_test_copymode();
 
-        assert_eq!(copymode.active, false);
+        assert!(!copymode.active);
         assert_eq!(copymode.state, CopyModeState::Normal);
         assert_eq!(copymode.cursor_row, 0);
         assert_eq!(copymode.cursor_col, 0);

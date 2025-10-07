@@ -18,14 +18,18 @@ use crate::error::FerrixError;
 pub struct PluginRuntime {
     engine: Engine,
     plugins: Arc<RwLock<HashMap<String, LoadedPlugin>>>,
+    #[allow(dead_code)]
     event_tx: mpsc::UnboundedSender<PluginEvent>,
+    #[allow(dead_code)]
     event_rx: Option<mpsc::UnboundedReceiver<PluginEvent>>,
     hook_registry: Arc<RwLock<HookRegistry>>,
 }
 
 struct LoadedPlugin {
+    #[allow(dead_code)]
     id: String,
     manifest: PluginManifest,
+    #[allow(dead_code)]
     instance: Instance,
     store: Arc<Mutex<Store<PluginState>>>,
     exports: HashMap<String, wasmtime::Func>,

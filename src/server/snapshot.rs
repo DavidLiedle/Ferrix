@@ -79,15 +79,7 @@ impl SnapshotManager {
     pub fn save_snapshot(&self, snapshot: &SessionSnapshot) -> Result<PathBuf> {
         // Sanitize session name for filesystem
         let safe_name = snapshot.session.name
-            .replace('/', "_")
-            .replace('\\', "_")
-            .replace(':', "_")
-            .replace('*', "_")
-            .replace('?', "_")
-            .replace('"', "_")
-            .replace('<', "_")
-            .replace('>', "_")
-            .replace('|', "_");
+            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
 
         let filename = format!(
             "{}_{}_{}.ferrix.snapshot",
@@ -100,7 +92,7 @@ impl SnapshotManager {
 
         // Calculate checksum before saving
         let mut snapshot_with_checksum = snapshot.clone();
-        snapshot_with_checksum.metadata.checksum = Some(self.calculate_checksum(&snapshot)?);
+        snapshot_with_checksum.metadata.checksum = Some(self.calculate_checksum(snapshot)?);
 
         // Serialize to JSON (could also use bincode for smaller size)
         let json = serde_json::to_string_pretty(&snapshot_with_checksum)
@@ -219,7 +211,6 @@ impl SnapshotManager {
 
     fn calculate_checksum(&self, snapshot: &SessionSnapshot) -> Result<String> {
         // Simple checksum using session ID and timestamp
-        // In production, would use proper cryptographic hash
         let data = format!(
             "{}:{}:{}",
             snapshot.session.id.0,

@@ -72,6 +72,20 @@ impl<T, E: std::error::Error> ResultExt<T> for std::result::Result<T, E> {
     }
 }
 
+#[cfg(feature = "plugin")]
+impl From<wasmtime::Error> for FerrixError {
+    fn from(err: wasmtime::Error) -> Self {
+        FerrixError::Plugin(format!("WASM runtime error: {}", err))
+    }
+}
+
+#[cfg(feature = "gpu")]
+impl From<wgpu::SurfaceError> for FerrixError {
+    fn from(err: wgpu::SurfaceError) -> Self {
+        FerrixError::Other(format!("GPU surface error: {}", err))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,18 +204,5 @@ mod tests {
         let debug_string = format!("{:?}", error);
         assert!(debug_string.contains("SessionNotFound"));
         assert!(debug_string.contains("debug-session"));
-    }
-}
-
-impl From<wasmtime::Error> for FerrixError {
-    fn from(err: wasmtime::Error) -> Self {
-        FerrixError::Plugin(format!("WASM runtime error: {}", err))
-    }
-}
-
-#[cfg(feature = "gpu")]
-impl From<wgpu::SurfaceError> for FerrixError {
-    fn from(err: wgpu::SurfaceError) -> Self {
-        FerrixError::Other(format!("GPU surface error: {}", err))
     }
 }

@@ -192,7 +192,7 @@ async fn reload_config(
     info!("Configuration reloaded successfully");
 
     // Trigger any necessary updates
-    trigger_config_updates(&*config_guard).await;
+    trigger_config_updates(&config_guard).await;
 
     Ok(())
 }
@@ -223,7 +223,7 @@ fn validate_config(config: &Config) -> Result<()> {
 }
 
 /// Trigger updates after configuration reload
-async fn trigger_config_updates(config: &Config) {
+async fn trigger_config_updates(_config: &Config) {
     // This would trigger various subsystems to update based on new config
     // For example:
     // - Update status bar visibility

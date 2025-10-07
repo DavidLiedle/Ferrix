@@ -1,4 +1,4 @@
-use crossterm::style::{Color, Attribute, SetForegroundColor, SetBackgroundColor, SetAttribute, ResetColor};
+use crossterm::style::{Color, Attribute};
 use crossterm::cursor::{MoveTo, Hide, Show};
 use std::io::Write;
 use crate::server::scrollback::CellScrollback;
@@ -146,6 +146,7 @@ pub struct AnsiParser {
     /// Scrolling region (top, bottom) - 0-indexed
     scroll_region: Option<(u16, u16)>,
     /// Tab stops
+    #[allow(dead_code)]
     tab_stops: Vec<u16>,
     /// Saved attributes for cursor save/restore
     saved_attrs: Option<(Color, Color, AttributeFlags)>,
@@ -272,7 +273,7 @@ impl AnsiParser {
             }
             // CSI sequences end with a letter
             if let Some(&last) = self.escape_buffer.last() {
-                return (b'A'..=b'Z').contains(&last) || (b'a'..=b'z').contains(&last);
+                return last.is_ascii_uppercase() || last.is_ascii_lowercase();
             }
         }
 
@@ -907,8 +908,10 @@ impl AnsiParser {
                 // RI - Reverse Index (move cursor up, scroll if at top)
                 if self.cursor_y > 0 {
                     self.cursor_y -= 1;
+                } else {
+                    // At top of screen - scroll down (insert line at top)
+                    self.scroll_down_at_top();
                 }
-                // TODO: scroll down if at top of screen
             }
             b'D' => {
                 // IND - Index (move cursor down, scroll if at bottom)
@@ -1139,7 +1142,7 @@ impl AnsiParser {
 
     fn save_cursor_with_attrs(&mut self) {
         self.saved_cursor = Some((self.cursor_x, self.cursor_y));
-        self.saved_attrs = Some((self.foreground, self.background, self.attributes.clone()));
+        self.saved_attrs = Some((self.foreground, self.background, self.attributes));
     }
 
     fn restore_cursor_with_attrs(&mut self) {
@@ -1150,7 +1153,7 @@ impl AnsiParser {
         if let Some((fg, bg, attrs)) = &self.saved_attrs {
             self.foreground = *fg;
             self.background = *bg;
-            self.attributes = attrs.clone();
+            self.attributes = *attrs;
         }
     }
 
@@ -1437,6 +1440,19 @@ impl AnsiParser {
         // Clear the bottom line
         let last_row = self.height as usize - 1;
         self.screen[last_row] = vec![Cell::default(); self.width as usize];
+    }
+
+    fn scroll_down_at_top(&mut self) {
+        // Scroll down: shift all lines down by one
+        // Bottom line is lost, top line becomes blank
+        if self.height > 0 {
+            // Remove bottom line
+            if self.screen.len() == self.height as usize {
+                self.screen.pop();
+            }
+            // Insert blank line at top
+            self.screen.insert(0, vec![Cell::default(); self.width as usize]);
+        }
     }
 
     fn clear_screen(&mut self) {

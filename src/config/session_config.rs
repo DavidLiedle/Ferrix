@@ -110,6 +110,12 @@ pub struct SessionHooks {
     pub after_pane_create: Vec<String>,
 }
 
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionConfig {
     /// Create a new empty session config
     pub fn new() -> Self {

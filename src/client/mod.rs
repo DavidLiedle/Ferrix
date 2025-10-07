@@ -239,7 +239,7 @@ impl Client {
     pub async fn receive(&mut self) -> Result<ServerMessage> {
         if let Some(ref mut framed) = self.framed {
             if let Some(msg) = framed.next().await {
-                return Ok(msg?);
+                return msg;
             }
         }
         Err(FerrixError::NotConnected)
@@ -780,7 +780,7 @@ impl Client {
                 self.window_selector.next();
                 return Ok(false);
             }
-            KeyCode::Char(c) if c.is_digit(10) => {
+            KeyCode::Char(c) if c.is_ascii_digit() => {
                 let index = c.to_digit(10).unwrap() as usize;
                 if let Some(window_id) = self.window_selector.select_by_index(index) {
                     self.window_selector.hide();
@@ -1128,7 +1128,7 @@ impl Client {
 
         // Store the output in the pane buffer
         self.pane_buffers.entry(pane_id.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .extend(&data);
 
         // Keep buffer size reasonable based on configuration
@@ -1524,8 +1524,8 @@ impl Client {
             (
                 pane.x + 1,
                 pane.y + 1,
-                if pane.width > 2 { pane.width - 2 } else { 0 },
-                if pane.height > 2 { pane.height - 2 } else { 0 }
+                pane.width.saturating_sub(2),
+                pane.height.saturating_sub(2)
             )
         };
 
@@ -2095,7 +2095,7 @@ impl Client {
             .unwrap_or_else(|| "No Session".to_string());
 
         let window_info = if let Some(layout) = &self.current_layout {
-            format!("W:{} P:{}", layout.window_id.0.to_string()[..8].to_string(), layout.panes.len())
+            format!("W:{} P:{}", &layout.window_id.0.to_string()[..8], layout.panes.len())
         } else {
             "W:- P:-".to_string()
         };
@@ -2144,6 +2144,7 @@ impl Client {
     }
 
 
+    #[allow(dead_code)]
     fn is_line_selected(&self, line_idx: usize) -> bool {
         if let (Some(start), Some(end)) = (self.copy_mode.selection_start(), self.copy_mode.selection_end()) {
             let (start_row, _) = start;
@@ -2156,6 +2157,7 @@ impl Client {
         }
     }
 
+    #[allow(dead_code)]
     fn get_selection_range_for_line(&self, line_idx: usize) -> (usize, usize) {
         if let (Some(start), Some(end)) = (self.copy_mode.selection_start(), self.copy_mode.selection_end()) {
             let (start_row, start_col) = start;
@@ -2185,6 +2187,7 @@ impl Client {
         }
     }
 
+    #[allow(dead_code)]
     fn render_line_with_selection(&self, line: &str, _line_idx: usize, start_col: usize, end_col: usize, stdout: &mut std::io::Stdout) -> Result<()> {
         use crossterm::{style::{Color, SetBackgroundColor, SetForegroundColor, ResetColor}, execute};
         use std::io::Write;

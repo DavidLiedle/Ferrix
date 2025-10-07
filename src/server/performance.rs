@@ -52,14 +52,14 @@ pub struct OutputBuffer {
 }
 
 #[derive(Debug, Default, Clone)]
-struct BufferMetrics {
-    total_bytes_processed: u64,
-    total_batches: u64,
-    average_batch_size: usize,
-    peak_buffer_size: usize,
-    throttle_count: u64,
-    compression_count: u64,
-    last_throughput_mbps: f64,
+pub struct BufferMetrics {
+    pub total_bytes_processed: u64,
+    pub total_batches: u64,
+    pub average_batch_size: usize,
+    pub peak_buffer_size: usize,
+    pub throttle_count: u64,
+    pub compression_count: u64,
+    pub last_throughput_mbps: f64,
 }
 
 impl OutputBuffer {
@@ -323,6 +323,12 @@ struct AnsiStyle {
     bold: bool,
     italic: bool,
     underline: bool,
+}
+
+impl Default for AnsiOptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AnsiOptimizer {

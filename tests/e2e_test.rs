@@ -10,13 +10,13 @@ async fn start_test_server() -> (std::process::Child, PathBuf) {
 
     // Build the binary first
     Command::new("cargo")
-        .args(&["build", "--release", "--bin", "ferrix"])
+        .args(["build", "--release", "--bin", "ferrix"])
         .output()
         .expect("Failed to build ferrix");
 
     // Start server
     let server = Command::new("target/release/ferrix")
-        .args(&["--socket", socket_path.to_str().unwrap(), "server", "--foreground"])
+        .args(["--socket", socket_path.to_str().unwrap(), "server", "--foreground"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -35,7 +35,7 @@ async fn test_e2e_session_workflow() {
 
     // Create a new session
     let output = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "new",
             "-s", "e2e_test",
@@ -49,7 +49,7 @@ async fn test_e2e_session_workflow() {
 
     // List sessions
     let output = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "list"
         ])
@@ -61,7 +61,7 @@ async fn test_e2e_session_workflow() {
 
     // Kill session
     let output = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "kill",
             "e2e_test"
@@ -82,7 +82,7 @@ async fn test_e2e_attach_detach() {
 
     // Create session
     Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "new",
             "-s", "attach_test",
@@ -94,7 +94,7 @@ async fn test_e2e_attach_detach() {
     // Attach to session (would need PTY handling for full test)
     // This is a simplified version
     let mut attach = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "attach",
             "attach_test"
@@ -113,7 +113,7 @@ async fn test_e2e_attach_detach() {
 
     // Session should still exist
     let output = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "list"
         ])
@@ -134,7 +134,7 @@ async fn test_e2e_multiple_sessions() {
     // Create multiple sessions
     for i in 0..3 {
         let output = Command::new("target/release/ferrix")
-            .args(&[
+            .args([
                 "--socket", socket_path.to_str().unwrap(),
                 "new",
                 "-s", &format!("session_{}", i),
@@ -148,7 +148,7 @@ async fn test_e2e_multiple_sessions() {
 
     // List should show all sessions
     let output = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "list"
         ])
@@ -163,7 +163,7 @@ async fn test_e2e_multiple_sessions() {
     // Kill all sessions
     for i in 0..3 {
         Command::new("target/release/ferrix")
-            .args(&[
+            .args([
                 "--socket", socket_path.to_str().unwrap(),
                 "kill",
                 "-t",
@@ -185,7 +185,7 @@ async fn test_e2e_recording() {
 
     // Create session
     Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "new",
             "-s", "rec_test",
@@ -196,7 +196,7 @@ async fn test_e2e_recording() {
 
     // Start recording
     let output = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "start-recording",
             "rec_test",
@@ -212,7 +212,7 @@ async fn test_e2e_recording() {
 
     // Stop recording
     let output = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "stop-recording",
             "rec_test"
@@ -236,7 +236,7 @@ async fn test_e2e_snapshot() {
 
     // Create session
     Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "new",
             "-s", "snap_test",
@@ -247,7 +247,7 @@ async fn test_e2e_snapshot() {
 
     // Save snapshot
     let output = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "save-snapshot",
             "snap_test",
@@ -260,7 +260,7 @@ async fn test_e2e_snapshot() {
 
     // List snapshots
     let output = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "list-snapshots"
         ])
@@ -281,7 +281,7 @@ async fn test_e2e_client_crash_recovery() {
 
     // Create session
     Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "new",
             "-s", "crash_test",
@@ -292,7 +292,7 @@ async fn test_e2e_client_crash_recovery() {
 
     // Start an attach that we'll kill
     let mut attach = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "attach",
             "-t",
@@ -314,7 +314,7 @@ async fn test_e2e_client_crash_recovery() {
 
     // Should be able to list sessions
     let output = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "list"
         ])
@@ -327,7 +327,7 @@ async fn test_e2e_client_crash_recovery() {
 
     // Should be able to reattach
     let reattach = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "attach",
             "-t",
@@ -354,7 +354,7 @@ async fn test_e2e_large_output_performance() {
 
     // Create session
     Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "new",
             "-s", "perf_test",
@@ -368,7 +368,7 @@ async fn test_e2e_large_output_performance() {
 
     // Send command that generates large output
     let output = Command::new("target/release/ferrix")
-        .args(&[
+        .args([
             "--socket", socket_path.to_str().unwrap(),
             "send-keys",
             "-t",

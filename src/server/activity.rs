@@ -38,6 +38,12 @@ pub struct ActivityMonitor {
     bell_triggered: HashMap<PaneId, bool>,
 }
 
+impl Default for ActivityMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ActivityMonitor {
     pub fn new() -> Self {
         Self {

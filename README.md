@@ -68,14 +68,43 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 ```bash
 # Clone the repository
 git clone https://github.com/davidliedle/Ferrix
-cd Ferrix/ferrix
+cd Ferrix
 
-# Build from source
+# Build with default features (minimal - 4.6MB)
 cargo build --release
+
+# Build with all features (full - 9.7MB)
+cargo build --release --features full
+
+# Build with specific features
+cargo build --release --features remote,plugin
 
 # Install to your PATH
 cargo install --path .
 ```
+
+#### Feature Flags
+
+Ferrix uses a tiered feature-flag architecture allowing you to build only what you need:
+
+```bash
+# Minimal build (core multiplexing only) - 4.6MB
+cargo build --release
+
+# Full build (all features) - 9.7MB
+cargo build --release --features full
+
+# À la carte (pick features you want)
+cargo build --release --features remote,versioning,plugin
+```
+
+**Available Features:**
+- **Tier 1** (Always Enabled): `clipboard`, `scrollback`, `recording`
+- **Tier 2** (Advanced): `remote` (TCP/TLS access), `performance` (output optimization)
+- **Tier 3** (Experimental): `versioning`, `collaboration`, `time-travel`, `plugin`, `ai-assist`
+- **Tier 4** (UI): `gpu`, `battery-status`
+
+See [FEATURES.md](FEATURES.md) for detailed information about each feature.
 
 ### Basic Usage
 

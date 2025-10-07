@@ -29,14 +29,12 @@ mod ai_tests {
 
     #[test]
     fn test_suggestion_categories() -> Result<()> {
-        let categories = vec![
-            SuggestionCategory::NextLogicalStep,
+        let categories = [SuggestionCategory::NextLogicalStep,
             SuggestionCategory::ErrorFix,
             SuggestionCategory::Optimization,
             SuggestionCategory::Alternative,
             SuggestionCategory::Completion,
-            SuggestionCategory::Macro,
-        ];
+            SuggestionCategory::Macro];
 
         // All categories should be valid enum variants
         assert_eq!(categories.len(), 6);
@@ -69,8 +67,7 @@ mod ai_tests {
 
     #[test]
     fn test_suggestion_filtering() -> Result<()> {
-        let suggestions = vec![
-            Suggestion {
+        let suggestions = [Suggestion {
                 command: "ls".to_string(),
                 description: "List files".to_string(),
                 category: SuggestionCategory::NextLogicalStep,
@@ -83,8 +80,7 @@ mod ai_tests {
                 category: SuggestionCategory::Alternative,
                 confidence: 0.8,
                 keyboard_shortcut: None,
-            },
-        ];
+            }];
 
         // Test filtering by category
         let next_step_suggestions: Vec<_> = suggestions

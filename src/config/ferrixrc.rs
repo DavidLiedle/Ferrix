@@ -328,10 +328,7 @@ impl FerrixRc {
             "pane-active-border-style" => {
                 for style_part in value.split(',') {
                     if let Some((key, val)) = style_part.split_once('=') {
-                        match key {
-                            "fg" => config.settings.pane_borders.active_color = val.to_string(),
-                            _ => {},
-                        }
+                        if key == "fg" { config.settings.pane_borders.active_color = val.to_string() }
                     }
                 }
             }

@@ -121,7 +121,14 @@ pub struct KeyBindingManager {
     prefix: KeyBinding,
     bindings: HashMap<KeyBinding, Action>,
     custom_bindings: HashMap<KeyBinding, Action>,
+    #[allow(dead_code)]
     config_path: Option<PathBuf>,
+}
+
+impl Default for KeyBindingManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl KeyBindingManager {

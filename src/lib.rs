@@ -1,17 +1,35 @@
-pub mod ai;
-pub mod auth;
+// ============================================================================
+// CORE MODULES (always available)
+// ============================================================================
 pub mod cli;
 pub mod client;
 pub mod config;
 pub mod error;
 pub mod input;
-pub mod plugin;
 pub mod protocol;
 pub mod server;
 pub mod ui;
 pub mod utils;
 
+// ============================================================================
+// OPTIONAL MODULES (feature-gated)
+// ============================================================================
+#[cfg(feature = "ai-assist")]
+pub mod ai;
+
+#[cfg(feature = "remote")]
+pub mod auth;
+
+#[cfg(feature = "plugin")]
+pub mod plugin;
+
+// ============================================================================
+// TEST MODULES
+// ============================================================================
 #[cfg(test)]
 pub mod tests;
 
+// ============================================================================
+// PUBLIC API
+// ============================================================================
 pub use error::{FerrixError, Result};

@@ -15,6 +15,7 @@ use crate::protocol::{SessionId, WindowId, PaneId};
 use uuid;
 
 /// Session recording format version
+#[allow(dead_code)]
 const RECORDING_VERSION: u32 = 1;
 
 /// Recording event types
@@ -151,7 +152,7 @@ impl SessionRecorder {
             tokio::spawn(async move {
                 while let Some(event) = rx.recv().await {
                     if let Ok(mut w) = writer.lock() {
-                        if let Err(e) = Self::write_event_to_writer(&mut *w, &event) {
+                        if let Err(e) = Self::write_event_to_writer(&mut w, &event) {
                             error!("Failed to write recording event: {}", e);
                         }
                     }
@@ -483,6 +484,7 @@ impl SessionPlayer {
     }
 
     /// Process a single event
+    #[allow(dead_code)]
     async fn process_event(&self, event: &RecordingEvent) -> Result<()> {
         match event {
             RecordingEvent::Output { data, .. } => {
@@ -582,7 +584,7 @@ impl SessionPlayer {
 
         // Collect all output events
         let mut output_frames = Vec::new();
-        let start_time = Duration::from_secs(metadata.created_at);
+        let _start_time = Duration::from_secs(metadata.created_at);
 
         for event in &self.events {
             if let RecordingEvent::Output { timestamp, data, .. } = event {

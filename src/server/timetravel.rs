@@ -455,7 +455,7 @@ impl TimeTravelEngine {
     fn find_nearest_snapshot(&self, target: DateTime<Utc>) -> &TimeSnapshot {
         self.recording.snapshots.iter()
             .filter(|s| s.timestamp <= target)
-            .last()
+            .next_back()
             .unwrap_or(&self.recording.snapshots[0])
     }
 
@@ -511,7 +511,7 @@ impl TimeTravelEngine {
         for window in events.windows(2) {
             let gap = window[1].timestamp - window[0].timestamp;
             if gap > Duration::minutes(1) {
-                idle_time = idle_time + gap;
+                idle_time += gap;
             }
         }
 

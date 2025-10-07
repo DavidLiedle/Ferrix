@@ -16,6 +16,7 @@ use directories::ProjectDirs;
 use crate::error::{FerrixError, Result};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub struct Config {
     #[serde(default)]
     pub general: GeneralConfig,
@@ -150,21 +151,6 @@ pub struct AdvancedConfig {
     pub log_file: String,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            keybindings: KeyBindings::default(),
-            status_bar: StatusBarConfig::default(),
-            colors: ColorConfig::default(),
-            windows: WindowConfig::default(),
-            panes: PaneConfig::default(),
-            copy_mode: CopyModeConfig::default(),
-            plugins: PluginConfig::default(),
-            advanced: AdvancedConfig::default(),
-        }
-    }
-}
 
 impl Default for GeneralConfig {
     fn default() -> Self {

@@ -72,6 +72,7 @@ debug!("Failed to probe GPU: {}", e);
         }
     }
 
+    #[cfg(feature = "gpu")]
     async fn probe_gpu() -> Result<bool> {
         use wgpu::{Instance, InstanceDescriptor, Backends};
 
@@ -115,6 +116,11 @@ debug!("Failed to probe GPU: {}", e);
         } else {
             Ok(false)
         }
+    }
+
+    #[cfg(not(feature = "gpu"))]
+    async fn probe_gpu() -> Result<bool> {
+        Ok(false)
     }
 
     /// Check if running in an SSH session
@@ -177,6 +183,12 @@ pub struct RendererProfiler {
     max_samples: usize,
 }
 
+impl Default for RendererProfiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RendererProfiler {
     pub fn new() -> Self {
         Self {
@@ -237,6 +249,7 @@ pub struct GpuCapabilities {
     pub shared_system_memory: Option<u64>,
 }
 
+#[cfg(feature = "gpu")]
 impl GpuCapabilities {
     pub async fn detect() -> Option<Self> {
         use wgpu::{Instance, InstanceDescriptor, Backends};
@@ -256,7 +269,7 @@ impl GpuCapabilities {
 
         let info = adapter.get_info();
         let limits = adapter.limits();
-        let features = adapter.features();
+        let _features = adapter.features();
 
         Some(Self {
             vendor: info.vendor.to_string(),

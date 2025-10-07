@@ -240,9 +240,18 @@ pub struct VimModeHandler {
     mode: InputMode,
     chord_detector: ChordDetector,
     repeat_count: Option<usize>,
+    #[allow(dead_code)]
     last_command: Option<String>,
+    #[allow(dead_code)]
     registers: HashMap<char, String>,
+    #[allow(dead_code)]
     current_register: Option<char>,
+}
+
+impl Default for VimModeHandler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl VimModeHandler {
@@ -455,6 +464,12 @@ pub struct EmacsHandler {
     mark_set: bool,
     kill_ring: Vec<String>,
     kill_ring_index: usize,
+}
+
+impl Default for EmacsHandler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EmacsHandler {

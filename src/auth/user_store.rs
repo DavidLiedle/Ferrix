@@ -131,7 +131,7 @@ impl UserStore {
         let user = StoredUser {
             username: username.clone(),
             password_hash,
-            client_id: client_id.clone(),
+            client_id,
             permissions: vec!["all".to_string()], // Default permissions
             created_at: chrono::Utc::now(),
         };
@@ -194,7 +194,7 @@ impl UserStore {
         if let Some(user) = users.get(username) {
             if verify(password, &user.password_hash)
                 .map_err(|e| FerrixError::Other(format!("Failed to verify password: {}", e)))? {
-                return Ok(user.client_id.clone());
+                return Ok(user.client_id);
             }
         }
 

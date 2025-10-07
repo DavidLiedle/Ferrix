@@ -124,6 +124,7 @@ pub struct SearchResults {
 struct PluginCache {
     metadata: HashMap<String, PluginMetadata>,
     search_cache: HashMap<String, (SearchResults, DateTime<Utc>)>,
+    #[allow(dead_code)]
     cache_duration: std::time::Duration,
 }
 
@@ -373,7 +374,7 @@ impl MarketplaceClient {
 
     /// Submit a review for a plugin
     pub async fn submit_review(&self, plugin_id: &str, rating: u8, title: &str, comment: &str) -> Result<()> {
-        if rating < 1 || rating > 5 {
+        if !(1..=5).contains(&rating) {
             return Err(FerrixError::Other("Rating must be between 1 and 5".to_string()));
         }
 
@@ -529,7 +530,9 @@ pub struct InstalledPlugin {
 
 /// Plugin marketplace server for hosting plugins
 pub struct MarketplaceServer {
+    #[allow(dead_code)]
     storage: Box<dyn PluginStorage>,
+    #[allow(dead_code)]
     auth: Box<dyn AuthProvider>,
 }
 

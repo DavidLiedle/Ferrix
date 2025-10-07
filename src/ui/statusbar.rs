@@ -129,7 +129,7 @@ impl StatusBar {
                 let mut var_name = String::new();
                 let mut found_closing = false;
 
-                while let Some(ch) = chars.next() {
+                for ch in chars.by_ref() {
                     if ch == '}' {
                         found_closing = true;
                         break;
@@ -153,8 +153,7 @@ impl StatusBar {
 
     fn get_variable_value(&mut self, var_name: &str) -> String {
         // Handle time formatting
-        if var_name.starts_with("time:") {
-            let format = &var_name[5..];
+        if let Some(format) = var_name.strip_prefix("time:") {
             return Local::now().format(format).to_string();
         }
 
@@ -176,7 +175,7 @@ impl StatusBar {
             "memory" => self.format_memory(),
             "session_locked" | "lock_status" => if self.session_locked { "🔒 LOCKED" } else { "🔓" }.to_string(),
             "pane_sync" | "sync_status" => if self.pane_sync_enabled { "🔗 SYNC" } else { "🔗" }.to_string(),
-            "current_pane" => self.current_pane_name.clone().unwrap_or_else(|| "".to_string()),
+            "current_pane" => self.current_pane_name.clone().unwrap_or_default(),
             "uptime" => self.format_uptime(),
             "load" => self.format_load_average(),
             "disk" => self.format_disk_usage(),
@@ -309,6 +308,7 @@ impl StatusBar {
         }
     }
 
+    #[cfg(feature = "versioning")]
     fn get_git_branch() -> Option<String> {
         // Try to get current git branch
         if let Ok(repo) = git2::Repository::open_from_env() {
@@ -321,6 +321,12 @@ impl StatusBar {
         None
     }
 
+    #[cfg(not(feature = "versioning"))]
+    fn get_git_branch() -> Option<String> {
+        None
+    }
+
+    #[cfg(feature = "versioning")]
     fn format_git_branch(&self) -> String {
         if let Some(branch) = &self.git_branch {
             // Try to get repository status
@@ -361,6 +367,15 @@ impl StatusBar {
             };
 
             format!("🌿{}{}", branch, status_indicator)
+        } else {
+            "".to_string()
+        }
+    }
+
+    #[cfg(not(feature = "versioning"))]
+    fn format_git_branch(&self) -> String {
+        if let Some(branch) = &self.git_branch {
+            format!("🌿{}", branch)
         } else {
             "".to_string()
         }
@@ -413,7 +428,7 @@ impl StatusBar {
         use std::process::Command;
 
         if let Ok(output) = Command::new("df")
-            .args(&["-h", "/"])
+            .args(["-h", "/"])
             .output()
         {
             if let Ok(output_str) = String::from_utf8(output.stdout) {
@@ -438,7 +453,7 @@ impl StatusBar {
 
         // Check if we have network connectivity (ping a reliable server)
         if let Ok(output) = Command::new("ping")
-            .args(&["-c", "1", "-W", "1", "8.8.8.8"])
+            .args(["-c", "1", "-W", "1", "8.8.8.8"])
             .output()
         {
             if output.status.success() {

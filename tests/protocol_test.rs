@@ -1,6 +1,6 @@
 use ferrix::protocol::*;
-use tokio_util::codec::{Encoder, Decoder};
-use bytes::{BytesMut, BufMut};
+use tokio_util::codec::Encoder;
+use bytes::BytesMut;
 
 #[test]
 fn test_client_codec_encode_decode() {

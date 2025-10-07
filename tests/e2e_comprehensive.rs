@@ -19,7 +19,13 @@ impl TestServer {
         let socket_path = temp_dir.path().join("ferrix.sock");
 
         // Use null() for stdout/stderr to prevent blocking on pipe buffers [FIXED v2]
-        let process = Command::new("./target/release/ferrix")
+        // Use debug binary for tests (release binary may not exist yet)
+        let ferrix_path = if std::path::Path::new("./target/release/ferrix").exists() {
+            "./target/release/ferrix"
+        } else {
+            "./target/debug/ferrix"
+        };
+        let process = Command::new(ferrix_path)
             .arg("--socket")
             .arg(&socket_path)
             .arg("server")
@@ -49,7 +55,12 @@ impl TestServer {
     }
 
     fn run_command(&self, args: &[&str]) -> std::process::Output {
-        Command::new("./target/release/ferrix")
+        let ferrix_path = if std::path::Path::new("./target/release/ferrix").exists() {
+            "./target/release/ferrix"
+        } else {
+            "./target/debug/ferrix"
+        };
+        Command::new(ferrix_path)
             .arg("--socket")
             .arg(&self.socket_path)
             .args(args)
@@ -65,7 +76,7 @@ impl Drop for TestServer {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore] // Temporarily ignored - see https://github.com/davidliedle/Ferrix/issues/XXX
+#[ignore] // E2E test requires manual testing - server may hang in automated test environment
 async fn test_complete_workflow() {
     let server = TestServer::start().await;
 

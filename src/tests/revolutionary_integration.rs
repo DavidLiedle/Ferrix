@@ -96,7 +96,7 @@ mod revolutionary_integration_tests {
         // All features initialized and working together
         assert!(
             !suggestions.is_empty() &&
-            collab_session.read().await.participants.len() > 0 &&
+            !collab_session.read().await.participants.is_empty() &&
             time_travel.read().await.is_recording()
         );
     }

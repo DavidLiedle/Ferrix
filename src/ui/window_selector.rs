@@ -28,6 +28,12 @@ pub struct WindowSelector {
     filter: String,
 }
 
+impl Default for WindowSelector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WindowSelector {
     pub fn new() -> Self {
         Self {

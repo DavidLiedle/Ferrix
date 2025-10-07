@@ -8,6 +8,12 @@ pub struct ConfigParser {
     config: Config,
 }
 
+impl Default for ConfigParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConfigParser {
     pub fn new() -> Self {
         Self {

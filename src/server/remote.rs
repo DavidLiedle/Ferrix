@@ -131,7 +131,7 @@ impl RemoteServer {
             .ok_or_else(|| FerrixError::Other("No private key found".to_string()))?;
 
         let cert_chain = cert.into_iter()
-            .map(|c| rustls::pki_types::CertificateDer::from(c))
+            .map(rustls::pki_types::CertificateDer::from)
             .collect::<Vec<_>>();
 
         let config = ServerConfig::builder()
@@ -209,7 +209,7 @@ impl RemoteServer {
                     Ok(client_id) => {
                         // Successful authentication - clear rate limit
                         rate_limiter.record_success(&peer_addr).await;
-                        framed.send(ServerMessage::Authenticated { client_id: client_id.clone() }).await?;
+                        framed.send(ServerMessage::Authenticated { client_id }).await?;
                         client_id
                     }
                     Err(e) => {
@@ -247,9 +247,9 @@ impl RemoteServer {
         {
             let mut clients_guard = clients.write().await;
             clients_guard.insert(
-                client_id.clone(),
+                client_id,
                 super::ClientConnection {
-                    id: client_id.clone(),
+                    id: client_id,
                     attached_session: None,
                     sender: tx.clone(),
                 },
@@ -395,6 +395,7 @@ impl RemoteClient {
 /// Active remote session
 pub struct RemoteSession {
     framed: Framed<Stream, crate::protocol::FerrixClientCodec>,
+    #[allow(dead_code)]
     client_id: ClientId,
     session_id: Option<SessionId>,
 }

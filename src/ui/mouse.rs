@@ -232,7 +232,7 @@ impl MouseAction {
             MouseAction::FocusPane { pane } => {
                 Some(ClientMessage::SwitchPane { pane_id: pane.clone() })
             }
-            MouseAction::ScrollPane { pane, lines, up } => {
+            MouseAction::ScrollPane { pane: _, lines, up } => {
                 // Send scroll commands as input to the pane
                 let scroll_cmd = if *up {
                     format!("\x1b[{}A", lines) // Scroll up

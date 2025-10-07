@@ -213,7 +213,7 @@ impl PluginManager {
         use std::io::Write;
 
         // Extract filename from URL
-        let filename = url.split('/').last()
+        let filename = url.split('/').next_back()
             .ok_or_else(|| FerrixError::Plugin("Invalid URL: cannot extract filename".to_string()))?;
 
         let plugin_path = self.plugin_dir.join(filename);

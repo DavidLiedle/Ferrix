@@ -287,6 +287,12 @@ pub struct LayoutPresetsManager {
     custom_presets: Vec<LayoutPreset>,
 }
 
+impl Default for LayoutPresetsManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LayoutPresetsManager {
     pub fn new() -> Self {
         Self {

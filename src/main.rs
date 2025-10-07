@@ -2,11 +2,17 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
-use ferrix::cli::{Cli, Commands, UserAction};
+use ferrix::cli::{Cli, Commands};
+#[cfg(feature = "remote")]
+use ferrix::cli::UserAction;
 use ferrix::client::Client;
-use ferrix::server::{Server, remote::{RemoteServer, PasswordAuthHandler}};
+use ferrix::server::Server;
+#[cfg(feature = "remote")]
+use ferrix::server::remote::{RemoteServer, PasswordAuthHandler};
 use ferrix::error::Result;
+#[cfg(feature = "remote")]
 use ferrix::protocol::AuthCredentials;
+#[cfg(feature = "remote")]
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -112,6 +118,7 @@ async fn async_main(cli: Cli) -> Result<()> {
 
             let server = Arc::new(Server::new(socket_path.clone()));
 
+            #[cfg(feature = "remote")]
             if *remote {
                 // Start remote server alongside local server
                 let bind_addr: SocketAddr = format!("{}:{}", bind, port)
@@ -159,7 +166,17 @@ async fn async_main(cli: Cli) -> Result<()> {
                     _ = remote_handle => {}
                     _ = local_handle => {}
                 }
-            } else {
+            }
+
+            #[cfg(not(feature = "remote"))]
+            if *remote {
+                return Err(ferrix::error::FerrixError::Other(
+                    "Remote access not available - rebuild with --features remote".to_string()
+                ));
+            }
+
+            #[cfg(not(feature = "remote"))]
+            {
                 // Start only local server
                 let mut local_server = (*server).clone();
                 local_server.run().await?;
@@ -292,7 +309,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                 println!("No snapshots available");
             } else {
                 println!("Available snapshots:");
-                println!("{:<20} {:<30} {:<10} {}", "Created", "Name", "Size", "Path");
+                println!("{:<20} {:<30} {:<10} Path", "Created", "Name", "Size");
                 println!("{}", "-".repeat(80));
 
                 for snapshot in snapshots {
@@ -320,8 +337,8 @@ async fn async_main(cli: Cli) -> Result<()> {
             use ferrix::server::snapshot::SnapshotManager;
 
             let manager = SnapshotManager::new()?;
-            let snapshot_data = manager.load_snapshot(&std::path::Path::new(snapshot))?;
-            manager.export_snapshot(&snapshot_data, &std::path::Path::new(output))?;
+            let snapshot_data = manager.load_snapshot(std::path::Path::new(snapshot))?;
+            manager.export_snapshot(&snapshot_data, std::path::Path::new(output))?;
             println!("Snapshot exported to: {}", output);
         }
 
@@ -329,7 +346,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             use ferrix::server::snapshot::SnapshotManager;
 
             let manager = SnapshotManager::new()?;
-            let snapshot = manager.import_snapshot(&std::path::Path::new(archive))?;
+            let snapshot = manager.import_snapshot(std::path::Path::new(archive))?;
             let path = manager.save_snapshot(&snapshot)?;
             println!("Snapshot imported to: {:?}", path);
         }
@@ -458,6 +475,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             }
         }
 
+        #[cfg(feature = "remote")]
         Some(Commands::Connect { address, username, password, tls_ca, tls }) => {
             use ferrix::server::remote::RemoteClient;
             use std::io::{self, Write};
@@ -486,7 +504,7 @@ async fn async_main(cli: Cli) -> Result<()> {
 
             // Configure TLS if requested or certificates provided
             if *tls || tls_ca.is_some() {
-                let ca_path = tls_ca.as_ref().map(|p| std::path::PathBuf::from(p));
+                let ca_path = tls_ca.as_ref().map(std::path::PathBuf::from);
                 client = client.with_tls(ca_path.as_ref())?;
             }
 
@@ -545,6 +563,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             }
         }
 
+        #[cfg(feature = "remote")]
         Some(Commands::UserManagement { action }) => {
             use ferrix::auth::UserStore;
             use std::io::{self, Write};
@@ -793,7 +812,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                     let parsed_window_id = if let Some(window_id_str) = window_id {
                         use uuid::Uuid;
                         use ferrix::protocol::WindowId;
-                        match Uuid::parse_str(&window_id_str) {
+                        match Uuid::parse_str(window_id_str) {
                             Ok(uuid) => Some(WindowId(uuid)),
                             Err(_) => {
                                 eprintln!("✗ Invalid window ID format: {}", window_id_str);
@@ -923,7 +942,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                                 println!("No keybindings configured");
                             } else {
                                 println!("Current keybindings:");
-                                println!("{:<20} {:<30} {:<10} {}", "Key", "Action", "Type", "Description");
+                                println!("{:<20} {:<30} {:<10} Description", "Key", "Action", "Type");
                                 println!("{}", "-".repeat(80));
                                 for binding in bindings {
                                     println!("{:<20} {:<30} {:<10} {}",
@@ -1287,7 +1306,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             }
         }
 
-        Some(Commands::CommitSession { message, author }) => {
+        Some(Commands::CommitSession { message: _, author: _ }) => {
             eprintln!("Note: Session versioning requires specifying a session ID");
             eprintln!("This feature requires enhancement to work with attached sessions");
             std::process::exit(1);
@@ -1324,10 +1343,10 @@ async fn async_main(cli: Cli) -> Result<()> {
                             .map(|s| s.id.clone())
                             .ok_or_else(|| FerrixError::Other(format!("Session '{}' not found", session_name)))?
                     }
-                    _ => return Err(FerrixError::Other("Failed to get session list".to_string()).into()),
+                    _ => return Err(FerrixError::Other("Failed to get session list".to_string())),
                 }
             } else {
-                return Err(FerrixError::Other("Please specify a session".to_string()).into());
+                return Err(FerrixError::Other("Please specify a session".to_string()));
             };
 
             // Save to session config manager
@@ -1346,7 +1365,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             client.connect().await?;
 
             // Get session ID (from argument or find current attached session)
-            let session_id = if let Some(ref session_name) = session {
+            let _session_id = if let Some(ref session_name) = session {
                 // Try to find session by name
                 client.send(ClientMessage::ListSessions).await?;
                 match client.receive().await? {
@@ -1356,10 +1375,10 @@ async fn async_main(cli: Cli) -> Result<()> {
                             .map(|s| s.id.clone())
                             .ok_or_else(|| FerrixError::Other(format!("Session '{}' not found", session_name)))?
                     }
-                    _ => return Err(FerrixError::Other("Failed to get session list".to_string()).into()),
+                    _ => return Err(FerrixError::Other("Failed to get session list".to_string())),
                 }
             } else {
-                return Err(FerrixError::Other("Please specify a session".to_string()).into());
+                return Err(FerrixError::Other("Please specify a session".to_string()));
             };
 
             // Create a basic session config to save
@@ -1392,10 +1411,10 @@ async fn async_main(cli: Cli) -> Result<()> {
                             .map(|s| s.id.clone())
                             .ok_or_else(|| FerrixError::Other(format!("Session '{}' not found", session_name)))?
                     }
-                    _ => return Err(FerrixError::Other("Failed to get session list".to_string()).into()),
+                    _ => return Err(FerrixError::Other("Failed to get session list".to_string())),
                 }
             } else {
-                return Err(FerrixError::Other("Please specify a session".to_string()).into());
+                return Err(FerrixError::Other("Please specify a session".to_string()));
             };
 
             // Save the template config for this session
@@ -1485,7 +1504,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                     client.send(ClientMessage::EnterCopyMode).await?;
 
                     match client.receive().await? {
-                        ServerMessage::Success { .. } => {
+                        ServerMessage::Success => {
                             println!("✓ Entered copy mode (use 'q' to exit)");
                         }
                         ServerMessage::Error { message } => {
@@ -1514,7 +1533,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                     client.send(ClientMessage::ExitCopyMode).await?;
 
                     match client.receive().await? {
-                        ServerMessage::Success { .. } => {
+                        ServerMessage::Success => {
                             println!("✓ Exited copy mode");
                         }
                         ServerMessage::Error { message } => {
@@ -1534,6 +1553,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             }
         }
 
+        #[cfg(feature = "plugin")]
         Some(Commands::Plugin { action }) => {
             use ferrix::plugin::marketplace::{MarketplaceClient, MarketplaceSearchQuery};
 
@@ -1917,6 +1937,16 @@ async fn async_main(cli: Cli) -> Result<()> {
         Some(Commands::ResizePane { .. }) => {
             eprintln!("Pane management commands require an attached session");
             eprintln!("Use keyboard shortcuts within an attached session instead");
+            std::process::exit(1);
+        }
+
+        // Catch-all for feature-gated commands that aren't available
+        Some(_) => {
+            eprintln!("This command is not available in this build");
+            eprintln!("Rebuild with the appropriate feature flag to enable it:");
+            eprintln!("  - remote access: cargo build --features remote");
+            eprintln!("  - plugins: cargo build --features plugin");
+            eprintln!("  - all features: cargo build --features full");
             std::process::exit(1);
         }
     }
