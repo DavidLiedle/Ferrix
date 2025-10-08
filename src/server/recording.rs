@@ -15,8 +15,7 @@ use crate::protocol::{SessionId, WindowId, PaneId};
 use uuid;
 
 /// Session recording format version
-#[allow(dead_code)]
-const RECORDING_VERSION: u32 = 1;
+pub const RECORDING_VERSION: u32 = 1;
 
 /// Recording event types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -483,9 +482,8 @@ impl SessionPlayer {
         }
     }
 
-    /// Process a single event
-    #[allow(dead_code)]
-    async fn process_event(&self, event: &RecordingEvent) -> Result<()> {
+    /// Process a single event during playback
+    pub async fn process_event(&self, event: &RecordingEvent) -> Result<()> {
         match event {
             RecordingEvent::Output { data, .. } => {
                 // Write output to terminal
@@ -894,7 +892,7 @@ mod tests {
 
         // Create metadata
         let metadata = RecordingMetadata {
-            version: 1,
+            version: RECORDING_VERSION,
             session_id: SessionId(uuid::Uuid::new_v4()),
             session_name: "test-session".to_string(),
             created_at: SystemTime::now()
