@@ -381,6 +381,25 @@ pub async fn handle_message(
                         let _ = client.sender.send(ServerMessage::LayoutUpdate { layout }).await;
                     }
                 }
+
+                // Send raw output buffers for all panes to restore session content
+                // This allows newly attached clients to see previous output
+                if let Some(current_window) = session_guard.get_current_window() {
+                    let window_guard = current_window.read().await;
+                    for (pane_id, pane_arc) in &window_guard.panes {
+                        let pane_guard = pane_arc.read().await;
+                        let buffer = pane_guard.get_raw_output_buffer();
+                        if !buffer.is_empty() {
+                            let clients_guard = clients.read().await;
+                            if let Some(client) = clients_guard.get(client_id) {
+                                let _ = client.sender.send(ServerMessage::PaneOutput {
+                                    pane_id: pane_id.clone(),
+                                    data: buffer.to_vec()
+                                }).await;
+                            }
+                        }
+                    }
+                }
                 drop(session_guard);
 
                 // Send SessionAttached response

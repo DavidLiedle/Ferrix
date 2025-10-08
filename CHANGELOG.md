@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2025-10-08
+
+### Added
+- **Session Persistence**: Full session content restoration on reattach
+  - Added raw output buffer (50KB) per pane to store recent PTY output
+  - Server sends raw output buffer to newly attached clients for session restoration
+  - Clients can now see previous commands and output when reattaching to detached sessions
+  - Implements tmux/screen-style session persistence behavior
+  - Works seamlessly with working directory preservation
+
+### Fixed
+- **Status Bar Visibility**: Status bar now stays visible during terminal output
+  - Re-enabled alternate screen mode for proper UI control
+  - Status bar is re-rendered after each pane content update
+  - Prevents PTY output from overwriting UI chrome
+  - Status bar remains stable during typing and command output
+
+### Changed
+- **Rendering Architecture**: Switched from PTY passthrough to buffer-based rendering
+  - Client now renders from ANSI parser buffer instead of raw passthrough
+  - Enables proper session persistence and UI stability
+  - Maintains compatibility with all terminal features (colors, cursor positioning, etc.)
+
 ## [0.18.0] - 2025-10-08
 
 ### Added

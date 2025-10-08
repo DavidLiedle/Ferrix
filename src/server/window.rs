@@ -287,6 +287,9 @@ impl Window {
             match pane_guard.get_output().await {
                 Ok(Some(data)) => {
                     if !data.is_empty() {
+                        // Store raw output for session persistence
+                        pane_guard.append_raw_output(&data);
+
                         // Record activity for panes that have output
                         // Only record if it's not the current pane (focused pane)
                         if self.current_pane.as_ref() != Some(pane_id) {

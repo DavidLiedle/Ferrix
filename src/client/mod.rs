@@ -10,7 +10,7 @@ use tokio_util::codec::Framed;
 use futures::{StreamExt, SinkExt};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, EnableMouseCapture, DisableMouseCapture},
-    terminal::{self, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{self},
     execute,
     cursor,
 };
@@ -239,16 +239,8 @@ impl Client {
                             framed.send(ClientMessage::Resize { cols: 80, rows: 24 }).await?;
                         }
 
-                        // Clear the screen once before starting the TUI
-                        // This gives us a clean slate for the borders and status bar
-                        crossterm::execute!(std::io::stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))?;
-
-                        // Wait a bit for the layout to be received and rendered
-                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-
-                        // Send Ctrl-L to refresh the prompt
-                        // This triggers the shell to redraw, showing the current prompt
-                        framed.send(ClientMessage::Input { data: vec![0x0C] }).await?;
+                        // Wait for the raw output buffer to be sent and rendered
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                     }
                     ServerMessage::Error { message } => {
                         return Err(FerrixError::Other(message));
@@ -331,7 +323,8 @@ impl Client {
 
         if is_tty {
             terminal::enable_raw_mode()?;
-            execute!(stdout(), EnterAlternateScreen)?;
+            execute!(stdout(), crossterm::terminal::EnterAlternateScreen)?;
+            // Clear screen to start fresh
             execute!(stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))?;
             execute!(stdout(), cursor::Hide)?;
 
@@ -361,7 +354,7 @@ impl Client {
                 execute!(stdout(), DisableMouseCapture)?;
             }
             terminal::disable_raw_mode()?;
-            execute!(stdout(), LeaveAlternateScreen, cursor::Show)?;
+            execute!(stdout(), crossterm::terminal::LeaveAlternateScreen, cursor::Show)?;
         }
 
         result
@@ -412,11 +405,11 @@ impl Client {
 
         loop {
             tokio::select! {
-                // Update status bar every second for live clock
+                // Render status bar periodically
                 _ = status_bar_timer.tick() => {
-                    self.render_status_bar().await?;
-                    use std::io::Write;
-                    std::io::stdout().flush()?;
+                    if let Err(e) = self.render_status_bar().await {
+                        tracing::error!("Failed to render status bar: {}", e);
+                    }
                 }
 
                 // Handle stdin input in non-TTY mode
@@ -1319,42 +1312,42 @@ impl Client {
             }
         }
 
-        // In non-TTY mode, always write output to stdout
-        if !is_tty {
+        // Render the updated pane content from the parsed buffer
+        // This allows proper scrollback and session persistence
+        if is_tty {
+            if let Some(layout) = self.current_layout.clone() {
+                if let Some(pane_info) = layout.panes.iter().find(|p| p.id == pane_id).cloned() {
+                    // Render just the updated pane content
+                    self.draw_pane_content(&pane_info).await?;
+                    // Re-render status bar to keep it visible
+                    self.render_status_bar().await?;
+                }
+            }
+        } else {
+            // In non-TTY mode, write raw output
             let mut stdout = stdout();
             stdout.write_all(&data)?;
             stdout.flush()?;
-            return Ok(());
-        }
-
-        // In TTY mode with TUI, render only the updated pane to avoid flicker
-        // This ensures ANSI codes are properly parsed and displayed within pane borders
-        if let Some(layout) = self.current_layout.clone() {
-            // Find the pane that was updated and render just that pane
-            if let Some(pane_info) = layout.panes.iter().find(|p| p.id == pane_id).cloned() {
-                self.draw_pane_border(&pane_info).await?;
-                self.draw_pane_content(&pane_info).await?;
-                self.render_status_bar().await?;
-                use std::io::Write;
-                std::io::stdout().flush()?;
-            }
         }
 
         Ok(())
     }
 
     async fn render_layout(&mut self) -> Result<()> {
-        if let Some(layout) = self.current_layout.clone() {
-            // DON'T clear the screen - that would erase PTY output!
-            // Just redraw borders and status bar
-            self.draw_panes(&layout).await?;
+        if let Some(layout) = &self.current_layout.clone() {
+            // Draw panes first
+            self.draw_panes(layout).await?;
 
-            // Render help overlay if visible
-            if self.help_overlay.is_visible() {
-                self.help_overlay.render_crossterm()
-                    .map_err(|e| FerrixError::Terminal(format!("Failed to render help: {}", e)))?;
-            }
+            // Then draw status bar on top
+            self.render_status_bar().await?;
         }
+
+        // Render help overlay if visible (it's an overlay over everything)
+        if self.help_overlay.is_visible() {
+            self.help_overlay.render_crossterm()
+                .map_err(|e| FerrixError::Terminal(format!("Failed to render help: {}", e)))?;
+        }
+
         Ok(())
     }
 
@@ -1391,13 +1384,7 @@ impl Client {
                         }
 
                         // Trigger a redraw to show the selection
-                        if let Some(layout) = self.current_layout.clone() {
-                            if let Some(pane_info) = layout.panes.iter().find(|p| p.is_focused).cloned() {
-                                self.draw_pane_content(&pane_info).await?;
-                                self.render_status_bar().await?;
-                            }
-                        }
-
+                        // Status bar rendering disabled in passthrough mode
                         debug!("Mouse selection: {:?} to {:?}", start, end);
                     }
                     MouseAction::CompleteSelection { start, end } => {
@@ -1431,13 +1418,7 @@ impl Client {
                         // Clear the visual selection
                         self.active_selection = None;
 
-                        // Redraw to remove selection highlight
-                        if let Some(layout) = self.current_layout.clone() {
-                            if let Some(pane_info) = layout.panes.iter().find(|p| p.is_focused).cloned() {
-                                self.draw_pane_content(&pane_info).await?;
-                                self.render_status_bar().await?;
-                            }
-                        }
+                        // Redraw disabled in passthrough mode
                     }
                     MouseAction::SelectWord { x, y } => {
                         // Select word at position
@@ -1715,8 +1696,7 @@ impl Client {
             self.draw_pane_content(pane).await?;
         }
 
-        // Draw status bar
-        self.render_status_bar().await?;
+        // Status bar rendering disabled in passthrough mode
 
         stdout.flush()?;
         Ok(())
@@ -1757,11 +1737,8 @@ impl Client {
             parser.resize(content_width, content_height);
         }
 
-        // Clear the pane content area to prevent ghosting
-        for row in 0..content_height {
-            execute!(stdout, crossterm::cursor::MoveTo(content_x, content_y + row))?;
-            write!(stdout, "{}", " ".repeat(content_width as usize))?;
-        }
+        // Render pane content from the ANSI parser buffer
+        // This allows proper scrollback and session persistence
 
         // Get ANSI parser for this pane or use raw buffer fallback
         if let Some(parser) = self.pane_parsers.get(&pane.id) {

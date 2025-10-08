@@ -17,6 +17,10 @@ pub struct Pane {
     pub remain_on_exit: bool,
     pub exit_status: Option<i32>,
     pub is_dead: bool,
+    /// Raw PTY output buffer for session persistence
+    /// Stores the last N bytes of raw PTY output to replay when clients attach
+    pub raw_output_buffer: Vec<u8>,
+    pub max_raw_buffer_size: usize,
 }
 
 impl Pane {
@@ -42,6 +46,8 @@ impl Pane {
             remain_on_exit: false,
             exit_status: None,
             is_dead: false,
+            raw_output_buffer: Vec::new(),
+            max_raw_buffer_size: 50000, // Store last 50KB of raw PTY output
         };
 
         if let Err(e) = pane.start_pty() {
@@ -77,6 +83,23 @@ impl Pane {
             return pty.read().await;
         }
         Ok(None)
+    }
+
+    /// Append raw output to the buffer for session persistence
+    /// Keeps only the last max_raw_buffer_size bytes
+    pub fn append_raw_output(&mut self, data: &[u8]) {
+        self.raw_output_buffer.extend_from_slice(data);
+
+        // Trim buffer if it exceeds max size
+        if self.raw_output_buffer.len() > self.max_raw_buffer_size {
+            let excess = self.raw_output_buffer.len() - self.max_raw_buffer_size;
+            self.raw_output_buffer.drain(0..excess);
+        }
+    }
+
+    /// Get the raw output buffer for replaying to newly attached clients
+    pub fn get_raw_output_buffer(&self) -> &[u8] {
+        &self.raw_output_buffer
     }
 
     /// Mark the pane as dead (PTY has exited)
