@@ -78,12 +78,9 @@ pub struct GpuRenderer {
 }
 
 struct GlyphCache {
-    #[allow(dead_code)]
     texture: wgpu::Texture,
     texture_view: TextureView,
-    #[allow(dead_code)]
     atlas_width: u32,
-    #[allow(dead_code)]
     atlas_height: u32,
     glyphs: std::collections::HashMap<char, GlyphInfo>,
 }
@@ -459,6 +456,28 @@ impl GpuRenderer {
 }
 
 impl GlyphCache {
+    /// Get atlas dimensions for space calculations
+    fn get_dimensions(&self) -> (u32, u32) {
+        (self.atlas_width, self.atlas_height)
+    }
+
+    /// Get the underlying texture for advanced operations
+    fn get_texture(&self) -> &wgpu::Texture {
+        &self.texture
+    }
+
+    /// Add or update a glyph in the cache
+    fn insert_glyph(&mut self, ch: char, info: GlyphInfo) {
+        self.glyphs.insert(ch, info);
+    }
+
+    /// Calculate available space in the atlas
+    fn calculate_free_space(&self) -> u32 {
+        let total_cells = (self.atlas_width / 64) * (self.atlas_height / 64);
+        let used_cells = self.glyphs.len() as u32;
+        total_cells.saturating_sub(used_cells)
+    }
+
     fn new(device: &Device, width: u32, height: u32) -> Result<Self> {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Glyph Atlas"),
