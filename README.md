@@ -59,6 +59,7 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 - ✅ **Plugin System** - WASM-based plugin architecture with hot loading
 - ✅ **Session Recording & Replay** - Record and replay terminal sessions with compression
 - ✅ **Remote Sessions** - TCP/TLS support for remote multiplexing
+- ✅ **Extended Protocols** - SSH tunnel and Mosh UDP transport support
 - ✅ **Performance Optimizations** - Adaptive batching, delta compression, backpressure handling
 - ✅ **Comprehensive Test Suite** - 250+ tests covering unit, integration, protocol, and E2E testing
 
@@ -74,7 +75,6 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 - 📋 **Advanced Scripting** - Lua or Rhai scripting support for automation
 - 📋 **Multi-User Collaboration** - Real-time collaborative editing
 - 📋 **Advanced Layout Management** - Custom layout presets and templates
-- 📋 **Extended Protocol Support** - SSH, Mosh integration
 
 ## 🚀 Quick Start
 

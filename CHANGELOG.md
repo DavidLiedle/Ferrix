@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Extended Protocol Support**: SSH and Mosh transport layers
+  - Generic Transport trait for all connection types
+  - SSH tunnel support with libssh2 (password, key, agent auth)
+  - Mosh-style UDP transport with state synchronization
+  - TCP transport with statistics tracking
+  - Transport performance metrics (bytes, packets, latency, loss)
+  - Comprehensive documentation in docs/TRANSPORT.md
+
 ## [0.16.0] - 2025-10-08
 
 ### Added
