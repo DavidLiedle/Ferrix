@@ -107,6 +107,10 @@ impl Server {
         self.keybinding_manager.clone()
     }
 
+    pub fn hooks(&self) -> Arc<RwLock<HookManager>> {
+        self.hooks.clone()
+    }
+
     pub async fn run(&mut self) -> Result<()> {
         if self.socket_path.exists() {
             std::fs::remove_file(&self.socket_path)?;

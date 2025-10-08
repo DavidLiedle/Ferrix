@@ -137,8 +137,8 @@ impl MoshTransport {
                 interval.tick().await;
 
                 let now = Instant::now();
-                let mut acks = pending_acks.lock().await;
-                let mut buffer = send_buffer.lock().await;
+                let acks = pending_acks.lock().await;
+                let buffer = send_buffer.lock().await;
 
                 // Retransmit packets older than 100ms
                 for (seq, timestamp) in acks.iter() {

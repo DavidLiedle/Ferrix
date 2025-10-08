@@ -9,7 +9,7 @@ use ferrix::client::Client;
 use ferrix::server::Server;
 #[cfg(feature = "remote")]
 use ferrix::server::remote::{RemoteServer, PasswordAuthHandler};
-use ferrix::error::Result;
+use ferrix::error::{Result, FerrixError};
 #[cfg(feature = "remote")]
 use ferrix::protocol::AuthCredentials;
 #[cfg(feature = "remote")]
@@ -307,9 +307,9 @@ async fn async_main(cli: Cli) -> Result<()> {
             let sessions = client.list_sessions().await?;
             let session_id = sessions
                 .iter()
-                .find(|s| s.name == session || s.id.0.to_string().starts_with(&session))
+                .find(|s| &s.name == session || s.id.0.to_string().starts_with(session.as_str()))
                 .map(|s| s.id.clone())
-                .ok_or_else(|| anyhow::anyhow!("Session '{}' not found", session))?;
+                .ok_or_else(|| FerrixError::Other(format!("Session '{}' not found", session)))?;
 
             client.restore_snapshot(session_id.clone(), path.into()).await?;
             println!("Snapshot restored into session: {} ({})", session, session_id.0);

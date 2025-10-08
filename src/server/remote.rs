@@ -241,6 +241,7 @@ impl RemoteServer {
         let sessions = server.sessions();
         let clients = server.clients();
         let keybinding_manager = server.keybinding_manager();
+        let hooks = server.hooks();
 
         // Register the remote client in the clients map
         let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerMessage>(100);
@@ -270,7 +271,7 @@ impl RemoteServer {
                             }
 
                             // Process message through server using the real handle_message function
-                            match super::handle_message(client_msg, &client_id, &sessions, &clients, &keybinding_manager).await {
+                            match super::handle_message(client_msg, &client_id, &sessions, &clients, &keybinding_manager, &hooks).await {
                                 Ok(Some(response)) => {
                                     framed.send(response).await?;
                                 }
