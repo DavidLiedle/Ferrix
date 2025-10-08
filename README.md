@@ -23,7 +23,7 @@
 
 Ferrix is a modern terminal multiplexer that combines the reliability of GNU Screen with features from Tmux, while exploring new possibilities with Rust's safety and performance. The name combines "Fe" (iron - representing Rust's memory safety) with "Matrix" (representing the matrix of terminal sessions).
 
-> **⚠️ Alpha Release (v0.16.0)**: Ferrix is feature-complete with tmux/screen parity, but still in alpha testing. It includes automatic crash recovery, multi-client session support, and polished UX features including contextual help, enhanced mouse support, and intelligent error messages. **Not recommended for production use yet** - see [Known Limitations](#known-limitations) below.
+> **⚠️ Alpha Release (v0.17.0)**: Ferrix is feature-complete with tmux/screen parity, but still in alpha testing. It includes automatic crash recovery, multi-client session support, and polished UX features including contextual help, enhanced mouse support, and intelligent error messages. **Not recommended for production use yet** - see [Known Limitations](#known-limitations) below.
 
 ## ✨ Features
 

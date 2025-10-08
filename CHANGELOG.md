@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2025-10-08
+
 ### Added
 - **Extended Protocol Support**: SSH and Mosh transport layers
   - Generic Transport trait for all connection types
@@ -15,6 +17,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - TCP transport with statistics tracking
   - Transport performance metrics (bytes, packets, latency, loss)
   - Comprehensive documentation in docs/TRANSPORT.md
+
+- **Session Snapshot Restore**: Complete in-place session recovery
+  - Made `restore_from_snapshot()` public API
+  - Added `RestoreSnapshot` protocol message
+  - CLI command: `ferrix restore-snapshot <session> <path>`
+  - Restore into existing session (vs load-snapshot creates new)
+  - Documentation in docs/snapshots.md
+
+- **Copy Mode Event System**: Wired up all event handlers
+  - Connected CopyModeEntered, CopyModeUpdate, CopyModeExited
+  - Connected LayoutUpdate handler
+  - Full server-to-client event propagation
+
+- **Status Bar Formatters**: Advanced system monitoring
+  - Documented string-dispatched formatters
+  - Variables: {git_branch}, {disk}, {network}, {temperature}, {processes}
+  - Comprehensive test coverage (test_advanced_formatters)
+  - All formatters proven functional
+
+### Fixed
+- **Build Errors**: Fixed all compilation issues
+  - RestoreSnapshot type mismatches and error handling
+  - Remote server missing hooks parameter
+  - Mosh transport unused mut warnings
+  - Added FerrixError import to main.rs
+
+- **Code Quality**: Eliminated all clippy warnings
+  - 0 warnings for lib target
+  - Fixed useless format! in snapshot restore
+  - Properly annotated string-dispatched methods
+
+### Changed
+- **Server API**: Added hooks() getter for remote server access
+- **Binary Sizes**: Optimized release builds
+  - Default: 4.7MB (minimal features)
+  - Full: 9.8MB (all features enabled)
+
+### Testing
+- All 249 tests passing
+- New test: test_advanced_formatters validates all status bar variables
 
 ## [0.16.0] - 2025-10-08
 
