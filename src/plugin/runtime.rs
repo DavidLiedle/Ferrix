@@ -18,18 +18,14 @@ use crate::error::FerrixError;
 pub struct PluginRuntime {
     engine: Engine,
     plugins: Arc<RwLock<HashMap<String, LoadedPlugin>>>,
-    #[allow(dead_code)]
     event_tx: mpsc::UnboundedSender<PluginEvent>,
-    #[allow(dead_code)]
     event_rx: Option<mpsc::UnboundedReceiver<PluginEvent>>,
     hook_registry: Arc<RwLock<HookRegistry>>,
 }
 
 struct LoadedPlugin {
-    #[allow(dead_code)]
     id: String,
     manifest: PluginManifest,
-    #[allow(dead_code)]
     instance: Instance,
     store: Arc<Mutex<Store<PluginState>>>,
     exports: HashMap<String, wasmtime::Func>,
@@ -302,6 +298,31 @@ impl PluginRuntime {
     pub async fn list_plugins(&self) -> Vec<PluginManifest> {
         let plugins = self.plugins.read().await;
         plugins.values().map(|p| p.manifest.clone()).collect()
+    }
+
+    /// Send an event through the event channel
+    pub fn send_event(&self, event: PluginEvent) -> Result<(), FerrixError> {
+        self.event_tx.send(event)
+            .map_err(|e| FerrixError::Plugin(format!("Failed to send event: {}", e)))
+    }
+
+    /// Take the event receiver for processing
+    pub fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<PluginEvent>> {
+        self.event_rx.take()
+    }
+
+    /// Get plugin ID by name
+    pub async fn get_plugin_id(&self, name: &str) -> Option<String> {
+        let plugins = self.plugins.read().await;
+        plugins.values()
+            .find(|p| p.manifest.name == name)
+            .map(|p| p.id.clone())
+    }
+
+    /// Get plugin instance for low-level operations
+    pub async fn get_plugin_instance(&self, plugin_id: &str) -> Option<(Instance, Arc<Mutex<Store<PluginState>>>)> {
+        let plugins = self.plugins.read().await;
+        plugins.get(plugin_id).map(|p| (p.instance, p.store.clone()))
     }
 
     // Helper functions
