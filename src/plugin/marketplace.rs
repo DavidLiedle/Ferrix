@@ -124,7 +124,6 @@ pub struct SearchResults {
 struct PluginCache {
     metadata: HashMap<String, PluginMetadata>,
     search_cache: HashMap<String, (SearchResults, DateTime<Utc>)>,
-    #[allow(dead_code)]
     cache_duration: std::time::Duration,
 }
 
@@ -163,12 +162,18 @@ impl MarketplaceClient {
         self.auth_token = Some(token);
     }
 
+    /// Set cache duration for metadata and search results
+    pub fn set_cache_duration(&mut self, duration: std::time::Duration) {
+        self.cache.cache_duration = duration;
+    }
+
     /// Search for plugins in the marketplace
     pub async fn search(&mut self, query: MarketplaceSearchQuery) -> Result<SearchResults> {
         // Check cache first
         let cache_key = serde_json::to_string(&query).unwrap_or_default();
         if let Some((cached_results, cached_at)) = self.cache.search_cache.get(&cache_key) {
-            if cached_at.signed_duration_since(Utc::now()).num_seconds().abs() < 3600 {
+            let cache_age = cached_at.signed_duration_since(Utc::now()).num_seconds().abs() as u64;
+            if cache_age < self.cache.cache_duration.as_secs() {
                 return Ok(cached_results.clone());
             }
         }
@@ -530,10 +535,50 @@ pub struct InstalledPlugin {
 
 /// Plugin marketplace server for hosting plugins
 pub struct MarketplaceServer {
-    #[allow(dead_code)]
     storage: Box<dyn PluginStorage>,
-    #[allow(dead_code)]
     auth: Box<dyn AuthProvider>,
+}
+
+impl MarketplaceServer {
+    /// Create a new marketplace server
+    pub fn new(storage: Box<dyn PluginStorage>, auth: Box<dyn AuthProvider>) -> Self {
+        Self { storage, auth }
+    }
+
+    /// Handle plugin upload with authentication
+    pub async fn upload_plugin(&self, token: &str, plugin: PluginMetadata, data: Vec<u8>) -> Result<()> {
+        // Verify authentication
+        let user = self.auth.verify_token(token).await?;
+
+        // Check permissions
+        if !self.auth.has_permission(&user, "upload_plugin").await {
+            return Err(FerrixError::Other("Permission denied".to_string()));
+        }
+
+        // Store the plugin
+        self.storage.store_plugin(&plugin, data).await
+    }
+
+    /// Search plugins
+    pub async fn search_plugins(&self, query: &MarketplaceSearchQuery) -> Result<SearchResults> {
+        self.storage.list_plugins(query).await
+    }
+
+    /// Get plugin data
+    pub async fn get_plugin(&self, plugin_id: &str, version: &Version) -> Result<Vec<u8>> {
+        self.storage.get_plugin(plugin_id, version).await
+    }
+
+    /// Update plugin metadata (requires authentication)
+    pub async fn update_metadata(&self, token: &str, plugin: PluginMetadata) -> Result<()> {
+        let user = self.auth.verify_token(token).await?;
+
+        if !self.auth.has_permission(&user, "update_metadata").await {
+            return Err(FerrixError::Other("Permission denied".to_string()));
+        }
+
+        self.storage.update_metadata(&plugin).await
+    }
 }
 
 #[async_trait::async_trait]
