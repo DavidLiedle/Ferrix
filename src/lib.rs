@@ -24,6 +24,9 @@ pub mod auth;
 #[cfg(feature = "plugin")]
 pub mod plugin;
 
+#[cfg(any(feature = "ssh", feature = "mosh"))]
+pub mod transport;
+
 // ============================================================================
 // TEST MODULES
 // ============================================================================

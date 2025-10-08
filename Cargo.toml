@@ -77,7 +77,9 @@ tokio-rustls = { version = "0.26", optional = true }              # remote
 rustls-pemfile = { version = "2.2", optional = true }             # remote
 webpki-roots = { version = "0.26", optional = true }              # remote
 bcrypt = { version = "0.15", optional = true }                    # remote
+ssh2 = { version = "0.9", optional = true }                       # ssh
 # performance has no dependencies
+# mosh has no additional dependencies (uses tokio UDP)
 
 # Tier 3: Experimental features
 git2 = { version = "0.19", features = ["vendored-openssl"], optional = true }  # versioning
@@ -146,7 +148,7 @@ default = []
 
 # Full: Everything enabled (for power users who want it all)
 full = [
-    "remote", "versioning",
+    "remote", "ssh", "mosh", "versioning",
     "collaboration", "time-travel", "plugin", "ai-assist",
     "gpu", "battery-status"
 ]
@@ -166,6 +168,8 @@ remote = [                             # TCP/TLS remote access
     "dep:rustls-pemfile", "dep:webpki-roots",
     "dep:bcrypt"
 ]
+ssh = ["dep:ssh2"]                     # SSH tunnel support
+mosh = []                              # Mosh-style UDP transport
 performance = []                       # Advanced output batching/compression
 
 # ============================================================================
