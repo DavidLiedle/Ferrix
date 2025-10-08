@@ -26,6 +26,7 @@ pub struct CopyModeState {
 pub struct Session {
     pub id: SessionId,
     pub name: String,
+    pub working_directory: PathBuf,
     pub windows: Vec<Arc<RwLock<Window>>>,
     pub current_window: Option<WindowId>,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -35,6 +36,7 @@ pub struct Session {
     pub auto_save_enabled: bool,
     pub auto_save_interval: Duration,
     pub last_auto_save: Option<chrono::DateTime<chrono::Utc>>,
+    pub auto_detach_on_exit: bool,
 
     pub recorder: Option<SessionRecorder>,
 
@@ -58,12 +60,17 @@ pub struct RecordingStatus {
 // Move these methods to proper location
 impl Session {
     pub fn new(id: SessionId, name: String) -> Self {
+        Self::new_with_working_dir(id, name, std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")))
+    }
+
+    pub fn new_with_working_dir(id: SessionId, name: String, working_dir: PathBuf) -> Self {
         let window_id = WindowId(Uuid::new_v4());
-        let default_window = Window::new(window_id.clone(), "bash".to_string());
+        let default_window = Window::new_with_working_dir(window_id.clone(), "bash".to_string(), working_dir.clone());
 
         Self {
             id,
             name,
+            working_directory: working_dir,
             windows: vec![Arc::new(RwLock::new(default_window))],
             current_window: Some(window_id),
             created_at: Utc::now(),
@@ -73,6 +80,7 @@ impl Session {
             auto_save_enabled: false,
             auto_save_interval: Duration::from_secs(300), // Default 5 minutes
             last_auto_save: None,
+            auto_detach_on_exit: true, // Default to true for better UX
 
             recorder: None,
 
@@ -176,6 +184,21 @@ impl Session {
         }
 
         Ok(outputs)
+    }
+
+    /// Check if all panes in all windows are dead
+    pub async fn are_all_panes_dead(&self) -> bool {
+        if self.windows.is_empty() {
+            return true;
+        }
+
+        for window in &self.windows {
+            let window_guard = window.read().await;
+            if !window_guard.are_all_panes_dead().await {
+                return false;
+            }
+        }
+        true
     }
 
     pub async fn create_window(&mut self, name: Option<String>) -> Result<WindowId> {
@@ -741,10 +764,27 @@ impl Session {
                 }
             }).collect();
 
+            // Find the window index
+            let window_id = window_guard.id.clone();
+            let window_name = window_guard.name.clone();
+            drop(window_guard);
+
+            let window_index = self.windows.iter()
+                .position(|w| {
+                    if let Ok(w_guard) = w.try_read() {
+                        w_guard.id == window_id
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(0);
+
             Some(crate::protocol::LayoutInfo {
-                window_id: window_guard.id.clone(),
+                window_id,
+                window_index,
+                window_name,
                 panes,
-                focused_pane: window_guard.current_pane.clone(),
+                focused_pane: current_window.read().await.current_pane.clone(),
             })
         } else {
             None
@@ -764,6 +804,7 @@ impl Session {
         let session_state = SessionState {
             id: self.id.clone(),
             name: self.name.clone(),
+            working_directory: self.working_directory.clone(),
             current_window: self.current_window.clone(),
             created_at: self.created_at,
             environment: std::env::vars().collect(),
@@ -875,6 +916,7 @@ impl Session {
         Self {
             id: snapshot.session.id,
             name: snapshot.session.name,
+            working_directory: snapshot.session.working_directory.clone(),
             windows,
             current_window,
             created_at: snapshot.session.created_at,
@@ -884,6 +926,7 @@ impl Session {
             auto_save_enabled: false,
             auto_save_interval: Duration::from_secs(300),
             last_auto_save: None,
+            auto_detach_on_exit: true,
 
             recorder: None,
 
@@ -1310,6 +1353,7 @@ impl Session {
             session: SessionState {
                 id: self.id.clone(),
                 name: self.name.clone(),
+                working_directory: self.working_directory.clone(),
                 current_window: self.current_window.clone(),
                 created_at: self.created_at,
                 environment: environment.clone(),

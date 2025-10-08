@@ -48,6 +48,7 @@ pub struct Message {
 pub struct Client {
     socket_path: PathBuf,
     attached_session: Option<SessionId>,
+    attached_session_name: Option<String>,
     framed: Option<Framed<UnixStream, FerrixClientCodec>>,
     current_layout: Option<LayoutInfo>,
     terminal_size: (u16, u16), // (cols, rows)
@@ -92,6 +93,7 @@ impl Client {
         Ok(Self {
             socket_path,
             attached_session: None,
+            attached_session_name: None,
             framed: None,
             current_layout: None,
             terminal_size: (80, 24),
@@ -137,27 +139,74 @@ impl Client {
     }
 
     pub async fn connect(&mut self) -> Result<()> {
-        let stream = UnixStream::connect(&self.socket_path)
-            .await
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound || e.kind() == std::io::ErrorKind::ConnectionRefused {
-                    FerrixError::Ipc(format!(
-                        "Failed to connect to server at {:?}: {}. Is the server running? Try: ferrix server",
-                        self.socket_path, e
-                    ))
-                } else {
-                    FerrixError::Ipc(format!("Failed to connect to server: {}", e))
+        self.connect_with_auto_start(true).await
+    }
+
+    pub async fn connect_with_auto_start(&mut self, auto_start: bool) -> Result<()> {
+        let stream_result = UnixStream::connect(&self.socket_path).await;
+
+        let stream = match stream_result {
+            Ok(s) => s,
+            Err(e) if (e.kind() == std::io::ErrorKind::NotFound || e.kind() == std::io::ErrorKind::ConnectionRefused) && auto_start => {
+                // Try to auto-start the server
+                info!("Server not running, attempting to start it...");
+                if let Err(start_err) = self.try_start_server() {
+                    return Err(FerrixError::Ipc(format!(
+                        "Failed to connect to server at {:?}: {}. Tried to auto-start server but failed: {}",
+                        self.socket_path, e, start_err
+                    )));
                 }
-            })?;
+
+                // Try connecting again after starting
+                UnixStream::connect(&self.socket_path)
+                    .await
+                    .map_err(|e2| {
+                        FerrixError::Ipc(format!(
+                            "Failed to connect to server at {:?} after auto-start: {}",
+                            self.socket_path, e2
+                        ))
+                    })?
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound || e.kind() == std::io::ErrorKind::ConnectionRefused => {
+                return Err(FerrixError::Ipc(format!(
+                    "Failed to connect to server at {:?}: {}. Is the server running? Try: ferrix server",
+                    self.socket_path, e
+                )));
+            }
+            Err(e) => {
+                return Err(FerrixError::Ipc(format!("Failed to connect to server: {}", e)));
+            }
+        };
 
         self.framed = Some(Framed::new(stream, FerrixClientCodec::new()));
         info!("Connected to server at {:?}", self.socket_path);
         Ok(())
     }
 
+    fn try_start_server(&self) -> Result<()> {
+        use std::process::Command;
+
+        // Get the path to the current executable
+        let exe_path = std::env::current_exe()
+            .map_err(|e| FerrixError::Other(format!("Failed to get current executable path: {}", e)))?;
+
+        // Start the server as a background daemon
+        Command::new(&exe_path)
+            .arg("server")
+            .spawn()
+            .map_err(|e| FerrixError::Other(format!("Failed to start server: {}", e)))?;
+
+        // Give the server time to fully start and initialize
+        // Need extra time for daemonization and socket creation
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+
+        Ok(())
+    }
+
     pub async fn create_session(&mut self, name: Option<String>) -> Result<SessionId> {
         if let Some(framed) = &mut self.framed {
-            framed.send(ClientMessage::CreateSession { name }).await?;
+            let working_dir = std::env::current_dir().ok();
+            framed.send(ClientMessage::CreateSession { name, working_dir }).await?;
 
             if let Some(Ok(ServerMessage::SessionCreated { session_id, name })) = framed.next().await {
                 info!("Created session: {} ({})", name, session_id.0);
@@ -174,9 +223,10 @@ impl Client {
             // Wait for session attached confirmation
             if let Some(response) = framed.next().await {
                 match response? {
-                    ServerMessage::SessionAttached { .. } => {
-                        self.attached_session = Some(session_id.clone());
-                        info!("Attached to session: {}", session_id.0);
+                    ServerMessage::SessionAttached { session_id: attached_id, name } => {
+                        self.attached_session = Some(attached_id.clone());
+                        self.attached_session_name = Some(name.clone());
+                        info!("Attached to session: {} ({})", name, attached_id.0);
 
                         // Send terminal size immediately after attaching
                         use std::io::IsTerminal;
@@ -189,11 +239,16 @@ impl Client {
                             framed.send(ClientMessage::Resize { cols: 80, rows: 24 }).await?;
                         }
 
+                        // Clear the screen once before starting the TUI
+                        // This gives us a clean slate for the borders and status bar
+                        crossterm::execute!(std::io::stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))?;
+
+                        // Wait a bit for the layout to be received and rendered
+                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
                         // Send Ctrl-L to refresh the prompt
                         // This triggers the shell to redraw, showing the current prompt
                         framed.send(ClientMessage::Input { data: vec![0x0C] }).await?;
-
-                        // Layout will be sent automatically by server
                     }
                     ServerMessage::Error { message } => {
                         return Err(FerrixError::Other(message));
@@ -219,6 +274,7 @@ impl Client {
 
             if let Some(Ok(ServerMessage::SessionDetached)) = framed.next().await {
                 self.attached_session = None;
+                self.attached_session_name = None;
                 info!("Detached from session");
                 return Ok(());
             }
@@ -350,8 +406,19 @@ impl Client {
             (None, None)
         };
 
+        // Add a timer for status bar updates (every second for live clock)
+        let mut status_bar_timer = tokio::time::interval(tokio::time::Duration::from_secs(1));
+        status_bar_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         loop {
             tokio::select! {
+                // Update status bar every second for live clock
+                _ = status_bar_timer.tick() => {
+                    self.render_status_bar().await?;
+                    use std::io::Write;
+                    std::io::stdout().flush()?;
+                }
+
                 // Handle stdin input in non-TTY mode
                 Some(data) = async {
                     if let Some(rx) = &mut stdin_rx {
@@ -1278,7 +1345,8 @@ impl Client {
 
     async fn render_layout(&mut self) -> Result<()> {
         if let Some(layout) = self.current_layout.clone() {
-            self.clear_screen().await?;
+            // DON'T clear the screen - that would erase PTY output!
+            // Just redraw borders and status bar
             self.draw_panes(&layout).await?;
 
             // Render help overlay if visible
@@ -1326,6 +1394,7 @@ impl Client {
                         if let Some(layout) = self.current_layout.clone() {
                             if let Some(pane_info) = layout.panes.iter().find(|p| p.is_focused).cloned() {
                                 self.draw_pane_content(&pane_info).await?;
+                                self.render_status_bar().await?;
                             }
                         }
 
@@ -1366,6 +1435,7 @@ impl Client {
                         if let Some(layout) = self.current_layout.clone() {
                             if let Some(pane_info) = layout.panes.iter().find(|p| p.is_focused).cloned() {
                                 self.draw_pane_content(&pane_info).await?;
+                                self.render_status_bar().await?;
                             }
                         }
                     }
@@ -2210,18 +2280,24 @@ impl Client {
         execute!(stdout, MoveTo(0, rows - 1))?;
 
         // Build status bar content
-        let session_name = self.attached_session
+        let session_name = self.attached_session_name
             .as_ref()
-            .map(|s| format!("{:.8}", s.0))
+            .map(|s| s.clone())
             .unwrap_or_else(|| "No Session".to_string());
 
         let window_info = if let Some(layout) = &self.current_layout {
-            format!("W:{} P:{}", &layout.window_id.0.to_string()[..8], layout.panes.len())
+            format!("{}:{} P:{}", layout.window_index, layout.window_name, layout.panes.len())
         } else {
             "W:- P:-".to_string()
         };
 
         let time = chrono::Local::now().format("%H:%M:%S").to_string();
+
+        // Get colors from config
+        let config = self.config.read().await;
+        let status_bg_color = self.parse_color(&config.colors.status_bg);
+        let status_fg_color = self.parse_color(&config.colors.status_fg);
+        drop(config);
 
         // Format status bar with padding
         let left_section = format!(" Ferrix [{}]", session_name);
@@ -2236,7 +2312,7 @@ impl Client {
             };
             (message.text.clone(), color)
         } else {
-            (format!("[{}]", window_info), Color::White)
+            (format!("[{}]", window_info), status_fg_color)
         };
 
         let right_section = format!("{} ", time);
@@ -2250,15 +2326,15 @@ impl Client {
             let right_padding = available_width - used_width - left_padding;
 
             // Render with color-coded center section
-            execute!(stdout, SetBackgroundColor(Color::DarkBlue), SetForegroundColor(Color::White))?;
+            execute!(stdout, SetBackgroundColor(status_bg_color), SetForegroundColor(status_fg_color))?;
             write!(stdout, "{}{}", left_section, " ".repeat(left_padding))?;
             execute!(stdout, SetForegroundColor(center_color))?;
             write!(stdout, "{}", center_section)?;
-            execute!(stdout, SetForegroundColor(Color::White))?;
+            execute!(stdout, SetForegroundColor(status_fg_color))?;
             write!(stdout, "{}{}", " ".repeat(right_padding), right_section)?;
         } else {
             // Truncate if too long
-            execute!(stdout, SetBackgroundColor(Color::DarkBlue), SetForegroundColor(Color::White))?;
+            execute!(stdout, SetBackgroundColor(status_bg_color), SetForegroundColor(status_fg_color))?;
             let truncated = format!("{}{}{}", left_section, center_section, right_section);
             let display_text = if truncated.len() > available_width {
                 &truncated[..available_width]
@@ -2279,6 +2355,34 @@ impl Client {
         Ok(())
     }
 
+    fn parse_color(&self, color_str: &str) -> crossterm::style::Color {
+        use crossterm::style::Color;
+
+        if let Some(stripped) = color_str.strip_prefix('#') {
+            // Parse hex color
+            if let Ok(hex) = u32::from_str_radix(stripped, 16) {
+                let r = ((hex >> 16) & 0xFF) as u8;
+                let g = ((hex >> 8) & 0xFF) as u8;
+                let b = (hex & 0xFF) as u8;
+                return Color::Rgb { r, g, b };
+            }
+        }
+
+        // Parse named colors
+        match color_str.to_lowercase().as_str() {
+            "black" => Color::Black,
+            "red" => Color::Red,
+            "green" => Color::Green,
+            "darkgreen" | "dark_green" => Color::DarkGreen,
+            "yellow" => Color::Yellow,
+            "blue" => Color::Blue,
+            "magenta" => Color::Magenta,
+            "cyan" => Color::Cyan,
+            "white" => Color::White,
+            "gray" | "grey" => Color::Grey,
+            _ => Color::Reset,
+        }
+    }
 
     fn is_line_selected(&self, line_idx: usize) -> bool {
         if let (Some(start), Some(end)) = (self.copy_mode.selection_start(), self.copy_mode.selection_end()) {

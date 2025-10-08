@@ -26,12 +26,16 @@ impl Pane {
     }
 
     pub fn new_with_config(id: PaneId, scrollback_lines: usize) -> Self {
+        Self::new_with_working_dir(id, scrollback_lines, std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")))
+    }
+
+    pub fn new_with_working_dir(id: PaneId, scrollback_lines: usize, working_dir: PathBuf) -> Self {
         let mut pane = Self {
             id,
             pty: None,
             cols: 80,
             rows: 24,
-            working_directory: std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
+            working_directory: working_dir,
             command: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
             scrollback: LineScrollback::new(scrollback_lines),
             cursor_position: (0, 0),
@@ -48,7 +52,7 @@ impl Pane {
     }
 
     fn start_pty(&mut self) -> Result<()> {
-        self.pty = Some(Pty::new(self.cols, self.rows)?);
+        self.pty = Some(Pty::new_with_cwd(self.cols, self.rows, self.working_directory.clone())?);
         Ok(())
     }
 

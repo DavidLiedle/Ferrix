@@ -84,6 +84,7 @@ fn bench_snapshot_operations(c: &mut Criterion) {
                 session: SessionState {
                     id: session_id.clone(),
                     name: "benchmark".to_string(),
+                    working_directory: std::path::PathBuf::from("/tmp"),
                     created_at: now,
                     current_window: Some(window_id.clone()),
                     environment: vec![],

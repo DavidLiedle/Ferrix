@@ -33,6 +33,7 @@ pub struct SnapshotMetadata {
 pub struct SessionState {
     pub id: SessionId,
     pub name: String,
+    pub working_directory: std::path::PathBuf,
     pub current_window: Option<WindowId>,
     pub created_at: DateTime<Utc>,
     pub environment: Vec<(String, String)>,
@@ -314,6 +315,7 @@ mod tests {
             session: SessionState {
                 id: session_id.clone(),
                 name: "test_session".to_string(),
+                working_directory: std::path::PathBuf::from("/test"),
                 current_window: Some(window_id.clone()),
                 created_at: Utc::now(),
                 environment: vec![("HOME".to_string(), "/home/test".to_string())],
@@ -504,6 +506,7 @@ mod tests {
         let session_state = SessionState {
             id: session_id.clone(),
             name: "test_session".to_string(),
+            working_directory: std::path::PathBuf::from("/test"),
             current_window: Some(window_id.clone()),
             created_at: Utc::now(),
             environment: vec![("PATH".to_string(), "/usr/bin".to_string())],

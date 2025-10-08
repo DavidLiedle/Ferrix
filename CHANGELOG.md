@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2025-10-08
+
+### Added
+- **Auto-Start Server**: Automatically start server when running `ferrix` without explicit server startup
+  - Detects when server is not running during connection attempts
+  - Spawns server daemon process automatically with 2-second initialization wait
+  - Seamlessly proceeds with session creation/attachment after server starts
+  - Eliminates need for manual `ferrix server` command in typical workflows
+
+### Fixed
+- **Shell Prompt Display**: Fixed missing prompt on session attach
+  - Root cause: `render_layout()` was clearing entire screen on every update, erasing PTY output
+  - Solution: Only clear screen once at initial attach, then redraw borders/status bar without clearing
+  - PTY output (including shell prompts) now persists correctly between UI updates
+  - Matches tmux/screen behavior where UI chrome updates don't clear pane content
+
 ## [0.17.0] - 2025-10-08
 
 ### Added

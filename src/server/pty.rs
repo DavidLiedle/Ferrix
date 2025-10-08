@@ -17,6 +17,11 @@ pub struct Pty {
 
 impl Pty {
     pub fn new(cols: u16, rows: u16) -> Result<Self> {
+        Self::new_with_cwd(cols, rows, std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")))
+    }
+
+    pub fn new_with_cwd(cols: u16, rows: u16, working_dir: std::path::PathBuf) -> Result<Self> {
+        tracing::info!("Creating PTY with working directory: {:?}", working_dir);
         let pty_system = native_pty_system();
 
         let pty_pair = pty_system
@@ -29,7 +34,8 @@ impl Pty {
             .map_err(|e| FerrixError::Pty(format!("Failed to open PTY: {}", e)))?;
 
         let mut cmd = CommandBuilder::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()));
-        cmd.cwd(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
+        cmd.cwd(&working_dir);
+        tracing::info!("Set PTY command working directory to: {:?}", working_dir);
 
         let child = pty_pair.slave.spawn_command(cmd)
             .map_err(|e| FerrixError::Pty(format!("Failed to spawn shell: {}", e)))?;

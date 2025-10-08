@@ -48,6 +48,7 @@ pub struct GeneralConfig {
     pub scrollback_lines: usize,
     pub automatic_rename: bool,
     pub display_panes_time: u64,
+    pub auto_detach_on_exit: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -163,6 +164,7 @@ impl Default for GeneralConfig {
             scrollback_lines: 10000,
             automatic_rename: true,
             display_panes_time: 2000,
+            auto_detach_on_exit: true, // Default to enabled for better UX
         }
     }
 }
@@ -197,8 +199,8 @@ impl Default for ColorConfig {
             foreground: "#d4d4d4".to_string(),
             pane_border: "#444444".to_string(),
             pane_active_border: "#569cd6".to_string(),
-            status_bg: "#2d2d30".to_string(),
-            status_fg: "#cccccc".to_string(),
+            status_bg: "darkgreen".to_string(),
+            status_fg: "black".to_string(),
             status_current_bg: "#569cd6".to_string(),
             status_current_fg: "#ffffff".to_string(),
             copy_mode_bg: "#3c3c3c".to_string(),

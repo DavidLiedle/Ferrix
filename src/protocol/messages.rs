@@ -18,6 +18,7 @@ pub struct PaneId(pub Uuid);
 pub enum ClientMessage {
     CreateSession {
         name: Option<String>,
+        working_dir: Option<PathBuf>,
     },
     AttachSession {
         session_id: SessionId,
@@ -263,6 +264,7 @@ pub enum ServerMessage {
     },
     SessionAttached {
         session_id: SessionId,
+        name: String,
     },
     SessionDetached,
     SessionList {
@@ -524,6 +526,8 @@ pub struct SessionTemplateInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayoutInfo {
     pub window_id: WindowId,
+    pub window_index: usize,
+    pub window_name: String,
     pub panes: Vec<PaneInfo>,
     pub focused_pane: Option<PaneId>,
 }

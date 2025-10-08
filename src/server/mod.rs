@@ -251,11 +251,23 @@ pub async fn handle_message(
     hooks: &Arc<RwLock<HookManager>>,
 ) -> Result<Option<ServerMessage>> {
     match message {
-        ClientMessage::CreateSession { name } => {
+        ClientMessage::CreateSession { name, working_dir } => {
             let session_id = SessionId(Uuid::new_v4());
-            let session_name = name.unwrap_or_else(|| format!("session-{}", Uuid::new_v4()));
+            let session_name = name.unwrap_or_else(|| {
+                // Generate a simple sequential session name like tmux (0, 1, 2, ...)
+                let sessions_guard = futures::executor::block_on(sessions.read());
+                let session_count = sessions_guard.len();
+                format!("{}", session_count)
+            });
 
-            let session = Session::new(session_id.clone(), session_name.clone());
+            tracing::info!("Creating session with working_dir: {:?}", working_dir);
+            let session = if let Some(cwd) = working_dir {
+                tracing::info!("Using client working directory: {:?}", cwd);
+                Session::new_with_working_dir(session_id.clone(), session_name.clone(), cwd)
+            } else {
+                tracing::info!("No working_dir provided, using server's current dir");
+                Session::new(session_id.clone(), session_name.clone())
+            };
             let session_arc = Arc::new(RwLock::new(session));
 
             {
@@ -295,6 +307,25 @@ pub async fn handle_message(
                                 }
                             }
                         }
+                    }
+
+                    // Check if all panes are dead and auto-detach clients (if enabled)
+                    let (all_panes_dead, auto_detach_enabled) = {
+                        let session_guard = session_clone.read().await;
+                        (session_guard.are_all_panes_dead().await, session_guard.auto_detach_on_exit)
+                    };
+
+                    if all_panes_dead && auto_detach_enabled {
+                        // All panes are dead and auto-detach is enabled
+                        // Send detach message to all attached clients
+                        let clients_guard = clients_clone.read().await;
+                        for (_, client) in clients_guard.iter() {
+                            if client.attached_session == Some(session_id_clone.clone()) {
+                                let _ = client.sender.send(ServerMessage::SessionDetached).await;
+                            }
+                        }
+                        // Exit the polling loop since session is effectively dead
+                        break;
                     }
                 }
             });
@@ -341,6 +372,7 @@ pub async fn handle_message(
 
                 // Send layout info immediately after attach
                 let session_guard = session.read().await;
+                let session_name = session_guard.name.clone();
                 if let Some(layout) = session_guard.get_layout_info().await {
                     // Get the client's sender channel
                     let clients_guard = clients.read().await;
@@ -352,7 +384,7 @@ pub async fn handle_message(
                 drop(session_guard);
 
                 // Send SessionAttached response
-                Ok(Some(ServerMessage::SessionAttached { session_id }))
+                Ok(Some(ServerMessage::SessionAttached { session_id, name: session_name }))
             } else {
                 Ok(Some(ServerMessage::Error {
                     message: format!("Session not found: {}", session_id.0),

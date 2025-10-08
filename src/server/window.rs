@@ -83,8 +83,12 @@ impl Window {
     }
 
     pub fn new(id: WindowId, name: String) -> Self {
+        Self::new_with_working_dir(id, name, std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")))
+    }
+
+    pub fn new_with_working_dir(id: WindowId, name: String, working_dir: std::path::PathBuf) -> Self {
         let pane_id = PaneId(Uuid::new_v4());
-        let default_pane = Pane::new(pane_id.clone());
+        let default_pane = Pane::new_with_working_dir(pane_id.clone(), 10000, working_dir);
 
         let mut panes = HashMap::new();
         panes.insert(pane_id.clone(), Arc::new(RwLock::new(default_pane)));
@@ -280,14 +284,26 @@ impl Window {
 
         for (pane_id, pane) in &self.panes {
             let mut pane_guard = pane.write().await;
-            if let Some(data) = pane_guard.get_output().await? {
-                if !data.is_empty() {
-                    // Record activity for panes that have output
-                    // Only record if it's not the current pane (focused pane)
-                    if self.current_pane.as_ref() != Some(pane_id) {
-                        self.activity_monitor.record_activity(pane_id, ActivityType::Output);
+            match pane_guard.get_output().await {
+                Ok(Some(data)) => {
+                    if !data.is_empty() {
+                        // Record activity for panes that have output
+                        // Only record if it's not the current pane (focused pane)
+                        if self.current_pane.as_ref() != Some(pane_id) {
+                            self.activity_monitor.record_activity(pane_id, ActivityType::Output);
+                        }
+                        outputs.push((pane_id.clone(), data));
                     }
-                    outputs.push((pane_id.clone(), data));
+                }
+                Ok(None) => {
+                    // No data available, pane is still alive
+                }
+                Err(_) => {
+                    // PTY error (usually means process died), mark pane as dead
+                    if !pane_guard.is_dead() {
+                        tracing::info!("Pane {} PTY died, marking as dead", pane_id.0);
+                        pane_guard.mark_dead(None);
+                    }
                 }
             }
         }
@@ -306,6 +322,21 @@ impl Window {
 
     pub fn get_focused_pane(&self) -> Option<PaneId> {
         self.current_pane.clone()
+    }
+
+    /// Check if all panes in this window are dead
+    pub async fn are_all_panes_dead(&self) -> bool {
+        if self.panes.is_empty() {
+            return true;
+        }
+
+        for pane in self.panes.values() {
+            let pane_guard = pane.read().await;
+            if !pane_guard.is_dead() {
+                return false;
+            }
+        }
+        true
     }
 
     pub async fn toggle_zoom(&mut self) -> Result<bool> {
