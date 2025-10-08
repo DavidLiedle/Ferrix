@@ -599,7 +599,7 @@ pub async fn handle_message(
 
                         info!("Restored snapshot from {:?} into session {}", path, session_id.0);
                         Ok(Some(ServerMessage::Output {
-                            data: format!("Snapshot restored successfully\r\n").into_bytes(),
+                            data: "Snapshot restored successfully\r\n".as_bytes().to_vec(),
                         }))
                     } else {
                         Ok(Some(ServerMessage::Error {
