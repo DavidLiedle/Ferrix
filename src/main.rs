@@ -299,6 +299,22 @@ async fn async_main(cli: Cli) -> Result<()> {
             println!("Snapshot loaded as session: {}", session_id.0);
         }
 
+        Some(Commands::RestoreSnapshot { session, path }) => {
+            let mut client = Client::new(socket_path)?;
+            client.connect().await?;
+
+            // Resolve session name/ID
+            let sessions = client.list_sessions().await?;
+            let session_id = sessions
+                .iter()
+                .find(|s| s.name == session || s.id.0.to_string().starts_with(&session))
+                .map(|s| s.id.clone())
+                .ok_or_else(|| anyhow::anyhow!("Session '{}' not found", session))?;
+
+            client.restore_snapshot(session_id.clone(), path.into()).await?;
+            println!("Snapshot restored into session: {} ({})", session, session_id.0);
+        }
+
         Some(Commands::ListSnapshots) => {
             let mut client = Client::new(socket_path)?;
             client.connect().await?;

@@ -98,6 +98,10 @@ pub enum ClientMessage {
     LoadSnapshot {
         path: std::path::PathBuf,
     },
+    RestoreSnapshot {
+        session_id: SessionId,
+        path: std::path::PathBuf,
+    },
     ListSnapshots,
     DeleteSnapshot {
         path: std::path::PathBuf,

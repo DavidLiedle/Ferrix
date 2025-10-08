@@ -577,6 +577,44 @@ pub async fn handle_message(
             }
         }
 
+        ClientMessage::RestoreSnapshot { session_id, path } => {
+            let snapshot_manager = match SnapshotManager::new() {
+                Ok(sm) => sm,
+                Err(e) => {
+                    return Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to initialize snapshot manager: {}", e),
+                    }));
+                }
+            };
+
+            match snapshot_manager.load_snapshot(&path) {
+                Ok(snapshot) => {
+                    // Restore into existing session
+                    let sessions_guard = sessions.read().await;
+                    if let Some(session_arc) = sessions_guard.get(&session_id) {
+                        let mut session = session_arc.write().await;
+                        session.restore_from_snapshot(snapshot).await;
+                        drop(session);
+                        drop(sessions_guard);
+
+                        info!("Restored snapshot from {:?} into session {}", path, session_id.0);
+                        Ok(Some(ServerMessage::Output {
+                            data: format!("Snapshot restored successfully\r\n").into_bytes(),
+                        }))
+                    } else {
+                        Ok(Some(ServerMessage::Error {
+                            message: format!("Session {} not found", session_id.0),
+                        }))
+                    }
+                }
+                Err(e) => {
+                    Ok(Some(ServerMessage::Error {
+                        message: format!("Failed to load snapshot: {}", e),
+                    }))
+                }
+            }
+        }
+
         ClientMessage::DeleteSnapshot { path } => {
             let snapshot_manager = match SnapshotManager::new() {
                 Ok(sm) => sm,

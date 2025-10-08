@@ -1162,7 +1162,8 @@ impl Session {
 
 // Core session methods (always available)
 impl Session {
-    async fn restore_from_snapshot(&mut self, snapshot: super::snapshot::SessionSnapshot) {
+    /// Restore session state from a snapshot
+    pub async fn restore_from_snapshot(&mut self, snapshot: super::snapshot::SessionSnapshot) {
         // Restore session metadata
         self.name = snapshot.session.name;
         self.created_at = snapshot.session.created_at;

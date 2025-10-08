@@ -1908,6 +1908,26 @@ impl Client {
         }
     }
 
+    pub async fn restore_snapshot(&mut self, session_id: SessionId, path: std::path::PathBuf) -> Result<()> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::RestoreSnapshot { session_id, path }).await?;
+
+            if let Some(response) = framed.next().await {
+                match response? {
+                    ServerMessage::Output { .. } => Ok(()),
+                    ServerMessage::Error { message } => {
+                        Err(FerrixError::Other(message))
+                    }
+                    _ => Err(FerrixError::Other("Unexpected server response".to_string())),
+                }
+            } else {
+                Err(FerrixError::Other("No response from server".to_string()))
+            }
+        } else {
+            Err(FerrixError::NotConnected)
+        }
+    }
+
     pub async fn list_snapshots(&mut self) -> Result<Vec<crate::protocol::SnapshotInfo>> {
         if let Some(framed) = &mut self.framed {
             framed.send(ClientMessage::ListSnapshots).await?;

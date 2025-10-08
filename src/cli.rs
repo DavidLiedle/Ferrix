@@ -102,6 +102,15 @@ pub enum Commands {
         path: String,
     },
 
+    #[command(about = "Restore snapshot into existing session")]
+    RestoreSnapshot {
+        #[arg(help = "Session ID or name to restore into")]
+        session: String,
+
+        #[arg(help = "Path to snapshot file")]
+        path: String,
+    },
+
     #[command(about = "List available snapshots")]
     ListSnapshots,
 

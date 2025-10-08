@@ -48,7 +48,7 @@ ferrix list-snapshots
 ### Loading Snapshots
 
 ```bash
-# Load specific snapshot
+# Load snapshot as NEW session
 ferrix load-snapshot ~/.ferrix/snapshots/session_20240120_143000.snapshot
 
 # Load and attach immediately
@@ -58,6 +58,28 @@ ferrix load-snapshot /path/to/snapshot.ferrix && ferrix attach
 # Press: Ctrl-b R
 # Then enter snapshot path
 ```
+
+### Restoring Snapshots
+
+Restore a snapshot into an **existing session** (replaces current state):
+
+```bash
+# Restore snapshot into existing session
+ferrix restore-snapshot my-session ~/.ferrix/snapshots/backup.snapshot
+
+# Restore into session by ID
+ferrix restore-snapshot a1b2c3d4 /path/to/snapshot.ferrix
+
+# Use case: Roll back to previous state
+ferrix save-snapshot work --name "before-experiment"
+# ... make changes ...
+# Oops, need to go back!
+ferrix restore-snapshot work ~/.ferrix/snapshots/before-experiment.snapshot
+```
+
+**Differences**:
+- `load-snapshot`: Creates a **new** session from snapshot
+- `restore-snapshot`: Restores into **existing** session (destructive)
 
 ### Deleting Snapshots
 
