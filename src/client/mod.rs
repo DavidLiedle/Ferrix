@@ -218,6 +218,20 @@ impl Client {
 
     pub async fn attach_session(&mut self, session_id: SessionId) -> Result<()> {
         if let Some(framed) = &mut self.framed {
+            // Set up terminal BEFORE attaching so buffer is displayed on alternate screen
+            let is_tty = std::io::stdin().is_terminal();
+            if is_tty {
+                terminal::enable_raw_mode()?;
+                execute!(stdout(), crossterm::terminal::EnterAlternateScreen)?;
+                execute!(stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))?;
+                execute!(stdout(), cursor::Hide)?;
+
+                // Enable mouse support if configured
+                if self.mouse_handler.enabled {
+                    execute!(stdout(), EnableMouseCapture)?;
+                }
+            }
+
             framed.send(ClientMessage::AttachSession { session_id: session_id.clone() }).await?;
 
             // Wait for session attached confirmation
@@ -253,8 +267,8 @@ impl Client {
                 return Err(FerrixError::Other("No response from server during attach".to_string()));
             }
 
-            // Enter main session loop
-            self.run_attached().await
+            // Enter main session loop (terminal already set up)
+            self.run_attached_without_setup().await
         } else {
             Err(FerrixError::NotConnected)
         }
@@ -353,8 +367,53 @@ impl Client {
             if self.mouse_handler.enabled {
                 execute!(stdout(), DisableMouseCapture)?;
             }
+
+            // Leave alternate screen first
+            execute!(stdout(), crossterm::terminal::LeaveAlternateScreen)?;
+
+            // Disable raw mode
             terminal::disable_raw_mode()?;
-            execute!(stdout(), crossterm::terminal::LeaveAlternateScreen, cursor::Show)?;
+
+            // Reset terminal state and show cursor
+            execute!(stdout(),
+                crossterm::style::ResetColor,
+                crossterm::cursor::Show
+            )?;
+
+            // Flush to ensure all changes are applied
+            use std::io::Write;
+            std::io::stdout().flush()?;
+        }
+
+        result
+    }
+
+    async fn run_attached_without_setup(&mut self) -> Result<()> {
+        // Terminal setup already done in attach_session, just run the loop
+        let is_tty = std::io::stdin().is_terminal();
+        let result = self.handle_attached_session().await;
+
+        if is_tty {
+            // Disable mouse capture if it was enabled
+            if self.mouse_handler.enabled {
+                execute!(stdout(), DisableMouseCapture)?;
+            }
+
+            // Leave alternate screen first
+            execute!(stdout(), crossterm::terminal::LeaveAlternateScreen)?;
+
+            // Disable raw mode
+            terminal::disable_raw_mode()?;
+
+            // Reset terminal state and show cursor
+            execute!(stdout(),
+                crossterm::style::ResetColor,
+                crossterm::cursor::Show
+            )?;
+
+            // Flush to ensure all changes are applied
+            use std::io::Write;
+            std::io::stdout().flush()?;
         }
 
         result

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] - 2025-10-08
+
+### Fixed
+- **Terminal Cleanup on Detach**: Fixed terminal corruption after detaching from sessions
+  - Implemented proper cleanup sequence: LeaveAlternateScreen → disable_raw_mode → ResetColor → Show cursor → flush
+  - Terminal now properly returns to normal state after detach
+  - Prevents garbled output when running commands after detach
+- **Session Reattach**: Fixed dead session on reattach
+  - Terminal setup now happens BEFORE sending attach message
+  - Raw output buffer is displayed on alternate screen where event loop runs
+  - Input works immediately after reattach (no more dead sessions)
+  - Properly preserves session content including partial input at prompt
+
 ## [0.19.0] - 2025-10-08
 
 ### Added

@@ -1,6 +1,6 @@
 [package]
 name = "ferrix"
-version = "0.19.0"
+version = "0.19.1"
 edition = "2021"
 authors = ["David Liedle", "Claude <noreply@anthropic.com>"]
 description = "A production-ready terminal multiplexer with tmux/screen parity, crash recovery, and multi-client support"
