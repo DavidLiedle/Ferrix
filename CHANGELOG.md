@@ -7,7 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2025-10-08
+
+### Added
+- **Recording API**: Implemented session recording and playback functionality
+  - Made `RECORDING_VERSION` public constant for version tracking
+  - Made `process_event()` public for playback operations
+- **Versioning API**: Implemented Git-like version control for sessions
+  - Added `config()` getter for VersioningConfig access
+  - Made `calculate_diff()` public for session snapshot comparison
+- **Plugin Runtime API**: Completed plugin system infrastructure
+  - Added `send_event()` for event channel communication
+  - Added `take_event_receiver()` for async event processing
+  - Added `get_plugin_id()` to look up plugins by name
+  - Added `get_plugin_instance()` for low-level plugin access
+- **Marketplace API**: Implemented plugin marketplace functionality
+  - Added `set_cache_duration()` to configure metadata TTL
+  - Updated cache validation to use configurable duration
+  - Implemented `MarketplaceServer` with storage/auth backends
+  - Added upload, search, get, and update methods
+- **GPU Renderer API**: Completed glyph cache management
+  - Added `get_dimensions()` for atlas size queries
+  - Added `get_texture()` for advanced texture operations
+  - Added `insert_glyph()` for dynamic glyph caching
+  - Added `calculate_free_space()` for atlas utilization tracking
+
 ### Changed
+- **Code Quality**: Removed all 14 `#[allow(dead_code)]` annotations
+  - All planned features now have complete implementations
+  - No suppressed warnings - all code is actively used
 - **Project Organization**: Cleaned up repository structure
   - Moved documentation to `docs/` directory (DEVELOPMENT_PLAN, SECURITY_AUDIT, etc.)
   - Moved test scripts to `tests/scripts/` directory
