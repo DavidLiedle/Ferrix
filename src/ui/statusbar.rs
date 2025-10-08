@@ -490,6 +490,8 @@ impl StatusBar {
         }
     }
 
+    /// Format git branch for status bar
+    /// Called via get_variable_value("git_branch") - line 296
     #[cfg(not(feature = "versioning"))]
     fn format_git_branch(&self) -> String {
         if let Some(branch) = &self.git_branch {
@@ -541,6 +543,8 @@ impl StatusBar {
         format!("{:.2}", load_avg.one)
     }
 
+    /// Format disk usage for status bar
+    /// Called via get_variable_value("disk") - line 305
     fn format_disk_usage(&self) -> String {
         // Use df command to get disk usage for root filesystem
         use std::process::Command;
@@ -565,6 +569,8 @@ impl StatusBar {
         "DISK: N/A".to_string()
     }
 
+    /// Format network connectivity status
+    /// Called via get_variable_value("network") - line 306
     fn format_network_status(&self) -> String {
         // Simple network status check - can be enhanced with actual network monitoring
         use std::process::Command;
@@ -584,6 +590,8 @@ impl StatusBar {
         }.to_string()
     }
 
+    /// Format system temperature
+    /// Called via get_variable_value("temperature"/"temp") - line 307
     fn format_temperature(&mut self) -> String {
         // Temperature monitoring is not universally available
         // This would require platform-specific implementation
@@ -591,6 +599,8 @@ impl StatusBar {
         "".to_string()
     }
 
+    /// Format process count
+    /// Called via get_variable_value("processes") - line 308
     fn format_process_count(&mut self) -> String {
         self.system.refresh_all();
         let count = self.system.processes().len();

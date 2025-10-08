@@ -432,10 +432,16 @@ impl Client {
                             }
                         }
                         Ok(ServerMessage::LayoutUpdate { layout }) => {
-                            self.current_layout = Some(layout);
-                            if std::io::stdin().is_terminal() {
-                                self.render_layout().await?;
-                            }
+                            self.handle_layout_update(layout).await?;
+                        }
+                        Ok(ServerMessage::CopyModeEntered) => {
+                            self.handle_copy_mode_entered().await?;
+                        }
+                        Ok(ServerMessage::CopyModeUpdate { cursor_row, cursor_col, selection_start, selection_end, buffer_content, mode }) => {
+                            self.handle_copy_mode_update(cursor_row, cursor_col, selection_start, selection_end, buffer_content, mode).await?;
+                        }
+                        Ok(ServerMessage::CopyModeExited) => {
+                            self.handle_copy_mode_exited().await?;
                         }
                         _ => {}
                     }
@@ -1137,6 +1143,9 @@ impl Client {
         Ok(())
     }
 
+    /// Check if a character at (row, col) is within the selection range
+    /// Reserved for future character-level selection rendering
+    #[allow(dead_code)]
     fn is_char_selected(&self, row: usize, col: usize, start: (usize, usize), end: (usize, usize)) -> bool {
         let (start_row, start_col) = if start.0 < end.0 || (start.0 == end.0 && start.1 <= end.1) {
             start
