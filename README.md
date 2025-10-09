@@ -23,14 +23,14 @@
 
 Ferrix is a modern terminal multiplexer that combines the reliability of GNU Screen with features from Tmux, while exploring new possibilities with Rust's safety and performance. The name combines "Fe" (iron - representing Rust's memory safety) with "Matrix" (representing the matrix of terminal sessions).
 
-> **⚠️ Alpha Release (v0.20.0)**: Ferrix is feature-complete with tmux/screen parity, but still in alpha testing. It includes automatic crash recovery, multi-client session support, session persistence with buffer restoration, automatic session cleanup, and polished UX features including contextual help, enhanced mouse support, and intelligent error messages. **Not recommended for production use yet** - see [Known Limitations](#known-limitations) below.
+> **⚠️ Alpha Release (v0.20.1)**: Ferrix is feature-complete with tmux/screen parity, but still in alpha testing. It includes multi-client session support, session persistence with buffer restoration, automatic session cleanup, and polished UX features including contextual help, enhanced mouse support, and intelligent error messages. Crash recovery is available via `--recover` flag (experimental). **Not recommended for production use yet** - see [Known Limitations](#known-limitations) below.
 
 ## ✨ Features
 
 ### Core Multiplexing (Feature-Complete)
 - ✅ **Session Management** - Create, attach, detach, list, and kill sessions
 - ✅ **Multi-Client Support** - Multiple clients can attach to the same session simultaneously
-- ✅ **Automatic Crash Recovery** - Auto-save every 5 minutes, restore sessions after crashes
+- ✅ **Optional Crash Recovery** - Auto-save every 5 minutes, restore with `--recover` flag (experimental)
 - ✅ **Client-Server Architecture** - Robust separation with async Rust
 - ✅ **Multiple Windows & Panes** - Split panes, navigate between them, and manage layouts
 - ✅ **Last-Pane Toggle** - Quick switch between recent panes (Ctrl-b ;)
@@ -259,6 +259,7 @@ See [SECURITY.md](SECURITY.md) for information on reporting security vulnerabili
 - **TUI Application Compatibility**:
   - ✅ **htop** - Works perfectly (process monitor)
   - ✅ **nano** - Works correctly (text editor)
+  - ✅ **less** - Works correctly with status bar (v0.20.1)
   - ✅ **Shell usage** - bash, zsh work correctly
   - ❌ **vim** - Rendering bugs (reversed line numbers)
   - ❌ **Emacs** - Display corruption
@@ -315,7 +316,7 @@ cargo bench
 
 ## 🗺️ Development Status
 
-### Current Version: v0.2.0
+### Current Version: v0.20.1
 
 Ferrix is a **working terminal multiplexer** with essential features implemented. While still in active development, it provides a functional alternative for basic terminal multiplexing needs.
 
