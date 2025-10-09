@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.2] - 2025-10-09
+
+### Fixed
+- **GitHub Actions Workflow**: Fixed release workflow to properly upload build artifacts
+  - Added `fail_on_unmatched_files: false` to prevent "already_exists" errors
+  - Ensures all platform binaries are uploaded to releases
+
 ## [0.20.1] - 2025-10-09
 
 ### Fixed
