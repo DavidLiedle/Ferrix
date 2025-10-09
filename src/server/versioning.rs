@@ -431,23 +431,24 @@ impl SessionVersioning {
         let mut merged = ours.clone();
 
         // If no base, use simple merge strategy
-        if base.is_none() {
-            // Merge windows - union of both
-            for window in &theirs.windows {
-                if !merged.windows.iter().any(|w| w.id == window.id) {
-                    merged.windows.push(window.clone());
+        let base = match base.as_ref() {
+            None => {
+                // Merge windows - union of both
+                for window in &theirs.windows {
+                    if !merged.windows.iter().any(|w| w.id == window.id) {
+                        merged.windows.push(window.clone());
+                    }
                 }
+
+                // Take newer config
+                if theirs.created_at > ours.created_at {
+                    merged.config = theirs.config.clone();
+                }
+
+                return Ok(merged);
             }
-
-            // Take newer config
-            if theirs.created_at > ours.created_at {
-                merged.config = theirs.config.clone();
-            }
-
-            return Ok(merged);
-        }
-
-        let base = base.as_ref().unwrap();
+            Some(b) => b,
+        };
 
         // Three-way merge for windows
         for their_window in &theirs.windows {

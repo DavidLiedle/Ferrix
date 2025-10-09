@@ -117,7 +117,8 @@ impl PluginRuntime {
 
         // Instantiate the module
         let instance = {
-            let mut store_guard = store.lock().unwrap();
+            let mut store_guard = store.lock()
+                .map_err(|e| FerrixError::Plugin(format!("Failed to lock plugin store: {}", e)))?;
             linker.instantiate(&mut *store_guard, &module)
                 .map_err(|e| FerrixError::Plugin(format!("Failed to instantiate plugin: {}", e)))?
         };
@@ -125,7 +126,8 @@ impl PluginRuntime {
         // Get exported functions
         let mut exports = HashMap::new();
         {
-            let mut store_guard = store.lock().unwrap();
+            let mut store_guard = store.lock()
+                .map_err(|e| FerrixError::Plugin(format!("Failed to lock plugin store: {}", e)))?;
             for export_name in &manifest.exports {
                 if let Some(func) = instance.get_func(&mut *store_guard, export_name) {
                     exports.insert(export_name.clone(), func);
@@ -135,7 +137,8 @@ impl PluginRuntime {
 
         // Initialize the plugin
         {
-            let mut store_guard = store.lock().unwrap();
+            let mut store_guard = store.lock()
+                .map_err(|e| FerrixError::Plugin(format!("Failed to lock plugin store: {}", e)))?;
             if let Some(init_func) = instance.get_func(&mut *store_guard, "plugin_init") {
                 init_func.call(&mut *store_guard, &[], &mut [])
                     .map_err(|e| FerrixError::Plugin(format!("Plugin initialization failed: {}", e)))?;
@@ -174,7 +177,8 @@ impl PluginRuntime {
         if let Some(plugin) = plugins.remove(plugin_id) {
             // Call cleanup if available
             if let Some(cleanup_func) = plugin.exports.get("plugin_cleanup") {
-                let mut store_guard = plugin.store.lock().unwrap();
+                let mut store_guard = plugin.store.lock()
+                    .map_err(|e| FerrixError::Plugin(format!("Failed to lock plugin store: {}", e)))?;
                 cleanup_func.call(&mut *store_guard, &[], &mut [])
                     .map_err(|e| FerrixError::Plugin(format!("Plugin cleanup failed: {}", e)))?;
             }
@@ -207,7 +211,13 @@ impl PluginRuntime {
         for (_id, plugin) in plugins.iter() {
             if let Some(handle_func) = plugin.exports.get("handle_command") {
                 // Get a lock on the store and update context
-                let mut store_guard = plugin.store.lock().unwrap();
+                let mut store_guard = match plugin.store.lock() {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                        warn!("Failed to lock plugin store: {}", e);
+                        continue;
+                    }
+                };
                 store_guard.data_mut().context = context.clone();
 
                 // Serialize command to pass to WASM
@@ -248,7 +258,13 @@ impl PluginRuntime {
                     let hook_name = format!("hook_{:?}", hook).to_lowercase();
                     if let Some(hook_func) = plugin.exports.get(&hook_name) {
                         // Get a lock on the store and update context
-                        let mut store_guard = plugin.store.lock().unwrap();
+                        let mut store_guard = match plugin.store.lock() {
+                            Ok(guard) => guard,
+                            Err(e) => {
+                                warn!("Failed to lock plugin store: {}", e);
+                                continue;
+                            }
+                        };
                         store_guard.data_mut().context = context.clone();
 
                         // Call the hook function
@@ -278,7 +294,13 @@ impl PluginRuntime {
         for (_id, plugin) in plugins.iter() {
             if let Some(event_func) = plugin.exports.get("handle_event") {
                 // Get a lock on the store and add event to queue
-                let mut store_guard = plugin.store.lock().unwrap();
+                let mut store_guard = match plugin.store.lock() {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                        warn!("Failed to lock plugin store: {}", e);
+                        continue;
+                    }
+                };
                 store_guard.data_mut().event_queue.push(event.clone());
 
                 // Call the event handler function
@@ -416,9 +438,7 @@ impl PluginRuntime {
 
         // Register hooks based on exported functions
         for export in &manifest.exports {
-            if export.starts_with("hook_") {
-                // Parse hook type from function name
-                let hook_name = export.strip_prefix("hook_").unwrap();
+            if let Some(hook_name) = export.strip_prefix("hook_") {
 
                 // Map to PluginHook enum (simplified)
                 let hook = match hook_name {

@@ -338,6 +338,7 @@ impl Client {
         Err(FerrixError::NotConnected)
     }
 
+    #[allow(dead_code)]
     async fn run_attached(&mut self) -> Result<()> {
         // Only enable raw mode if we're in an interactive terminal
         let is_tty = std::io::stdin().is_terminal();
@@ -671,7 +672,7 @@ impl Client {
                 if key_event.modifiers == KeyModifiers::CONTROL {
                     // Convert to lowercase for control character calculation
                     let lower_c = c.to_ascii_lowercase();
-                    if lower_c >= 'a' && lower_c <= 'z' {
+                    if lower_c.is_ascii_lowercase() {
                         data.push((lower_c as u8) - b'a' + 1);
                     } else if c == '@' {
                         data.push(0); // Ctrl-@ is NUL
@@ -1817,7 +1818,6 @@ impl Client {
     }
 
     async fn draw_pane_content(&mut self, pane: &PaneInfo) -> Result<()> {
-        use std::io::Write;
         use crossterm::style::{SetForegroundColor, SetBackgroundColor, SetAttribute, ResetColor};
 
         // Use a buffer to collect all output before flushing
@@ -2380,9 +2380,7 @@ impl Client {
         execute!(stdout, MoveTo(0, rows - 1))?;
 
         // Build status bar content
-        let session_name = self.attached_session_name
-            .as_ref()
-            .map(|s| s.clone())
+        let session_name = self.attached_session_name.clone()
             .unwrap_or_else(|| "No Session".to_string());
 
         let window_info = if let Some(layout) = &self.current_layout {

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.8] - 2025-10-09
+
+### Changed
+- **Error Handling**: Improved error handling across production code
+  - Replaced 19 production unwrap() calls with proper error handling
+  - Uses `.map_err()`, `.unwrap_or()`, and match statements for safe handling
+  - Added context to error messages for better debugging
+  - Files improved: recording.rs, plugin/runtime.rs, transport/mosh.rs, server/hooks.rs, input/chord.rs, ai/assistant.rs, server/timetravel.rs, server/versioning.rs
+
+### Fixed
+- **Code Quality**: Fixed all clippy warnings in production code
+  - Removed unused imports
+  - Simplified manual ASCII range checks to use `.is_ascii_lowercase()`
+  - Added `#[allow(dead_code)]` to intentionally unused helper methods
+  - Fixed test compilation errors for protocol message fields
+
 ## [0.20.7] - 2025-10-09
 
 ### Fixed

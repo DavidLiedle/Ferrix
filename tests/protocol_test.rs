@@ -10,6 +10,7 @@ fn test_client_codec_encode_decode() {
     // Test encoding ClientMessage
     let client_msg = ClientMessage::CreateSession {
         name: Some("test".to_string()),
+        working_dir: None,
     };
 
     codec.encode(client_msg.clone(), &mut buf).unwrap();
@@ -60,7 +61,7 @@ fn test_all_client_messages() {
 
     // Test various message types
     let messages = vec![
-        ClientMessage::CreateSession { name: None },
+        ClientMessage::CreateSession { name: None, working_dir: None },
         ClientMessage::AttachSession { session_id: SessionId(Uuid::new_v4()) },
         ClientMessage::DetachSession,
         ClientMessage::ListSessions,
@@ -101,6 +102,7 @@ fn test_server_message_types() {
         },
         ServerMessage::SessionAttached {
             session_id: SessionId(Uuid::new_v4()),
+            name: "test".to_string(),
         },
         ServerMessage::SessionDetached,
         ServerMessage::SessionList {

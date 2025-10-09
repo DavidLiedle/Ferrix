@@ -147,8 +147,8 @@ impl HookEvent {
 
             // Command hooks
             name if name.starts_with("after-") => {
-                let cmd = name.strip_prefix("after-").unwrap();
-                Some(HookEvent::AfterCommand(cmd.to_string()))
+                name.strip_prefix("after-")
+                    .map(|cmd| HookEvent::AfterCommand(cmd.to_string()))
             }
 
             _ => None,

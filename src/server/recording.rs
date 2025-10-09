@@ -175,7 +175,7 @@ impl SessionRecorder {
         // Calculate duration
         let duration = SystemTime::now()
             .duration_since(self.start_time)
-            .unwrap();
+            .unwrap_or(Duration::from_secs(0));
         self.metadata.duration_ms = Some(duration.as_millis() as u64);
 
         // Write final metadata
@@ -245,7 +245,7 @@ impl SessionRecorder {
             let event = RecordingEvent::Output {
                 timestamp: SystemTime::now()
                     .duration_since(self.start_time)
-                    .unwrap()
+                    .unwrap_or(Duration::from_secs(0))
                     .as_millis() as u64,
                 pane_id,
                 data,
@@ -263,7 +263,7 @@ impl SessionRecorder {
             let event = RecordingEvent::Input {
                 timestamp: SystemTime::now()
                     .duration_since(self.start_time)
-                    .unwrap()
+                    .unwrap_or(Duration::from_secs(0))
                     .as_millis() as u64,
                 pane_id,
                 data,
@@ -280,7 +280,7 @@ impl SessionRecorder {
         let event = RecordingEvent::Resize {
             timestamp: SystemTime::now()
                 .duration_since(self.start_time)
-                .unwrap()
+                .unwrap_or(Duration::from_secs(0))
                 .as_millis() as u64,
             pane_id,
             cols,
@@ -537,7 +537,9 @@ impl SessionPlayer {
             }
         });
 
-        writeln!(file, "{}", serde_json::to_string(&header).unwrap())
+        let header_str = serde_json::to_string(&header)
+            .map_err(|e| FerrixError::Other(format!("Failed to serialize header: {}", e)))?;
+        writeln!(file, "{}", header_str)
             .map_err(|e| FerrixError::Other(format!("Failed to write header: {}", e)))?;
 
         // Write events
@@ -546,7 +548,9 @@ impl SessionPlayer {
                 let timestamp_sec = *timestamp as f64 / 1000.0;
                 let text = String::from_utf8_lossy(data);
                 let event_array = serde_json::json!([timestamp_sec, "o", text]);
-                writeln!(file, "{}", serde_json::to_string(&event_array).unwrap())
+                let event_str = serde_json::to_string(&event_array)
+                    .map_err(|e| FerrixError::Other(format!("Failed to serialize event: {}", e)))?;
+                writeln!(file, "{}", event_str)
                     .map_err(|e| FerrixError::Other(format!("Failed to write event: {}", e)))?;
             }
         }
@@ -561,9 +565,10 @@ impl SessionPlayer {
 
         writeln!(file, "# Ferrix Session Recording")?;
         writeln!(file, "# Session: {} ({:?})", self.metadata.session_name, self.metadata.session_id)?;
-        writeln!(file, "# Date: {}", chrono::DateTime::<chrono::Utc>::from_timestamp(
+        let created_date = chrono::DateTime::<chrono::Utc>::from_timestamp(
             self.metadata.created_at as i64, 0
-        ).unwrap())?;
+        ).unwrap_or_else(chrono::Utc::now);
+        writeln!(file, "# Date: {}", created_date)?;
         writeln!(file, "# Duration: {:?}ms\n", self.metadata.duration_ms)?;
 
         for event in &self.events {

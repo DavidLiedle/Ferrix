@@ -523,11 +523,13 @@ impl TimeTravelEngine {
             .filter(|e| matches!(e.event, RecordedEvent::Input { source: InputSource::Keyboard, .. }))
             .count();
 
-        if events.is_empty() {
+        if events.len() < 2 {
             return 0.0;
         }
 
-        let duration = events.last().unwrap().timestamp - events.first().unwrap().timestamp;
+        let first_timestamp = events.first().map(|e| e.timestamp).unwrap_or_default();
+        let last_timestamp = events.last().map(|e| e.timestamp).unwrap_or_default();
+        let duration = last_timestamp - first_timestamp;
         let minutes = duration.num_minutes() as f32;
 
         if minutes > 0.0 {

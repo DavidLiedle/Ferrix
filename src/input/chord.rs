@@ -146,7 +146,8 @@ impl ChordDetector {
         let chord: Vec<KeyEvent> = keys.iter().map(|k| {
             let parts: Vec<&str> = k.split('+').collect();
             let (modifiers, code) = if parts.len() > 1 {
-                (parts[0..parts.len()-1].join("+"), parts.last().unwrap().to_string())
+                (parts[0..parts.len()-1].join("+"),
+                 parts.last().map(|s| s.to_string()).unwrap_or_default())
             } else {
                 (String::new(), k.to_string())
             };

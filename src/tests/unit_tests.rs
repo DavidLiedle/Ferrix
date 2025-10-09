@@ -341,13 +341,14 @@ mod protocol_tests {
     fn test_message_serialization() {
         let msg = ClientMessage::CreateSession {
             name: Some("test".to_string()),
+            working_dir: None,
         };
 
         let serialized = serde_json::to_string(&msg).unwrap();
         let deserialized: ClientMessage = serde_json::from_str(&serialized).unwrap();
 
         match deserialized {
-            ClientMessage::CreateSession { name } => {
+            ClientMessage::CreateSession { name, working_dir: _ } => {
                 assert_eq!(name, Some("test".to_string()));
             }
             _ => panic!("Wrong message type"),

@@ -164,7 +164,7 @@ impl CommandAssistant {
         suggestions.extend(self.suggest_optimizations());
 
         // Sort by confidence
-        suggestions.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+        suggestions.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
 
         // Cache results
         self.suggestions_cache.insert(partial_command.to_string(), suggestions.clone());

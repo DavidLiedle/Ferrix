@@ -30,6 +30,7 @@ mod protocol_tests {
         let session_id = SessionId(Uuid::new_v4());
         let message = ClientMessage::CreateSession {
             name: Some("test-session".to_string()),
+            working_dir: None,
         };
 
         // Test encoding
@@ -47,7 +48,7 @@ mod protocol_tests {
         let session_id = SessionId(Uuid::new_v4());
         let message = ServerMessage::SessionCreated {
             session_id,
-            session_name: "test-session".to_string(),
+            name: "test-session".to_string(),
         };
 
         // Test encoding
@@ -65,6 +66,7 @@ mod protocol_tests {
         let session_id = SessionId(Uuid::new_v4());
         let original_message = ClientMessage::CreateSession {
             name: Some("test-session".to_string()),
+            working_dir: None,
         };
 
         // Encode message
@@ -76,8 +78,8 @@ mod protocol_tests {
             Some(decoded_message) => {
                 // Compare messages (would need PartialEq implementation)
                 match (&original_message, &decoded_message) {
-                    (ClientMessage::CreateSession { name: name1 },
-                     ClientMessage::CreateSession { name: name2 }) => {
+                    (ClientMessage::CreateSession { name: name1, working_dir: _ },
+                     ClientMessage::CreateSession { name: name2, working_dir: _ }) => {
                         assert_eq!(name1, name2);
                     }
                     _ => panic!("Message types don't match"),
@@ -190,6 +192,7 @@ mod protocol_tests {
 
         let message = ClientMessage::CreateSession {
             name: Some("test".to_string()),
+            working_dir: None,
         };
 
         // Encode message
@@ -278,13 +281,14 @@ mod protocol_tests {
 
                 let message = ClientMessage::CreateSession {
                     name: Some(format!("session-{}", i)),
+                    working_dir: None,
                 };
 
                 codec.encode(message, &mut buf).unwrap();
                 assert!(!buf.is_empty());
 
                 match codec.decode(&mut buf).unwrap() {
-                    Some(ClientMessage::CreateSession { name }) => {
+                    Some(ClientMessage::CreateSession { name, working_dir: _ }) => {
                         assert_eq!(name, Some(format!("session-{}", i)));
                     }
                     _ => panic!("Wrong message type"),

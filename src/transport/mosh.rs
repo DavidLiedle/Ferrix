@@ -85,7 +85,10 @@ impl MoshTransport {
             return Err(FerrixError::Other("Invalid packet size".to_string()));
         }
 
-        let sequence = u64::from_be_bytes(packet[0..8].try_into().unwrap());
+        let sequence = u64::from_be_bytes(
+            packet[0..8].try_into()
+                .map_err(|_| FerrixError::Other("Failed to parse sequence number".to_string()))?
+        );
 
         // Decrypt
         let decrypted: Vec<u8> = packet[8..].iter()
@@ -98,8 +101,14 @@ impl MoshTransport {
 
     /// Start keepalive task
     async fn start_keepalive(&self) {
-        let socket = self.socket.as_ref().unwrap().clone();
-        let remote_addr = self.remote_addr.unwrap();
+        let socket = match self.socket.as_ref() {
+            Some(s) => s.clone(),
+            None => return,
+        };
+        let remote_addr = match self.remote_addr {
+            Some(addr) => addr,
+            None => return,
+        };
         let send_sequence = self.send_sequence.clone();
 
         tokio::spawn(async move {
@@ -125,8 +134,14 @@ impl MoshTransport {
 
     /// Retransmit unacknowledged packets
     async fn retransmit_task(&self) {
-        let socket = self.socket.as_ref().unwrap().clone();
-        let remote_addr = self.remote_addr.unwrap();
+        let socket = match self.socket.as_ref() {
+            Some(s) => s.clone(),
+            None => return,
+        };
+        let remote_addr = match self.remote_addr {
+            Some(addr) => addr,
+            None => return,
+        };
         let pending_acks = self.pending_acks.clone();
         let send_buffer = self.send_buffer.clone();
 
