@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.7] - 2025-10-09
+
+### Fixed
+- **Terminal Rendering**: Fixed vim/Emacs flickering and rendering issues
+  - Fixed Insert Line (IL) and Delete Line (DL) index shift bug in ANSI parser
+  - Added output buffering for atomic screen updates (eliminates flicker)
+  - Implemented 60 FPS render throttle to prevent excessive redraws
+  - Fixed Reverse Index (RI) to properly handle scroll regions
+  - Improved terminal cleanup sequence on exit (prevents escape code garbage)
+  - Mouse tracking properly disabled on session detach
+
 ## [0.20.6] - 2025-10-09
 
 ### Changed

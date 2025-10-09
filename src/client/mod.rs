@@ -67,6 +67,10 @@ pub struct Client {
     // Status bar messages
     messages: VecDeque<Message>,
     message_timeout: Duration,
+    // Render throttling to prevent flicker
+    last_render: Instant,
+    render_interval: Duration,
+    pending_render: bool, // Track if we skipped a render and need to catch up
 }
 
 impl Client {
@@ -110,6 +114,9 @@ impl Client {
             active_selection: None,
             messages: VecDeque::new(),
             message_timeout: Duration::from_secs(3),
+            last_render: Instant::now(),
+            render_interval: Duration::from_millis(16), // ~60 FPS max
+            pending_render: false,
         })
     }
 
@@ -363,38 +370,35 @@ impl Client {
         let result = self.handle_attached_session().await;
 
         if is_tty {
+            use std::io::Write;
+
             // Disable mouse capture if it was enabled
             if self.mouse_handler.enabled {
                 execute!(stdout(), DisableMouseCapture)?;
             }
 
-            // Leave alternate screen first
-            execute!(stdout(), crossterm::terminal::LeaveAlternateScreen)?;
-
-            // Disable raw mode
-            terminal::disable_raw_mode()?;
-
-            // Comprehensive terminal reset to clean up any escape sequences
-            // This handles vim/emacs leaving the terminal in a bad state
-            execute!(stdout(),
-                crossterm::style::ResetColor,
-                crossterm::cursor::Show,
-                // Reset all terminal modes
-                crossterm::style::SetAttribute(crossterm::style::Attribute::Reset)
-            )?;
-
-            // Send explicit terminal reset sequence (RIS - Reset to Initial State)
-            // This clears scrolling regions, tab stops, and other state
-            use std::io::Write;
-            write!(stdout(), "\x1bc")?;  // ESC c - Full terminal reset
-
-            // Explicitly disable all mouse tracking modes (RIS doesn't always do this)
+            // Reset terminal state BEFORE leaving alternate screen
             write!(stdout(), "\x1b[?1000l")?;  // Disable X10 mouse tracking
             write!(stdout(), "\x1b[?1002l")?;  // Disable button event tracking
             write!(stdout(), "\x1b[?1003l")?;  // Disable any event tracking
             write!(stdout(), "\x1b[?1006l")?;  // Disable SGR extended mode
+            write!(stdout(), "\x1b[?25h")?;    // Show cursor
+            write!(stdout(), "\x1b[m")?;        // Reset all attributes
+            std::io::stdout().flush()?;
 
-            // Flush to ensure all changes are applied
+            // Disable raw mode while still on alternate screen
+            terminal::disable_raw_mode()?;
+
+            // Leave alternate screen
+            execute!(stdout(), crossterm::terminal::LeaveAlternateScreen)?;
+
+            // Clear the main screen after returning to it
+            execute!(stdout(),
+                crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+                crossterm::cursor::MoveTo(0, 0),
+                crossterm::cursor::Show
+            )?;
+
             std::io::stdout().flush()?;
         }
 
@@ -407,38 +411,35 @@ impl Client {
         let result = self.handle_attached_session().await;
 
         if is_tty {
+            use std::io::Write;
+
             // Disable mouse capture if it was enabled
             if self.mouse_handler.enabled {
                 execute!(stdout(), DisableMouseCapture)?;
             }
 
-            // Leave alternate screen first
-            execute!(stdout(), crossterm::terminal::LeaveAlternateScreen)?;
-
-            // Disable raw mode
-            terminal::disable_raw_mode()?;
-
-            // Comprehensive terminal reset to clean up any escape sequences
-            // This handles vim/emacs leaving the terminal in a bad state
-            execute!(stdout(),
-                crossterm::style::ResetColor,
-                crossterm::cursor::Show,
-                // Reset all terminal modes
-                crossterm::style::SetAttribute(crossterm::style::Attribute::Reset)
-            )?;
-
-            // Send explicit terminal reset sequence (RIS - Reset to Initial State)
-            // This clears scrolling regions, tab stops, and other state
-            use std::io::Write;
-            write!(stdout(), "\x1bc")?;  // ESC c - Full terminal reset
-
-            // Explicitly disable all mouse tracking modes (RIS doesn't always do this)
+            // Reset terminal state BEFORE leaving alternate screen
             write!(stdout(), "\x1b[?1000l")?;  // Disable X10 mouse tracking
             write!(stdout(), "\x1b[?1002l")?;  // Disable button event tracking
             write!(stdout(), "\x1b[?1003l")?;  // Disable any event tracking
             write!(stdout(), "\x1b[?1006l")?;  // Disable SGR extended mode
+            write!(stdout(), "\x1b[?25h")?;    // Show cursor
+            write!(stdout(), "\x1b[m")?;        // Reset all attributes
+            std::io::stdout().flush()?;
 
-            // Flush to ensure all changes are applied
+            // Disable raw mode while still on alternate screen
+            terminal::disable_raw_mode()?;
+
+            // Leave alternate screen
+            execute!(stdout(), crossterm::terminal::LeaveAlternateScreen)?;
+
+            // Clear the main screen after returning to it
+            execute!(stdout(),
+                crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+                crossterm::cursor::MoveTo(0, 0),
+                crossterm::cursor::Show
+            )?;
+
             std::io::stdout().flush()?;
         }
 
@@ -1419,13 +1420,22 @@ impl Client {
         // Render the updated pane content from the parsed buffer
         // This allows proper scrollback and session persistence
         if is_tty {
-            if let Some(layout) = self.current_layout.clone() {
-                if let Some(pane_info) = layout.panes.iter().find(|p| p.id == pane_id).cloned() {
-                    // Render just the updated pane content
-                    self.draw_pane_content(&pane_info).await?;
-                    // Re-render status bar to keep it visible
-                    self.render_status_bar().await?;
+            // Throttle rendering to prevent flicker (max 60 FPS)
+            let now = Instant::now();
+            if now.duration_since(self.last_render) >= self.render_interval {
+                if let Some(layout) = self.current_layout.clone() {
+                    if let Some(pane_info) = layout.panes.iter().find(|p| p.id == pane_id).cloned() {
+                        // Render just the updated pane content
+                        self.draw_pane_content(&pane_info).await?;
+                        // Re-render status bar to keep it visible
+                        self.render_status_bar().await?;
+                        self.last_render = now;
+                        self.pending_render = false;
+                    }
                 }
+            } else {
+                // Mark that we have a pending render to do later
+                self.pending_render = true;
             }
         } else {
             // In non-TTY mode, write raw output
@@ -1809,7 +1819,11 @@ impl Client {
     async fn draw_pane_content(&mut self, pane: &PaneInfo) -> Result<()> {
         use std::io::Write;
         use crossterm::style::{SetForegroundColor, SetBackgroundColor, SetAttribute, ResetColor};
-        let mut stdout = stdout();
+
+        // Use a buffer to collect all output before flushing
+        // This prevents partial updates from causing flicker
+        let mut buffer = Vec::with_capacity(8192);
+        let mut stdout = std::io::Cursor::new(&mut buffer);
 
         // Check if we're in a single-pane layout
         let pane_count = if let Some(layout) = &self.current_layout {
@@ -1967,6 +1981,11 @@ impl Client {
             // No content yet - just show blank pane
             // (the shell will render its own prompt when ready)
         }
+
+        // Write all buffered output atomically to prevent flicker
+        use std::io::Write as IoWrite;
+        std::io::stdout().write_all(&buffer)?;
+        std::io::stdout().flush()?;
 
         Ok(())
     }

@@ -1275,12 +1275,14 @@ impl AnsiParser {
         let (top, bottom) = self.get_scroll_region();
 
         if cursor_row >= top && cursor_row <= bottom {
-            // Shift lines down within scroll region
+            // Insert blank lines at cursor, removing lines from bottom
             for _ in 0..count {
-                if bottom < self.screen.len() {
-                    self.screen.remove(bottom);
-                }
+                // Insert blank line at cursor first
                 self.screen.insert(cursor_row, vec![Cell::default(); self.width as usize]);
+                // Remove from bottom (index shifted up by 1 due to insert)
+                if bottom + 1 < self.screen.len() {
+                    self.screen.remove(bottom + 1);
+                }
             }
         }
     }
@@ -1294,11 +1296,14 @@ impl AnsiParser {
         let (top, bottom) = self.get_scroll_region();
 
         if cursor_row >= top && cursor_row <= bottom {
-            // Remove lines and add blank lines at bottom
+            // Remove lines at cursor and add blank lines at bottom
             for _ in 0..count {
                 if cursor_row < self.screen.len() {
                     self.screen.remove(cursor_row);
-                    self.screen.insert(bottom, vec![Cell::default(); self.width as usize]);
+                    // Insert at bottom (index shifted down by 1 due to remove)
+                    if bottom <= self.screen.len() {
+                        self.screen.insert(bottom, vec![Cell::default(); self.width as usize]);
+                    }
                 }
             }
         }
@@ -1400,7 +1405,7 @@ impl AnsiParser {
 
                 // Remove line from top of region
                 self.screen.remove(top);
-                // Add blank line at bottom of region
+                // Add blank line at bottom of region (index shifted down by remove)
                 self.screen.insert(bottom, vec![Cell::default(); self.width as usize]);
             }
         }
