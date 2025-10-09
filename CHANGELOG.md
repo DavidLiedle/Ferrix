@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.3] - 2025-10-09
+
+### Fixed
+- **GitHub Actions Workflow**: Switched to gh CLI for release uploads
+  - Replaced `softprops/action-gh-release` with `gh release upload --clobber`
+  - Fixes 422 "already_exists" errors when uploading to existing releases
+  - More reliable multi-platform binary uploads
+
 ## [0.20.2] - 2025-10-09
 
 ### Fixed
