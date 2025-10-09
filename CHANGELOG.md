@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2025-10-09
+
+### Added
+- **Stress Test Suite**: Added 5 comprehensive stress tests for production validation
+  - **stress_test_long_running_session**: 5-minute sustained operation with memory leak detection
+  - **stress_test_many_concurrent_clients**: 50 concurrent sessions with concurrent operations
+  - **stress_test_memory_leak_detection**: 100 create/destroy cycles to detect memory leaks
+  - **stress_test_high_output_volume**: 100,000 lines x 5 sessions to test scrollback handling
+  - **stress_test_rapid_operations**: 1000 rapid commands to verify throughput
+  - All tests include memory monitoring, health checks, and performance metrics
+  - Tests marked #[ignore] for manual execution (resource-intensive, long-running)
+
+### Changed
+- **Version Bump to 0.21.0**: Production readiness milestone achieved
+  - All 6 phases of production readiness plan completed
+  - Ready for beta testing and early adopters
+
 ## [0.20.10] - 2025-10-09
 
 ### Added
