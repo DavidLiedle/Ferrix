@@ -4,6 +4,7 @@ pub mod ferrixrc;
 pub mod loader;
 pub mod hot_reload;
 pub mod session_config;
+pub mod limits;
 // #[cfg(test)]
 // mod tests;
 
