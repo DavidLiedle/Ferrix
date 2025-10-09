@@ -119,6 +119,7 @@ jobs:
           files: ./package/${{ matrix.asset_name }}.tar.gz
           tag_name: ${{ github.ref }}
           fail_on_unmatched_files: false
+          append_body: false
         if: matrix.os != 'windows-latest'
 
       - name: Upload Windows Release Asset
@@ -127,6 +128,7 @@ jobs:
           files: ./package/${{ matrix.asset_name }}.zip
           tag_name: ${{ github.ref }}
           fail_on_unmatched_files: false
+          append_body: false
         if: matrix.os == 'windows-latest'
 
   docker:
