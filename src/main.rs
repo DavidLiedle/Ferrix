@@ -24,8 +24,8 @@ const ASCII_LOGO: &str = r#"
 ║  |  _| | |___|  _ <|  _ < | |  /  \      ║
 ║  |_|   |_____|_| \_\_| \_\___/_/\_\      ║
 ║                                           ║
-║  Revolutionary Terminal Multiplexer        ║
-║         Built with Rust                   ║
+║      Modern Terminal Multiplexer          ║
+║            Built with Rust                ║
 ╚═══════════════════════════════════════════╝
 "#;
 
