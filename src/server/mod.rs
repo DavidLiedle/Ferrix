@@ -280,6 +280,7 @@ pub async fn handle_message(
             let session_clone = session_arc.clone();
             let clients_clone = clients.clone();
             let session_id_clone = session_id.clone();
+            let sessions_clone = sessions.clone();
 
             tokio::spawn(async move {
                 loop {
@@ -309,14 +310,16 @@ pub async fn handle_message(
                         }
                     }
 
-                    // Check if all panes are dead and auto-detach clients (if enabled)
+                    // Check if all panes are dead and auto-destroy session
                     let (all_panes_dead, auto_detach_enabled) = {
                         let session_guard = session_clone.read().await;
                         (session_guard.are_all_panes_dead().await, session_guard.auto_detach_on_exit)
                     };
 
                     if all_panes_dead && auto_detach_enabled {
-                        // All panes are dead and auto-detach is enabled
+                        // All panes are dead - detach clients and destroy session
+                        tracing::info!("All panes in session {} are dead, destroying session", session_id_clone.0);
+
                         // Send detach message to all attached clients
                         let clients_guard = clients_clone.read().await;
                         for (_, client) in clients_guard.iter() {
@@ -324,7 +327,15 @@ pub async fn handle_message(
                                 let _ = client.sender.send(ServerMessage::SessionDetached).await;
                             }
                         }
-                        // Exit the polling loop since session is effectively dead
+                        drop(clients_guard);
+
+                        // Remove session from sessions map
+                        {
+                            let mut sessions_guard = sessions_clone.write().await;
+                            sessions_guard.remove(&session_id_clone);
+                        }
+
+                        // Exit the polling loop since session is destroyed
                         break;
                     }
                 }

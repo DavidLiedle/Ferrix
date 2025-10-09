@@ -642,7 +642,26 @@ impl Client {
         match key_event.code {
             KeyCode::Char(c) => {
                 if key_event.modifiers == KeyModifiers::CONTROL {
-                    data.push((c as u8) - b'a' + 1);
+                    // Convert to lowercase for control character calculation
+                    let lower_c = c.to_ascii_lowercase();
+                    if lower_c >= 'a' && lower_c <= 'z' {
+                        data.push((lower_c as u8) - b'a' + 1);
+                    } else if c == '@' {
+                        data.push(0); // Ctrl-@ is NUL
+                    } else if c == '[' {
+                        data.push(27); // Ctrl-[ is ESC
+                    } else if c == '\\' {
+                        data.push(28); // Ctrl-\ is FS
+                    } else if c == ']' {
+                        data.push(29); // Ctrl-] is GS
+                    } else if c == '^' {
+                        data.push(30); // Ctrl-^ is RS
+                    } else if c == '_' {
+                        data.push(31); // Ctrl-_ is US
+                    } else {
+                        // For other characters, just send the character
+                        data.push(c as u8);
+                    }
                 } else {
                     data.push(c as u8);
                 }

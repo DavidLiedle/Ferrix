@@ -319,6 +319,17 @@ impl Window {
         Ok(outputs)
     }
 
+    /// Check if all panes in this window are dead
+    pub async fn all_panes_dead(&self) -> bool {
+        for pane in self.panes.values() {
+            let pane_guard = pane.read().await;
+            if !pane_guard.is_dead() {
+                return false;
+            }
+        }
+        true
+    }
+
     pub fn get_pane_count(&self) -> usize {
         self.panes.len()
     }

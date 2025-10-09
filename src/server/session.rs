@@ -194,7 +194,7 @@ impl Session {
 
         for window in &self.windows {
             let window_guard = window.read().await;
-            if !window_guard.are_all_panes_dead().await {
+            if !window_guard.all_panes_dead().await {
                 return false;
             }
         }

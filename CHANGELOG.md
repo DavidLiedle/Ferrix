@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.2] - 2025-10-08
+
+### Fixed
+- **Control Key Handling**: Fixed control character processing for better application compatibility
+  - Control keys now properly converted to lowercase before processing (Ctrl-X and Ctrl-x both work)
+  - Added proper handling for special control characters (Ctrl-@, Ctrl-[, Ctrl-\, Ctrl-], Ctrl-^, Ctrl-_)
+  - Validates characters are in valid range before applying control character transformation
+  - Fixes keyboard input issues in applications like Emacs, vim, and other CLI tools
+
+### Added
+- **Automatic Session Cleanup**: Sessions are now automatically destroyed when all panes exit
+  - When shell exits (via `exit` command), the pane is marked as dead
+  - When all panes in a session are dead, session is automatically removed
+  - Prevents accumulation of zombie sessions that can't be reattached
+  - Configurable via `auto_detach_on_exit` option (enabled by default)
+
 ## [0.19.1] - 2025-10-08
 
 ### Fixed
