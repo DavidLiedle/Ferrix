@@ -14,6 +14,7 @@ pub mod activity;
 pub mod scrollback;
 pub mod hooks;
 pub mod metrics;
+pub mod health;
 
 // ============================================================================
 // TIER 2: Advanced Features (feature-gated)
