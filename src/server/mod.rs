@@ -13,6 +13,7 @@ pub mod session_manager;
 pub mod activity;
 pub mod scrollback;
 pub mod hooks;
+pub mod metrics;
 
 // ============================================================================
 // TIER 2: Advanced Features (feature-gated)
