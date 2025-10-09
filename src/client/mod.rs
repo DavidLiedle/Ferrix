@@ -388,6 +388,12 @@ impl Client {
             use std::io::Write;
             write!(stdout(), "\x1bc")?;  // ESC c - Full terminal reset
 
+            // Explicitly disable all mouse tracking modes (RIS doesn't always do this)
+            write!(stdout(), "\x1b[?1000l")?;  // Disable X10 mouse tracking
+            write!(stdout(), "\x1b[?1002l")?;  // Disable button event tracking
+            write!(stdout(), "\x1b[?1003l")?;  // Disable any event tracking
+            write!(stdout(), "\x1b[?1006l")?;  // Disable SGR extended mode
+
             // Flush to ensure all changes are applied
             std::io::stdout().flush()?;
         }
@@ -425,6 +431,12 @@ impl Client {
             // This clears scrolling regions, tab stops, and other state
             use std::io::Write;
             write!(stdout(), "\x1bc")?;  // ESC c - Full terminal reset
+
+            // Explicitly disable all mouse tracking modes (RIS doesn't always do this)
+            write!(stdout(), "\x1b[?1000l")?;  // Disable X10 mouse tracking
+            write!(stdout(), "\x1b[?1002l")?;  // Disable button event tracking
+            write!(stdout(), "\x1b[?1003l")?;  // Disable any event tracking
+            write!(stdout(), "\x1b[?1006l")?;  // Disable SGR extended mode
 
             // Flush to ensure all changes are applied
             std::io::stdout().flush()?;

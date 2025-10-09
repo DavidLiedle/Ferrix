@@ -561,7 +561,16 @@ impl AnsiParser {
     }
 
     fn reverse_index(&mut self) -> std::io::Result<()> {
-        self.cursor_y = self.cursor_y.saturating_sub(1);
+        // RI (Reverse Index): Move cursor up, scroll down if at top of scroll region
+        let (top, _bottom) = self.get_scroll_region();
+
+        if self.cursor_y as usize == top {
+            // At top of scroll region - scroll down (insert line at top)
+            self.scroll_down_region(1);
+        } else {
+            // Not at top - just move cursor up
+            self.cursor_y = self.cursor_y.saturating_sub(1);
+        }
         Ok(())
     }
 
