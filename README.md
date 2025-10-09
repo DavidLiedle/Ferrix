@@ -23,7 +23,7 @@
 
 Ferrix is a modern terminal multiplexer that combines the reliability of GNU Screen with features from Tmux, while exploring new possibilities with Rust's safety and performance. The name combines "Fe" (iron - representing Rust's memory safety) with "Matrix" (representing the matrix of terminal sessions).
 
-> **⚠️ Alpha Release (v0.17.0)**: Ferrix is feature-complete with tmux/screen parity, but still in alpha testing. It includes automatic crash recovery, multi-client session support, and polished UX features including contextual help, enhanced mouse support, and intelligent error messages. **Not recommended for production use yet** - see [Known Limitations](#known-limitations) below.
+> **⚠️ Alpha Release (v0.19.2)**: Ferrix is feature-complete with tmux/screen parity, but still in alpha testing. It includes automatic crash recovery, multi-client session support, session persistence with buffer restoration, automatic session cleanup, and polished UX features including contextual help, enhanced mouse support, and intelligent error messages. **Not recommended for production use yet** - see [Known Limitations](#known-limitations) below.
 
 ## ✨ Features
 
@@ -39,6 +39,8 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 - ✅ **Pane Respawning** - Restart dead panes with remain-on-exit support
 - ✅ **PTY Process Management** - Each pane runs its own independent terminal
 - ✅ **Detach/Reattach** - Seamlessly disconnect and reconnect to sessions
+- ✅ **Session Persistence** - Full session content restoration on reattach with 50KB raw output buffer
+- ✅ **Automatic Session Cleanup** - Sessions automatically destroyed when all panes exit (configurable)
 - ✅ **Visual Pane Rendering** - Borders, focus indication, and content display
 - ✅ **User Feedback System** - Color-coded status bar messages (info/success/warning/error)
 - ✅ **Session Snapshots** - Save and restore complete session state including layouts
@@ -63,11 +65,12 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 - ✅ **Performance Optimizations** - Adaptive batching, delta compression, backpressure handling
 - ✅ **Comprehensive Test Suite** - 250+ tests covering unit, integration, protocol, and E2E testing
 
-### Polish & UX (v0.14.0)
+### Polish & UX (v0.19.2)
 - ✅ **Contextual Help System** - Press Ctrl-b ? for comprehensive help with 8 categories
 - ✅ **Enhanced Mouse Support** - Improved border detection, corner resize, full drag support
 - ✅ **Intelligent Error Messages** - Context-aware suggestions and "Did you mean?" for typos
 - ✅ **Command Suggestions** - Fuzzy matching for command mode with Levenshtein distance
+- ✅ **Improved Control Key Handling** - Proper support for Ctrl combinations in Emacs, vim, etc.
 - ✅ **Optimized Performance** - 4.6MB binary, ~8ms cold start, async/await architecture
 
 ### Future Enhancements
