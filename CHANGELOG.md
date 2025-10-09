@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.4] - 2025-10-09
+
+### Fixed
+- **GitHub Actions Workflow**: Fixed draft release issue preventing binary uploads
+  - Changed release from draft to published to make it visible to `gh release upload`
+  - Fixes "release not found" errors when uploading platform binaries
+  - Enables successful multi-platform release builds
+
 ## [0.20.3] - 2025-10-09
 
 ### Fixed

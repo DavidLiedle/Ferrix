@@ -1,9 +1,9 @@
 [package]
 name = "ferrix"
-version = "0.20.3"
+version = "0.20.4"
 edition = "2021"
 authors = ["David Liedle", "Claude <noreply@anthropic.com>"]
-description = "A production-ready terminal multiplexer with tmux/screen parity, crash recovery, and multi-client support"
+description = "A modern terminal multiplexer built with Rust, inspired by tmux and GNU Screen"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/davidliedle/Ferrix"
 keywords = ["terminal", "multiplexer", "tmux", "screen", "tui"]
