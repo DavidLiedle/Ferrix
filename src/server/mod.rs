@@ -16,6 +16,7 @@ pub mod hooks;
 pub mod metrics;
 pub mod health;
 pub mod backpressure;
+pub mod rate_limiting;
 
 // ============================================================================
 // TIER 2: Advanced Features (feature-gated)
