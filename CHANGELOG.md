@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.10] - 2025-10-09
+
+### Added
+- **Comprehensive Integration Tests**: Added 25 new integration tests covering critical scenarios
+  - **Tier 1 (Protocol)**: 6 tests for client-server edge cases - concurrent client attach, output persistence on reattach, client disconnect during heavy output, rapid attach/detach cycling, large message handling, concurrent operations
+  - **Tier 2 (Lifecycle)**: 10 tests for session lifecycle - session with exiting command, multiple windows, pane splits, custom names, kill/recreation, isolation, working directory, rapid creation/destruction, persistence across operations
+  - **Tier 3 (Advanced)**: 9 tests for advanced features - snapshot save/list, concurrent snapshots, error handling for invalid operations, special characters, rapid output generation, list format parsing, malformed commands, long-running commands, resize operations, state management
+  - Tests verify race conditions, memory leaks, protocol message handling, error recovery, and concurrent access patterns
+
 ## [0.20.9] - 2025-10-09
 
 ### Added
