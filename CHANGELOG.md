@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.5] - 2025-10-09
+
+### Fixed
+- **Windows/Cross-Platform Support**: Made daemonize dependency Unix-only
+  - Moved daemonize to `[target.'cfg(unix)'.dependencies]` in Cargo.toml
+  - Added conditional compilation with `#[cfg(unix)]` for daemon code
+  - Windows builds now compile successfully (daemon mode shows warning on Windows)
+  - Enables multi-platform GitHub release builds (Windows, macOS, Linux)
+
 ## [0.20.4] - 2025-10-09
 
 ### Fixed

@@ -35,6 +35,7 @@ fn main() -> Result<()> {
 
     // Handle daemonization before creating the tokio runtime
     // This is critical for macOS and other Unix systems
+    #[cfg(unix)]
     if let Some(Commands::Server { foreground, .. }) = &cli.command {
         if !foreground {
             use daemonize::Daemonize;
@@ -73,6 +74,14 @@ fn main() -> Result<()> {
                     return Err(ferrix::error::FerrixError::Other(format!("Failed to daemonize: {}", e)));
                 }
             }
+        }
+    }
+
+    // On Windows, warn if trying to run as daemon
+    #[cfg(not(unix))]
+    if let Some(Commands::Server { foreground, .. }) = &cli.command {
+        if !foreground {
+            eprintln!("Warning: Daemon mode is not supported on Windows. Running in foreground mode.");
         }
     }
 
