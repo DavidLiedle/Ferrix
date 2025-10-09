@@ -524,7 +524,9 @@ pub async fn handle_message(
                     let sessions_guard = sessions.read().await;
                     if let Some(session) = sessions_guard.get(session_id) {
                         let mut session_guard = session.write().await;
-                        session_guard.resize(cols, rows).await?;
+                        // Reserve 1 row for status bar at bottom
+                        let pane_rows = rows.saturating_sub(1).max(1);
+                        session_guard.resize(cols, pane_rows).await?;
 
                         // Trigger ClientResized hook
                         {

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - 2025-10-09
+
+### Fixed
+- **Status Bar Overlap**: Fixed fullscreen applications rendering content under status bar
+  - PTY now receives correct terminal height (total height - 1 row for status bar)
+  - Programs like `less`, `htop`, `vim` no longer have bottom line hidden
+  - Uses `saturating_sub(1).max(1)` to prevent invalid dimensions on tiny terminals
+  - Fixes issue where `ls -la | less` appeared to freeze (content was just hidden)
+
 ## [0.20.0] - 2025-10-09
 
 ### Changed

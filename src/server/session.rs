@@ -65,7 +65,14 @@ impl Session {
 
     pub fn new_with_working_dir(id: SessionId, name: String, working_dir: PathBuf) -> Self {
         let window_id = WindowId(Uuid::new_v4());
-        let default_window = Window::new_with_working_dir(window_id.clone(), "bash".to_string(), working_dir.clone());
+
+        // Get shell name from $SHELL environment variable (e.g., "/bin/zsh" -> "zsh")
+        let shell_name = std::env::var("SHELL")
+            .ok()
+            .and_then(|s| std::path::Path::new(&s).file_name().map(|f| f.to_string_lossy().to_string()))
+            .unwrap_or_else(|| "bash".to_string());
+
+        let default_window = Window::new_with_working_dir(window_id.clone(), shell_name, working_dir.clone());
 
         Self {
             id,
