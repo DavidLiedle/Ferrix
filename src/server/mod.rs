@@ -111,7 +111,7 @@ impl Server {
         self.hooks.clone()
     }
 
-    pub async fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self, enable_recovery: bool) -> Result<()> {
         if self.socket_path.exists() {
             std::fs::remove_file(&self.socket_path)?;
         }
@@ -119,22 +119,29 @@ impl Server {
         // Check for crash recovery
         let recovery_manager = Arc::new(RecoveryManager::new()?);
 
-        // Attempt to recover crashed sessions
-        match recovery_manager.check_and_recover().await {
-            Ok(recovered_sessions) => {
-                for snapshot in recovered_sessions {
-                    let session = Session::from_snapshot(snapshot.clone());
-                    let session_id = session.id.clone();
-                    let session_name = session.name.clone();
+        // Attempt to recover crashed sessions (only if enabled)
+        if enable_recovery {
+            match recovery_manager.check_and_recover().await {
+                Ok(recovered_sessions) => {
+                    for snapshot in recovered_sessions {
+                        let session = Session::from_snapshot(snapshot.clone());
+                        let session_id = session.id.clone();
+                        let session_name = session.name.clone();
 
-                    let mut sessions_guard = self.sessions.write().await;
-                    sessions_guard.insert(session_id.clone(), Arc::new(RwLock::new(session)));
+                        let mut sessions_guard = self.sessions.write().await;
+                        sessions_guard.insert(session_id.clone(), Arc::new(RwLock::new(session)));
 
-                    info!("Recovered session {} ({}) from crash", session_name, session_id.0);
+                        info!("Recovered session {} ({}) from crash", session_name, session_id.0);
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to recover sessions: {}", e);
                 }
             }
-            Err(e) => {
-                warn!("Failed to recover sessions: {}", e);
+        } else {
+            // Clear recovery file to start fresh
+            if let Err(e) = recovery_manager.clear_recovery_file().await {
+                warn!("Failed to clear recovery file: {}", e);
             }
         }
 

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2025-10-09
+
+### Changed
+- **Crash Recovery Behavior**: Changed to match tmux/screen behavior (disabled by default)
+  - Automatic session recovery is now OFF by default (like tmux/screen)
+  - Prevents loading dead sessions after `pkill -9 ferrix`
+  - Recovery can be enabled with `ferrix server --recover` flag (experimental)
+  - Stale recovery files are automatically cleaned up on startup
+  - This matches industry standard behavior - tmux/screen don't auto-recover either
+
+### Fixed
+- **Terminal Reset on Detach**: Enhanced terminal cleanup to prevent corruption
+  - Added comprehensive terminal reset sequence (ESC c - RIS)
+  - Clears scrolling regions, tab stops, and all terminal modes
+  - Fixes terminal corruption after running vim or other complex TUI apps
+  - Ensures clean terminal state for subsequent commands like `ls -la`
+
+### Added
+- **TUI Application Compatibility**: Documented compatibility with common applications
+  - ✅ htop - Works perfectly (process monitor)
+  - ✅ nano - Works correctly (text editor)
+  - ✅ Shell usage - bash, zsh work correctly
+  - ❌ vim - Rendering bugs (reversed line numbers, flickering)
+  - ❌ Emacs - Display corruption
+
 ## [0.19.2] - 2025-10-08
 
 ### Fixed

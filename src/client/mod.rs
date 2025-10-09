@@ -374,14 +374,21 @@ impl Client {
             // Disable raw mode
             terminal::disable_raw_mode()?;
 
-            // Reset terminal state and show cursor
+            // Comprehensive terminal reset to clean up any escape sequences
+            // This handles vim/emacs leaving the terminal in a bad state
             execute!(stdout(),
                 crossterm::style::ResetColor,
-                crossterm::cursor::Show
+                crossterm::cursor::Show,
+                // Reset all terminal modes
+                crossterm::style::SetAttribute(crossterm::style::Attribute::Reset)
             )?;
 
-            // Flush to ensure all changes are applied
+            // Send explicit terminal reset sequence (RIS - Reset to Initial State)
+            // This clears scrolling regions, tab stops, and other state
             use std::io::Write;
+            write!(stdout(), "\x1bc")?;  // ESC c - Full terminal reset
+
+            // Flush to ensure all changes are applied
             std::io::stdout().flush()?;
         }
 
@@ -405,14 +412,21 @@ impl Client {
             // Disable raw mode
             terminal::disable_raw_mode()?;
 
-            // Reset terminal state and show cursor
+            // Comprehensive terminal reset to clean up any escape sequences
+            // This handles vim/emacs leaving the terminal in a bad state
             execute!(stdout(),
                 crossterm::style::ResetColor,
-                crossterm::cursor::Show
+                crossterm::cursor::Show,
+                // Reset all terminal modes
+                crossterm::style::SetAttribute(crossterm::style::Attribute::Reset)
             )?;
 
-            // Flush to ensure all changes are applied
+            // Send explicit terminal reset sequence (RIS - Reset to Initial State)
+            // This clears scrolling regions, tab stops, and other state
             use std::io::Write;
+            write!(stdout(), "\x1bc")?;  // ESC c - Full terminal reset
+
+            // Flush to ensure all changes are applied
             std::io::stdout().flush()?;
         }
 

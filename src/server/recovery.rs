@@ -168,6 +168,15 @@ impl RecoveryManager {
         self.auto_save_enabled = enabled;
         info!("Auto-save {}", if enabled { "enabled" } else { "disabled" });
     }
+
+    /// Clear the recovery file to start fresh (used when --no-recover is specified)
+    pub async fn clear_recovery_file(&self) -> Result<()> {
+        if self.recovery_file.exists() {
+            std::fs::remove_file(&self.recovery_file)?;
+            info!("Cleared recovery file (recovery disabled)");
+        }
+        Ok(())
+    }
 }
 
 // Signal handler for graceful shutdown

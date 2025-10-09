@@ -21,6 +21,9 @@ pub enum Commands {
         #[arg(short, long)]
         foreground: bool,
 
+        #[arg(long, help = "Enable automatic session recovery on startup (experimental)")]
+        recover: bool,
+
         #[arg(long, help = "Enable remote TCP/TLS access")]
         remote: bool,
 

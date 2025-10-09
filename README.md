@@ -23,7 +23,7 @@
 
 Ferrix is a modern terminal multiplexer that combines the reliability of GNU Screen with features from Tmux, while exploring new possibilities with Rust's safety and performance. The name combines "Fe" (iron - representing Rust's memory safety) with "Matrix" (representing the matrix of terminal sessions).
 
-> **⚠️ Alpha Release (v0.19.2)**: Ferrix is feature-complete with tmux/screen parity, but still in alpha testing. It includes automatic crash recovery, multi-client session support, session persistence with buffer restoration, automatic session cleanup, and polished UX features including contextual help, enhanced mouse support, and intelligent error messages. **Not recommended for production use yet** - see [Known Limitations](#known-limitations) below.
+> **⚠️ Alpha Release (v0.20.0)**: Ferrix is feature-complete with tmux/screen parity, but still in alpha testing. It includes automatic crash recovery, multi-client session support, session persistence with buffer restoration, automatic session cleanup, and polished UX features including contextual help, enhanced mouse support, and intelligent error messages. **Not recommended for production use yet** - see [Known Limitations](#known-limitations) below.
 
 ## ✨ Features
 
@@ -235,6 +235,10 @@ See [SECURITY.md](SECURITY.md) for information on reporting security vulnerabili
 ### Critical Issues
 - **Error Handling**: ~200 `unwrap()` calls in production code paths that could cause panics
 - **Code Quality**: 26 clippy warnings including unused code and inefficient patterns
+- **Terminal Rendering**: Complex TUI apps (vim, Emacs) have serious rendering bugs:
+  - vim displays line numbers in reverse order (5,4,3,2,1)
+  - Screen refresh shows flickering and corruption
+  - Likely issues with reverse index or scrolling region handling
 - **Incomplete Features**:
   - Hook system execution not implemented (TODO in server/hooks.rs)
   - Pane/window activity tracking incomplete
@@ -248,10 +252,16 @@ See [SECURITY.md](SECURITY.md) for information on reporting security vulnerabili
 
 ### What Works Well
 - Core multiplexing (sessions, windows, panes)
-- Terminal emulation (ANSI/VT100)
+- Basic terminal emulation (ANSI/VT100 for most apps)
 - Configuration system
 - Copy mode and keybindings
 - Help system and UX features
+- **TUI Application Compatibility**:
+  - ✅ **htop** - Works perfectly (process monitor)
+  - ✅ **nano** - Works correctly (text editor)
+  - ✅ **Shell usage** - bash, zsh work correctly
+  - ❌ **vim** - Rendering bugs (reversed line numbers)
+  - ❌ **Emacs** - Display corruption
 
 ### Before v1.0
 We need to:

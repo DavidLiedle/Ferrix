@@ -98,7 +98,7 @@ async fn async_main(cli: Cli) -> Result<()> {
     let socket_path = PathBuf::from(&cli.socket);
 
     match &cli.command {
-        Some(Commands::Server { foreground, remote, port, tls_cert, tls_key, bind }) => {
+        Some(Commands::Server { foreground, recover, remote, port, tls_cert, tls_key, bind }) => {
             // Only show ASCII logo if not already daemonized
             if *foreground {
                 println!("{}", ASCII_LOGO);
@@ -117,6 +117,9 @@ async fn async_main(cli: Cli) -> Result<()> {
             // Note: daemonization already handled in main() before async runtime creation
 
             let server = Arc::new(Server::new(socket_path.clone()));
+
+            // Recovery is disabled by default (like tmux/screen) unless --recover is specified
+            let enable_recovery = *recover;
 
             #[cfg(feature = "remote")]
             if *remote {
@@ -156,7 +159,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                 let local_server = server.clone();
                 let local_handle = tokio::spawn(async move {
                     let mut server = (*local_server).clone();
-                    if let Err(e) = server.run().await {
+                    if let Err(e) = server.run(enable_recovery).await {
                         eprintln!("Local server error: {}", e);
                     }
                 });
@@ -179,7 +182,7 @@ async fn async_main(cli: Cli) -> Result<()> {
             {
                 // Start only local server
                 let mut local_server = (*server).clone();
-                local_server.run().await?;
+                local_server.run(enable_recovery).await?;
             }
         }
 
@@ -876,7 +879,7 @@ async fn async_main(cli: Cli) -> Result<()> {
                     let server_socket = socket_path.clone();
                     tokio::spawn(async move {
                         let mut server = Server::new(server_socket);
-                        let _ = server.run().await;
+                        let _ = server.run(true).await; // Enable recovery for tests
                     });
 
                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
