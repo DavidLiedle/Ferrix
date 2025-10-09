@@ -423,7 +423,7 @@ impl RemoteSession {
 
     /// Create a new session on the remote server
     pub async fn create_session(&mut self, name: Option<String>) -> Result<SessionId> {
-        self.send(ClientMessage::CreateSession { name }).await?;
+        self.send(ClientMessage::CreateSession { name, working_dir: None }).await?;
 
         match self.receive().await? {
             Some(ServerMessage::SessionCreated { session_id, .. }) => {

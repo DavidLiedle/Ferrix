@@ -2,7 +2,7 @@
 // Mosh uses UDP with state synchronization for reliable connection over unreliable networks
 
 use async_trait::async_trait;
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use tokio::net::UdpSocket;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -118,7 +118,7 @@ impl MoshTransport {
                 interval.tick().await;
 
                 // Send keepalive packet
-                let seq = {
+                let _seq = {
                     let mut seq = send_sequence.lock().await;
                     *seq += 1;
                     *seq
