@@ -114,21 +114,17 @@ jobs:
           cd ..
 
       - name: Upload Release Asset
-        uses: softprops/action-gh-release@v1
-        with:
-          files: ./package/${{ matrix.asset_name }}.tar.gz
-          tag_name: ${{ github.ref }}
-          fail_on_unmatched_files: false
-          append_body: false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload ${{ github.ref_name }} ./package/${{ matrix.asset_name }}.tar.gz --clobber
         if: matrix.os != 'windows-latest'
 
       - name: Upload Windows Release Asset
-        uses: softprops/action-gh-release@v1
-        with:
-          files: ./package/${{ matrix.asset_name }}.zip
-          tag_name: ${{ github.ref }}
-          fail_on_unmatched_files: false
-          append_body: false
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload ${{ github.ref_name }} ./package/${{ matrix.asset_name }}.zip --clobber
         if: matrix.os == 'windows-latest'
 
   docker:
