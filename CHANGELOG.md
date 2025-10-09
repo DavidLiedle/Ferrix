@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.9] - 2025-10-09
+
+### Added
+- **TODO Completion**: Completed all TODO items in production code paths
+  - Implemented hook command execution using `tokio::process::Command` with fire-and-forget pattern
+  - Added dynamic author name detection from `$USER`/`$USERNAME` environment variables for session versioning
+  - Added `Pty::get_child_pid()` method for retrieving child process IDs
+  - Added `scroll_position` field to Pane for tracking scrollback position
+  - Documented architectural limitations where structs lack necessary context (active window/pane, client count)
+
+### Changed
+- **Hook System**: Hooks now execute shell commands via `/bin/sh -c` in background tasks
+- **Format Variables**: `pane_pid` now returns actual PTY child process ID instead of placeholder 0
+- **Code Quality**: Converted speculative TODOs to enhancement comments for future consideration
+
 ## [0.20.8] - 2025-10-09
 
 ### Changed

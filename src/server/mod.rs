@@ -2152,7 +2152,10 @@ pub async fn handle_message(
             let sessions_guard = sessions.read().await;
             if let Some(session) = sessions_guard.get(&session_id) {
                 let mut session_guard = session.write().await;
-                let author_name = "User".to_string(); // TODO: Get from session or client
+                // Get author name from environment, fallback to "User"
+                let author_name = std::env::var("USER")
+                    .or_else(|_| std::env::var("USERNAME"))
+                    .unwrap_or_else(|_| "User".to_string());
                 match session_guard.commit_changes(&message, &author_name).await {
                     Ok(commit_id) => {
                         Ok(Some(ServerMessage::CommitCreated {

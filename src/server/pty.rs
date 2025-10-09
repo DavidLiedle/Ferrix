@@ -230,6 +230,11 @@ impl Pty {
         Ok(())
     }
 
+    /// Get the process ID of the child process
+    pub fn get_child_pid(&self) -> Option<u32> {
+        self.child.lock().ok().and_then(|child| child.process_id())
+    }
+
     pub fn shutdown(&mut self) {
         tracing::debug!("Shutting down PTY");
 

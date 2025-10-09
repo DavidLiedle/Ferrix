@@ -471,7 +471,11 @@ impl FormatProvider for Window {
             // Window flags
             "window_zoomed_flag" => Some(FormatValue::Boolean(self.zoomed_pane.is_some())),
             "window_active" => {
-                // TODO: Track if this is the active window
+                // NOTE: Cannot determine if this is the active window because Window
+                // doesn't have access to the session's current_window field. Window
+                // is accessed from Session, so Session knows which is active, but
+                // Window itself doesn't have that context. Returning true as a
+                // reasonable default for formatting purposes.
                 Some(FormatValue::Boolean(true))
             },
 

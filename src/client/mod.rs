@@ -2008,7 +2008,9 @@ impl Client {
         }
 
         // Use thin line characters for a more minimal, trim look
-        // TODO: Could differentiate focused/unfocused panes with different border styles
+        // Enhancement idea: Could differentiate focused/unfocused panes with different
+        // border styles (e.g., bold/double lines for focused, thin for unfocused).
+        // This would require passing focus information to the draw_pane_borders function.
         let (h_line, v_line, tl_corner, tr_corner, bl_corner, br_corner) =
             ('─', '│', '┌', '┐', '└', '┘');
 

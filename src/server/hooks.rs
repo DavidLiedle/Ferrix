@@ -318,9 +318,35 @@ impl HookManager {
         tracing::debug!("Triggering hook: {} with {} commands", event.name(), commands.len());
 
         for command in commands {
-            // TODO: Execute the command
-            // For now, just log it
-            tracing::info!("Hook {} would execute: {}", event.name(), command);
+            tracing::info!("Hook {} executing: {}", event.name(), command);
+
+            // Execute the command using /bin/sh -c
+            let result = tokio::process::Command::new("/bin/sh")
+                .arg("-c")
+                .arg(&command)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+
+            match result {
+                Ok(mut child) => {
+                    // Don't wait for the command to complete - fire and forget
+                    tokio::spawn(async move {
+                        match child.wait().await {
+                            Ok(status) => {
+                                tracing::debug!("Hook command completed with status: {}", status);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Hook command failed: {}", e);
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("Failed to spawn hook command: {}", e);
+                }
+            }
         }
 
         self.executing = false;

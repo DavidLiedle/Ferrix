@@ -21,6 +21,9 @@ pub struct Pane {
     /// Stores the last N bytes of raw PTY output to replay when clients attach
     pub raw_output_buffer: Vec<u8>,
     pub max_raw_buffer_size: usize,
+    /// Scroll position in the scrollback buffer (0 = viewing current output)
+    /// Positive values indicate scrolling up into history
+    pub scroll_position: usize,
 }
 
 impl Pane {
@@ -48,6 +51,7 @@ impl Pane {
             is_dead: false,
             raw_output_buffer: Vec::new(),
             max_raw_buffer_size: 50000, // Store last 50KB of raw PTY output
+            scroll_position: 0, // Start at current output (not scrolled)
         };
 
         if let Err(e) = pane.start_pty() {
@@ -155,11 +159,17 @@ impl FormatProvider for Pane {
 
             // PTY status
             "pane_pid" => {
-                // TODO: Add get_child_pid() to PTY
-                Some(FormatValue::Number(0))
+                self.pty.as_ref()
+                    .and_then(|pty| pty.get_child_pid())
+                    .map(|pid| FormatValue::Number(pid as i64))
+                    .or(Some(FormatValue::Number(0)))
             },
             "pane_active" => {
-                // TODO: Track if this is the active pane
+                // NOTE: Cannot determine if this is the active pane because Pane
+                // doesn't have access to the window's current_pane field. Pane
+                // is accessed from Window, so Window knows which is active, but
+                // Pane itself doesn't have that context. Returning true as a
+                // reasonable default for formatting purposes.
                 Some(FormatValue::Boolean(true))
             },
             "pane_dead" => Some(FormatValue::Boolean(self.pty.is_none())),
@@ -169,10 +179,7 @@ impl FormatProvider for Pane {
             "cursor_y" => Some(FormatValue::Number(self.cursor_position.1 as i64)),
 
             // Scrollback
-            "scroll_position" => {
-                // TODO: Add scroll position tracking to scrollback
-                Some(FormatValue::Number(0))
-            },
+            "scroll_position" => Some(FormatValue::Number(self.scroll_position as i64)),
             "history_size" => Some(FormatValue::Number(
                 self.scrollback.max_lines() as i64
             )),

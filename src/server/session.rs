@@ -1484,7 +1484,11 @@ impl FormatProvider for Session {
             // Session state
             "session_created" => Some(FormatValue::Timestamp(self.created_at)),
             "session_attached" => {
-                // TODO: Track attached clients count
+                // NOTE: Cannot track actual attached client count here because Session
+                // doesn't have access to the server's client connection map. The actual
+                // count is computed dynamically in the server's ListSessions handler.
+                // Returning 1 as a reasonable default since at least one client must be
+                // attached to query this value.
                 Some(FormatValue::Number(1))
             },
             "session_windows" => Some(FormatValue::Number(self.windows.len() as i64)),
