@@ -4,6 +4,10 @@ use tokio_util::codec::{Decoder, Encoder};
 use crate::error::{FerrixError, Result};
 use super::messages::{ClientMessage, ServerMessage};
 
+/// Maximum message size: 10MB
+/// Prevents OOM attacks from malicious clients sending huge messages
+const MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
+
 pub struct FerrixCodec;
 
 impl Default for FerrixCodec {
@@ -30,6 +34,14 @@ impl Decoder for FerrixCodec {
         let mut length_bytes = [0u8; 4];
         length_bytes.copy_from_slice(&src[..4]);
         let length = u32::from_be_bytes(length_bytes) as usize;
+
+        // Protect against malicious huge messages that could cause OOM
+        if length > MAX_MESSAGE_SIZE {
+            return Err(FerrixError::Protocol(format!(
+                "Message too large: {} bytes (max: {} bytes)",
+                length, MAX_MESSAGE_SIZE
+            )));
+        }
 
         if src.len() < 4 + length {
             return Ok(None);
@@ -85,6 +97,14 @@ impl Decoder for FerrixClientCodec {
         length_bytes.copy_from_slice(&src[..4]);
         let length = u32::from_be_bytes(length_bytes) as usize;
 
+        // Protect against malicious huge messages that could cause OOM
+        if length > MAX_MESSAGE_SIZE {
+            return Err(FerrixError::Protocol(format!(
+                "Message too large: {} bytes (max: {} bytes)",
+                length, MAX_MESSAGE_SIZE
+            )));
+        }
+
         if src.len() < 4 + length {
             return Ok(None);
         }
@@ -113,23 +133,51 @@ impl Encoder<ClientMessage> for FerrixClientCodec {
 }
 #[cfg(test)]
 mod tests {
-    
+    use super::*;
+    use bytes::BytesMut;
 
     #[test]
-    fn test_codec_encoding() {
-        // Test message encoding
-        assert!(true);
+    fn test_message_size_limit_server_codec() {
+        let mut codec = FerrixCodec::new();
+        let mut buf = BytesMut::new();
+
+        // Create a message claiming to be larger than MAX_MESSAGE_SIZE
+        let fake_length = (MAX_MESSAGE_SIZE + 1) as u32;
+        buf.put_u32(fake_length);
+
+        // Should reject the oversized message
+        let result = codec.decode(&mut buf);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Message too large"));
     }
 
     #[test]
-    fn test_codec_decoding() {
-        // Test message decoding
-        assert!(true);
+    fn test_message_size_limit_client_codec() {
+        let mut codec = FerrixClientCodec::new();
+        let mut buf = BytesMut::new();
+
+        // Create a message claiming to be larger than MAX_MESSAGE_SIZE
+        let fake_length = (MAX_MESSAGE_SIZE + 1) as u32;
+        buf.put_u32(fake_length);
+
+        // Should reject the oversized message
+        let result = codec.decode(&mut buf);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Message too large"));
     }
 
     #[test]
-    fn test_codec_roundtrip() {
-        // Test encode/decode roundtrip
-        assert!(true);
+    fn test_message_size_limit_accepts_valid() {
+        let mut codec = FerrixCodec::new();
+        let mut buf = BytesMut::new();
+
+        // Create a message within limits (but incomplete data)
+        let valid_length = 1000u32;
+        buf.put_u32(valid_length);
+
+        // Should not error (just return Ok(None) because message incomplete)
+        let result = codec.decode(&mut buf);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none()); // Incomplete message
     }
 }
