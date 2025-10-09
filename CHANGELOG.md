@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.6] - 2025-10-09
+
+### Changed
+- **GitHub Actions**: Disabled Windows builds (Unix-only platform)
+  - Ferrix uses Unix domain sockets which are not available on Windows
+  - Windows support would require implementing named pipes (future enhancement)
+  - Simplified release workflow to build only for Linux and macOS platforms
+  - Successfully builds: Linux (x86_64, ARM64), macOS (x86_64, ARM64)
+
 ## [0.20.5] - 2025-10-09
 
 ### Fixed

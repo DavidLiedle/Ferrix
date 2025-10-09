@@ -65,11 +65,12 @@ jobs:
             artifact_name: ferrix
             asset_name: ferrix-${{ needs.create-release.outputs.version }}-aarch64-macos
 
-          # Windows x86_64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: ferrix.exe
-            asset_name: ferrix-${{ needs.create-release.outputs.version }}-x86_64-windows
+          # Windows support disabled - requires named pipes instead of Unix domain sockets
+          # TODO: Implement Windows support with interprocess named pipes
+          # - os: windows-latest
+          #   target: x86_64-pc-windows-msvc
+          #   artifact_name: ferrix.exe
+          #   asset_name: ferrix-${{ needs.create-release.outputs.version }}-x86_64-windows
 
     runs-on: ${{ matrix.os }}
 
@@ -106,11 +107,7 @@ jobs:
           cp -r completions package/${{ matrix.asset_name }}/
 
           cd package
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            7z a -tzip ${{ matrix.asset_name }}.zip ${{ matrix.asset_name }}
-          else
-            tar czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.asset_name }}
-          fi
+          tar czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.asset_name }}
           cd ..
 
       - name: Upload Release Asset
@@ -118,14 +115,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload ${{ github.ref_name }} ./package/${{ matrix.asset_name }}.tar.gz --clobber
-        if: matrix.os != 'windows-latest'
-
-      - name: Upload Windows Release Asset
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release upload ${{ github.ref_name }} ./package/${{ matrix.asset_name }}.zip --clobber
-        if: matrix.os == 'windows-latest'
 
   docker:
     needs: create-release
