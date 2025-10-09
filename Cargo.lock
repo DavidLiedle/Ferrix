@@ -1473,6 +1473,7 @@ dependencies = [
  "once_cell",
  "portable-pty",
  "pretty_assertions",
+ "rand",
  "ratatui",
  "raw-window-handle",
  "regex",
