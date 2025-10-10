@@ -78,7 +78,7 @@ impl TestServer {
         {
             let pid = self.process.id();
             let output = Command::new("ps")
-                .args(&["-o", "rss=", "-p", &pid.to_string()])
+                .args(["-o", "rss=", "-p", &pid.to_string()])
                 .output()
                 .ok()?;
 
@@ -233,8 +233,8 @@ async fn stress_test_many_concurrent_clients() {
                     .arg("--socket")
                     .arg(&socket_path)
                     .arg("send-keys")
-                    .arg(&format!("stress-{}", i))
-                    .arg(&format!("echo 'Test {}'", j))
+                    .arg(format!("stress-{}", i))
+                    .arg(format!("echo 'Test {}'", j))
                     .output();
                 sleep(Duration::from_millis(100)).await;
             }

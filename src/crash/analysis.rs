@@ -100,7 +100,7 @@ impl CrashAnalyzer {
         for crash in crashes {
             if let Some(ref location) = crash.metadata.location {
                 let key = format!("{}:{}", location.file, location.line);
-                location_map.entry(key).or_insert_with(Vec::new).push(crash);
+                location_map.entry(key).or_default().push(crash);
             }
         }
 
@@ -130,7 +130,7 @@ impl CrashAnalyzer {
 
         for crash in crashes {
             let key = crash.metadata.message.clone();
-            message_map.entry(key).or_insert_with(Vec::new).push(crash);
+            message_map.entry(key).or_default().push(crash);
         }
 
         message_map
@@ -278,7 +278,7 @@ impl CrashAnalyzer {
                 report.push_str(&format!("   Occurrences: {}\n", pattern.occurrence_count));
                 report.push_str(&format!("   First seen: {}\n", pattern.first_seen.format("%Y-%m-%d %H:%M:%S")));
                 report.push_str(&format!("   Last seen: {}\n", pattern.last_seen.format("%Y-%m-%d %H:%M:%S")));
-                report.push_str("\n");
+                report.push('\n');
             }
         }
 

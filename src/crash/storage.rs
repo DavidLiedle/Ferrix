@@ -178,8 +178,6 @@ impl CrashStorage {
 mod tests {
     use super::*;
     use crate::crash::capture::{CrashLocation, SystemInfo};
-    use crate::server::metrics::MetricsSnapshot;
-    use tempfile::TempDir;
 
     fn create_test_crash() -> CrashMetadata {
         CrashMetadata {
