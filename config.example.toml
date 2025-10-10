@@ -102,3 +102,57 @@ max_sessions_per_minute = 10      # Maximum new sessions per client per minute
 # - 850 sessions active → Warning level (log warnings)
 # - 950 sessions active → Critical level (reject new sessions)
 # - Emergency mode → Manually activated via ferrix emergency-mode
+
+# ============================================================================
+# Security Hardening (Remote Access)
+# ============================================================================
+# These settings protect against attacks when remote access is enabled
+# (when advanced.allow_remote = true)
+#
+# NOTE: Authentication rate limiting and session timeouts are currently
+# hardcoded in the server. Future versions may make these configurable.
+
+# [security]  # Not yet configurable - documented for reference only
+#
+# # Authentication Rate Limiting (HARDCODED)
+# # Current implementation: 5 failed attempts, 15 minute lockout
+# # Prevents brute-force password attacks by locking out IPs after failed attempts
+# # auth_max_attempts = 5              # Maximum failed auth attempts before lockout
+# # auth_lockout_duration = 900        # Lockout duration in seconds (15 minutes)
+#
+# # Session Timeout Configuration (HARDCODED)
+# # Current implementation: 1 hour idle timeout, 24 hour absolute timeout
+# # Automatically disconnect idle or long-running sessions
+# # session_idle_timeout = 3600        # Idle timeout in seconds (1 hour)
+# # session_absolute_timeout = 86400   # Absolute timeout in seconds (24 hours)
+
+# TLS/mTLS Configuration
+# Remote connections use TLS by default when certificates are provided
+# TLS modes:
+#   - "server-only": Server authenticates to client (default)
+#   - "mutual-auth": Both server and client authenticate with certificates
+#
+# To enable remote access with TLS:
+# 1. Generate server certificate and key
+# 2. Set allow_remote = true in [advanced] section
+# 3. Start server with: ferrix serve --cert server.pem --key server-key.pem
+#
+# For mutual TLS (recommended for production):
+# 1. Generate CA certificate for client verification
+# 2. Generate client certificates signed by the CA
+# 3. Start server with: ferrix serve --cert server.pem --key server-key.pem \
+#                                     --tls-mode mutual-auth --client-ca ca.pem
+#
+# TLS configuration is set via command-line flags, not this config file
+
+# ============================================================================
+# Security Best Practices
+# ============================================================================
+# For production deployments:
+# 1. Enable mTLS (mutual-auth mode) for strong authentication
+# 2. Use strong passwords or key-based authentication
+# 3. Keep auth_max_attempts low (3-5) with long lockout (15-30 minutes)
+# 4. Set reasonable session timeouts based on your use case
+# 5. Monitor failed authentication attempts in logs (log_level = "info")
+# 6. Run server behind a firewall, only exposing necessary ports
+# 7. Regularly rotate certificates and credentials
