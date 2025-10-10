@@ -1962,6 +1962,78 @@ async fn async_main(cli: Cli) -> Result<()> {
             }
         }
 
+        Some(Commands::Health { detailed, format }) => {
+            use ferrix::server::health::HealthChecker;
+
+            let checker = HealthChecker::new();
+            let status = checker.check().await;
+
+            let format_type = format.as_deref().unwrap_or("text");
+
+            match format_type {
+                "json" => {
+                    if *detailed {
+                        let report = checker.detailed_report().await;
+                        print!("{{\"status\": \"{}\", \"components\": [", status.level());
+                        for (i, (name, component_status)) in report.iter().enumerate() {
+                            if i > 0 {
+                                print!(", ");
+                            }
+                            print!("{{\"name\": \"{}\", \"status\": \"{}\"", name, component_status.level());
+                            match component_status {
+                                ferrix::server::health::HealthStatus::Degraded { reason } |
+                                ferrix::server::health::HealthStatus::Unhealthy { reason } => {
+                                    print!(", \"reason\": \"{}\"", reason.replace('"', "\\\""));
+                                }
+                                _ => {}
+                            }
+                            print!("}}");
+                        }
+                        println!("]}}");
+                    } else {
+                        println!("{{\"status\": \"{}\"}}", status.level());
+                    }
+                }
+                "text" | _ => {
+                    println!("Ferrix Health Check");
+                    println!("{}", "=".repeat(50));
+                    println!("Status: {}", status.level());
+
+                    match &status {
+                        ferrix::server::health::HealthStatus::Degraded { reason } => {
+                            println!("Reason: {}", reason);
+                        }
+                        ferrix::server::health::HealthStatus::Unhealthy { reason } => {
+                            println!("Reason: {}", reason);
+                        }
+                        _ => {}
+                    }
+
+                    if *detailed {
+                        println!("\nComponent Health:");
+                        let report = checker.detailed_report().await;
+                        for (name, component_status) in report {
+                            print!("  {}: ", name);
+                            match component_status {
+                                ferrix::server::health::HealthStatus::Healthy => println!("✓ healthy"),
+                                ferrix::server::health::HealthStatus::Degraded { reason } => {
+                                    println!("⚠ degraded - {}", reason)
+                                }
+                                ferrix::server::health::HealthStatus::Unhealthy { reason } => {
+                                    println!("✗ unhealthy - {}", reason)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Exit with non-zero code if unhealthy
+            if !status.is_ok() {
+                std::process::exit(1);
+            }
+        }
+
         Some(Commands::SplitPane { .. }) |
         Some(Commands::SelectPane { .. }) |
         Some(Commands::KillPane { .. }) |

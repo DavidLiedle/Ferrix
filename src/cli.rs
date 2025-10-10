@@ -11,6 +11,10 @@ pub struct Cli {
     #[arg(short, long, help = "Enable debug logging")]
     pub debug: bool,
 
+    #[cfg(feature = "gpu")]
+    #[arg(long, help = "Use GPU-accelerated rendering (experimental)")]
+    pub gpu: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -477,6 +481,15 @@ pub enum Commands {
 
         #[arg(short, long, help = "Output file path (defaults to stdout)")]
         output: Option<String>,
+    },
+
+    #[command(about = "Check server health status")]
+    Health {
+        #[arg(short, long, help = "Show detailed component health")]
+        detailed: bool,
+
+        #[arg(long, help = "Output format (text, json)")]
+        format: Option<String>,
     },
 }
 
