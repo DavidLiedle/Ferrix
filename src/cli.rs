@@ -491,6 +491,15 @@ pub enum Commands {
         #[arg(long, help = "Output format (text, json)")]
         format: Option<String>,
     },
+
+    #[command(about = "Show server metrics")]
+    Metrics {
+        #[arg(long, help = "Output format (text, json)")]
+        format: Option<String>,
+
+        #[arg(short, long, help = "Watch metrics in real-time (refresh every N seconds)")]
+        watch: Option<u64>,
+    },
 }
 
 #[derive(Subcommand)]

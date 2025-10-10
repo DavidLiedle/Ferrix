@@ -2034,6 +2034,73 @@ async fn async_main(cli: Cli) -> Result<()> {
             }
         }
 
+        Some(Commands::Metrics { format, watch }) => {
+            use ferrix::server::metrics::ServerMetrics;
+
+            let metrics = ServerMetrics::global();
+            let format_type = format.as_deref().unwrap_or("text");
+
+            if let Some(interval) = watch {
+                // Watch mode: refresh every N seconds
+                loop {
+                    // Clear screen
+                    print!("\x1B[2J\x1B[1;1H");
+
+                    let snapshot = metrics.snapshot();
+                    match format_type {
+                        "json" => {
+                            println!("{{\"active_connections\":{},\"total_connections\":{},\"active_sessions\":{},\"active_windows\":{},\"active_panes\":{},\"pty_bytes_read\":{},\"pty_bytes_written\":{},\"messages_sent\":{},\"messages_received\":{},\"pty_spawn_failures\":{},\"protocol_errors\":{},\"auth_failures\":{}}}",
+                                snapshot.active_connections,
+                                snapshot.total_connections,
+                                snapshot.active_sessions,
+                                snapshot.active_windows,
+                                snapshot.active_panes,
+                                snapshot.pty_bytes_read,
+                                snapshot.pty_bytes_written,
+                                snapshot.messages_sent,
+                                snapshot.messages_received,
+                                snapshot.pty_spawn_failures,
+                                snapshot.protocol_errors,
+                                snapshot.auth_failures
+                            );
+                        }
+                        _ => {
+                            println!("{}", snapshot.format());
+                        }
+                    }
+
+                    tokio::time::sleep(tokio::time::Duration::from_secs(*interval)).await;
+                }
+            } else {
+                // One-shot mode
+                let snapshot = metrics.snapshot();
+                match format_type {
+                    "json" => {
+                        println!("{{\"active_connections\":{},\"total_connections\":{},\"failed_connections\":{},\"active_sessions\":{},\"sessions_created\":{},\"sessions_destroyed\":{},\"active_windows\":{},\"active_panes\":{},\"pty_bytes_read\":{},\"pty_bytes_written\":{},\"messages_sent\":{},\"messages_received\":{},\"pty_spawn_failures\":{},\"protocol_errors\":{},\"auth_failures\":{}}}",
+                            snapshot.active_connections,
+                            snapshot.total_connections,
+                            snapshot.failed_connections,
+                            snapshot.active_sessions,
+                            snapshot.sessions_created,
+                            snapshot.sessions_destroyed,
+                            snapshot.active_windows,
+                            snapshot.active_panes,
+                            snapshot.pty_bytes_read,
+                            snapshot.pty_bytes_written,
+                            snapshot.messages_sent,
+                            snapshot.messages_received,
+                            snapshot.pty_spawn_failures,
+                            snapshot.protocol_errors,
+                            snapshot.auth_failures
+                        );
+                    }
+                    _ => {
+                        println!("{}", snapshot.format());
+                    }
+                }
+            }
+        }
+
         Some(Commands::SplitPane { .. }) |
         Some(Commands::SelectPane { .. }) |
         Some(Commands::KillPane { .. }) |
