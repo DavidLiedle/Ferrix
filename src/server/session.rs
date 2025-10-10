@@ -1688,7 +1688,13 @@ mod tests {
         let window_list = session.list_windows();
         assert_eq!(window_list.len(), 1);
         assert!(window_list[0].is_active);
-        assert_eq!(window_list[0].name, "bash");
+
+        // Window name should match the shell from $SHELL env var
+        let expected_shell = std::env::var("SHELL")
+            .ok()
+            .and_then(|s| std::path::Path::new(&s).file_name().map(|f| f.to_string_lossy().to_string()))
+            .unwrap_or_else(|| "bash".to_string());
+        assert_eq!(window_list[0].name, expected_shell);
     }
 
     #[tokio::test]

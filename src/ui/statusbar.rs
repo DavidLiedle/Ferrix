@@ -444,6 +444,10 @@ impl StatusBar {
         None
     }
 
+    /// Format git branch for status bar
+    /// Called via get_variable_value("git_branch") - line 296
+    /// String-dispatched method (not detected by dead code analysis)
+    #[allow(dead_code)]
     #[cfg(feature = "versioning")]
     fn format_git_branch(&self) -> String {
         if let Some(branch) = &self.git_branch {

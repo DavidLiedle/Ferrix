@@ -269,7 +269,7 @@ where
         }
     }
 
-    let attempts = if last_error.as_ref().map(|e| should_retry(e)).unwrap_or(false) {
+    let attempts = if last_error.as_ref().map(should_retry).unwrap_or(false) {
         policy.max_retries + 1
     } else {
         // Failed on non-retryable error

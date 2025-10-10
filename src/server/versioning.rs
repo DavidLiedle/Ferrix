@@ -196,7 +196,7 @@ impl SessionVersioning {
                 self.head = merge_commit.id.clone();
                 self.update_branch_head(&self.current_branch.clone(), merge_commit.id.clone())?;
 
-                Ok(MergeResult::Success(merge_commit.snapshot))
+                Ok(MergeResult::Success(Box::new(merge_commit.snapshot)))
             }
 
             MergeStrategy::Theirs => {
@@ -216,7 +216,7 @@ impl SessionVersioning {
                 self.head = merge_commit.id.clone();
                 self.update_branch_head(&self.current_branch.clone(), merge_commit.id.clone())?;
 
-                Ok(MergeResult::Success(merge_commit.snapshot))
+                Ok(MergeResult::Success(Box::new(merge_commit.snapshot)))
             }
 
             MergeStrategy::Auto => {
@@ -242,7 +242,7 @@ impl SessionVersioning {
                         self.head = merge_commit.id.clone();
                         self.update_branch_head(&self.current_branch.clone(), merge_commit.id.clone())?;
 
-                        Ok(MergeResult::Success(merged_snapshot))
+                        Ok(MergeResult::Success(Box::new(merged_snapshot)))
                     }
                     Err(_) => {
                         // Auto-merge failed, return conflicts
@@ -987,7 +987,7 @@ struct RepositoryData {
 
 #[derive(Debug, Clone)]
 pub enum MergeResult {
-    Success(SessionSnapshot),
+    Success(Box<SessionSnapshot>),
     Conflicts(Vec<MergeConflict>),
 }
 

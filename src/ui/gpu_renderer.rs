@@ -78,9 +78,12 @@ pub struct GpuRenderer {
 }
 
 struct GlyphCache {
+    #[allow(dead_code)] // Will be used when GPU renderer is fully implemented
     texture: wgpu::Texture,
     texture_view: TextureView,
+    #[allow(dead_code)] // Will be used when GPU renderer is fully implemented
     atlas_width: u32,
+    #[allow(dead_code)] // Will be used when GPU renderer is fully implemented
     atlas_height: u32,
     glyphs: std::collections::HashMap<char, GlyphInfo>,
 }
@@ -457,21 +460,29 @@ impl GpuRenderer {
 
 impl GlyphCache {
     /// Get atlas dimensions for space calculations
+    /// Part of experimental GPU feature - will be used for dynamic glyph layout
+    #[allow(dead_code)]
     fn get_dimensions(&self) -> (u32, u32) {
         (self.atlas_width, self.atlas_height)
     }
 
     /// Get the underlying texture for advanced operations
+    /// Part of experimental GPU feature - will be used for texture updates
+    #[allow(dead_code)]
     fn get_texture(&self) -> &wgpu::Texture {
         &self.texture
     }
 
     /// Add or update a glyph in the cache
+    /// Part of experimental GPU feature - will be used for dynamic glyph loading
+    #[allow(dead_code)]
     fn insert_glyph(&mut self, ch: char, info: GlyphInfo) {
         self.glyphs.insert(ch, info);
     }
 
     /// Calculate available space in the atlas
+    /// Part of experimental GPU feature - will be used for cache management
+    #[allow(dead_code)]
     fn calculate_free_space(&self) -> u32 {
         let total_cells = (self.atlas_width / 64) * (self.atlas_height / 64);
         let used_cells = self.glyphs.len() as u32;

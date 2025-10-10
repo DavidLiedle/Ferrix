@@ -26,6 +26,7 @@ pub struct PluginRuntime {
 struct LoadedPlugin {
     id: String,
     manifest: PluginManifest,
+    #[allow(dead_code)] // Used by get_plugin_instance for low-level WASM operations
     instance: Instance,
     store: Arc<Mutex<Store<PluginState>>>,
     exports: HashMap<String, wasmtime::Func>,
@@ -342,6 +343,8 @@ impl PluginRuntime {
     }
 
     /// Get plugin instance for low-level operations
+    /// Part of experimental plugin feature - will be used for advanced plugin management
+    #[allow(dead_code)]
     pub(crate) async fn get_plugin_instance(&self, plugin_id: &str) -> Option<(Instance, Arc<Mutex<Store<PluginState>>>)> {
         let plugins = self.plugins.read().await;
         plugins.get(plugin_id).map(|p| (p.instance, p.store.clone()))
