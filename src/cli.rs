@@ -539,6 +539,42 @@ pub enum Commands {
         #[arg(short, long, help = "Output file path")]
         output: Option<String>,
     },
+
+    #[command(about = "List crash reports")]
+    Crashes {
+        #[arg(long, help = "Output format (text, json)")]
+        format: Option<String>,
+
+        #[arg(short, long, help = "Maximum number of crashes to show")]
+        limit: Option<usize>,
+    },
+
+    #[command(about = "Show detailed crash information")]
+    CrashInfo {
+        #[arg(help = "Crash ID (UUID)")]
+        crash_id: String,
+
+        #[arg(long, help = "Output format (text, json)")]
+        format: Option<String>,
+
+        #[arg(short, long, help = "Show full backtrace")]
+        backtrace: bool,
+    },
+
+    #[command(about = "Analyze crash patterns")]
+    CrashAnalyze {
+        #[arg(long, help = "Output format (text, json)")]
+        format: Option<String>,
+    },
+
+    #[command(about = "Delete crash reports")]
+    CrashDelete {
+        #[arg(help = "Crash ID (UUID) or 'all' to delete all crashes")]
+        crash_id: String,
+
+        #[arg(long, help = "Delete crashes older than N days")]
+        older_than: Option<i64>,
+    },
 }
 
 #[derive(Subcommand)]

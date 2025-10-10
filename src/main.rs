@@ -104,6 +104,12 @@ async fn async_main(cli: Cli) -> Result<()> {
         .with_env_filter(filter)
         .init();
 
+    // Initialize crash capture system (P1.6)
+    // This sets up a panic hook to automatically capture crash information
+    if let Err(e) = ferrix::crash::initialize(None) {
+        eprintln!("Warning: Failed to initialize crash capture: {}", e);
+    }
+
     let socket_path = PathBuf::from(&cli.socket);
 
     match &cli.command {
@@ -2237,6 +2243,170 @@ async fn async_main(cli: Cli) -> Result<()> {
             }
 
             println!("\nNote: Full CPU/heap profiling requires integration with profiling libraries (e.g., pprof, valgrind)");
+        }
+
+        Some(Commands::Crashes { format, limit }) => {
+            use ferrix::crash::storage::CrashStorage;
+
+            let storage = CrashStorage::new()?;
+            let mut crashes = storage.list_crashes()?;
+
+            if let Some(max) = limit {
+                crashes.truncate(*max);
+            }
+
+            let format_type = format.as_deref().unwrap_or("text");
+
+            match format_type {
+                "json" => {
+                    print!("{{\"total\":{},\"crashes\":[", crashes.len());
+                    for (i, crash) in crashes.iter().enumerate() {
+                        if i > 0 {
+                            print!(",");
+                        }
+                        print!("{{\"id\":\"{}\",\"timestamp\":\"{}\",\"message\":\"{}\"",
+                            crash.metadata.id,
+                            crash.metadata.timestamp.format("%Y-%m-%d %H:%M:%S"),
+                            crash.metadata.message.replace('"', "\\\"")
+                        );
+                        if let Some(ref loc) = crash.metadata.location {
+                            print!(",\"location\":\"{}:{}\"", loc.file, loc.line);
+                        }
+                        print!("}}");
+                    }
+                    println!("]}}");
+                }
+                _ => {
+                    if crashes.is_empty() {
+                        println!("No crash reports found");
+                    } else {
+                        println!("Crash Reports ({}):", crashes.len());
+                        println!("{}", "=".repeat(80));
+                        println!("{:<38} {:<20} {:<22} Location", "ID", "Time", "Message");
+                        println!("{}", "-".repeat(80));
+
+                        for crash in crashes {
+                            let location = crash.metadata.location.as_ref()
+                                .map(|l| format!("{}:{}", l.file, l.line))
+                                .unwrap_or_else(|| "unknown".to_string());
+                            let message = if crash.metadata.message.len() > 20 {
+                                format!("{}...", &crash.metadata.message[..17])
+                            } else {
+                                crash.metadata.message.clone()
+                            };
+                            println!("{:<38} {:<20} {:<22} {}",
+                                crash.metadata.id.to_string(),
+                                crash.metadata.timestamp.format("%Y-%m-%d %H:%M:%S"),
+                                message,
+                                location
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        Some(Commands::CrashInfo { crash_id, format, backtrace }) => {
+            use ferrix::crash::storage::CrashStorage;
+
+            let storage = CrashStorage::new()?;
+            let crash_uuid = uuid::Uuid::parse_str(crash_id).map_err(|e| {
+                FerrixError::Other(format!("Invalid crash ID: {}", e))
+            })?;
+
+            let crash = storage.get_crash(crash_uuid)?;
+            let format_type = format.as_deref().unwrap_or("text");
+
+            match format_type {
+                "json" => {
+                    let json = serde_json::to_string_pretty(&crash.metadata).map_err(|e| {
+                        FerrixError::Other(format!("Failed to serialize crash: {}", e))
+                    })?;
+                    println!("{}", json);
+                }
+                _ => {
+                    println!("Crash Report: {}", crash.metadata.id);
+                    println!("{}", "=".repeat(80));
+                    println!("Time: {}", crash.metadata.timestamp.format("%Y-%m-%d %H:%M:%S UTC"));
+                    println!("Version: {}", crash.metadata.version);
+                    println!("Message: {}", crash.metadata.message);
+
+                    if let Some(ref loc) = crash.metadata.location {
+                        println!("Location: {}:{}", loc.file, loc.line);
+                    }
+
+                    println!("\nSystem Information:");
+                    println!("  Hostname: {}", crash.metadata.system_info.hostname);
+                    println!("  OS: {}", crash.metadata.system_info.os);
+                    println!("  Architecture: {}", crash.metadata.system_info.architecture);
+                    println!("  CPUs: {}", crash.metadata.system_info.cpu_count);
+                    println!("  Memory: {} MB total, {} MB available",
+                        crash.metadata.system_info.memory_total_kb / 1024,
+                        crash.metadata.system_info.memory_available_kb / 1024
+                    );
+
+                    if let Some(ref metrics) = crash.metadata.metrics {
+                        println!("\nServer Metrics:");
+                        println!("  Active connections: {}", metrics.active_connections);
+                        println!("  Active sessions: {}", metrics.active_sessions);
+                        println!("  Active windows: {}", metrics.active_windows);
+                        println!("  Active panes: {}", metrics.active_panes);
+                        println!("  PTY spawn failures: {}", metrics.pty_spawn_failures);
+                    }
+
+                    if *backtrace {
+                        if let Some(ref bt) = crash.metadata.backtrace {
+                            println!("\nBacktrace:");
+                            println!("{}", bt);
+                        } else {
+                            println!("\nNo backtrace available");
+                        }
+                    } else {
+                        println!("\nUse --backtrace to show full backtrace");
+                    }
+                }
+            }
+        }
+
+        Some(Commands::CrashAnalyze { format }) => {
+            use ferrix::crash::analysis::CrashAnalyzer;
+
+            let analyzer = CrashAnalyzer::new()?;
+            let format_type = format.as_deref().unwrap_or("text");
+
+            match format_type {
+                "json" => {
+                    let patterns = analyzer.analyze()?;
+                    let json = serde_json::to_string_pretty(&patterns).map_err(|e| {
+                        FerrixError::Other(format!("Failed to serialize patterns: {}", e))
+                    })?;
+                    println!("{}", json);
+                }
+                _ => {
+                    let report = analyzer.summary_report()?;
+                    println!("{}", report);
+                }
+            }
+        }
+
+        Some(Commands::CrashDelete { crash_id, older_than }) => {
+            use ferrix::crash::storage::CrashStorage;
+
+            let storage = CrashStorage::new()?;
+
+            if let Some(days) = older_than {
+                let deleted = storage.delete_old_crashes(*days)?;
+                println!("✓ Deleted {} crash report(s) older than {} days", deleted, days);
+            } else if crash_id == "all" {
+                let deleted = storage.delete_all_crashes()?;
+                println!("✓ Deleted {} crash report(s)", deleted);
+            } else {
+                let crash_uuid = uuid::Uuid::parse_str(crash_id).map_err(|e| {
+                    FerrixError::Other(format!("Invalid crash ID: {}", e))
+                })?;
+                storage.delete_crash(crash_uuid)?;
+                println!("✓ Crash report deleted");
+            }
         }
 
         Some(Commands::SplitPane { .. }) |

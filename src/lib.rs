@@ -4,6 +4,7 @@
 pub mod cli;
 pub mod client;
 pub mod config;
+pub mod crash;
 pub mod error;
 pub mod format;
 pub mod input;

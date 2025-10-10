@@ -199,7 +199,7 @@ impl Default for ServerMetrics {
 }
 
 /// Point-in-time snapshot of metrics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MetricsSnapshot {
     // Connections
     pub active_connections: usize,
