@@ -23,7 +23,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Server-wide resource limits
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceLimits {
     // ========================================
     // Per-Session Limits

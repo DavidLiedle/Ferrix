@@ -1,0 +1,104 @@
+# Ferrix Configuration Example
+# Copy to ~/.config/ferrix/config.toml and customize
+
+[general]
+default_shell = "/bin/bash"
+escape_key = "ctrl-b"
+mouse = true
+clipboard = true
+term = "xterm-256color"
+scrollback_lines = 10000
+automatic_rename = true
+display_panes_time = 2000
+auto_detach_on_exit = true
+
+[keybindings]
+prefix = "ctrl-b"
+
+[status_bar]
+enabled = true
+position = "bottom"
+left = "[#{session_name}] #{windows} #{git_branch}"
+center = "#{cpu} #{memory} #{battery}"
+right = "#{user}@#{host} #{time}"
+refresh_rate = 1000
+height = 1
+
+[colors]
+background = "#1e1e1e"
+foreground = "#d4d4d4"
+pane_border = "#444444"
+pane_active_border = "#569cd6"
+status_bg = "darkgreen"
+status_fg = "black"
+status_current_bg = "#569cd6"
+status_current_fg = "#ffffff"
+
+[windows]
+renumber = true
+base_index = 0
+aggressive_resize = false
+
+[panes]
+base_index = 0
+display_borders = true
+border_style = "single"
+
+[copy_mode]
+mode = "vi"
+use_system_clipboard = true
+exit_after_selection = false
+
+[plugins]
+enabled = true
+directory = "~/.ferrix/plugins"
+autoload = true
+plugins = []
+
+[advanced]
+auto_save_session = true
+auto_save_interval = 300
+enable_crash_recovery = true
+recovery_backup_dir = "~/.ferrix/recovery"
+allow_remote = false
+remote_port = 7755
+remote_encryption = true
+gpu_acceleration = false
+log_level = "info"
+log_file = "~/.ferrix/ferrix.log"
+
+# ============================================================================
+# Resource Limits & Backpressure Management
+# ============================================================================
+# These limits prevent resource exhaustion and ensure fairness across clients
+
+[limits]
+# Per-Session Limits
+max_windows_per_session = 100    # Maximum windows per session
+max_panes_per_window = 50         # Maximum panes per window
+max_scrollback_lines = 10000      # Maximum scrollback lines per pane
+max_raw_buffer_bytes = 50000      # Maximum buffer size per pane (50KB)
+
+# Server-Wide Limits
+max_concurrent_sessions = 1000    # Maximum total sessions
+max_clients = 2000                # Maximum concurrent client connections
+
+# Memory Management
+# max_memory_mb = 4096            # Optional: Maximum server memory (MB)
+memory_pressure_threshold = 0.85  # Trigger backpressure at 85% memory usage
+
+# Rate Limiting
+max_sessions_per_minute = 10      # Maximum new sessions per client per minute
+
+# ============================================================================
+# Backpressure Behavior
+# ============================================================================
+# When limits are approached:
+# - At 85% (Warning): Log warnings, apply flow control
+# - At 95% (Critical): Reject new non-essential operations
+# - Emergency mode: Reject all new operations
+#
+# Example pressure scenarios:
+# - 850 sessions active → Warning level (log warnings)
+# - 950 sessions active → Critical level (reject new sessions)
+# - Emergency mode → Manually activated via ferrix emergency-mode

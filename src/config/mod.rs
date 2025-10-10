@@ -37,6 +37,8 @@ pub struct Config {
     pub plugins: PluginConfig,
     #[serde(default)]
     pub advanced: AdvancedConfig,
+    #[serde(default)]
+    pub limits: limits::ResourceLimits,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -323,6 +325,16 @@ impl Config {
         } else {
             Ok(PathBuf::from("~/.config/ferrix/config.toml"))
         }
+    }
+
+    /// Validate the entire configuration
+    pub fn validate(&self) -> Result<()> {
+        // Validate resource limits
+        self.limits.validate()
+            .map_err(|e| FerrixError::Config(format!("Invalid resource limits: {}", e)))?;
+
+        // Could add more validation here for other config sections
+        Ok(())
     }
 
     pub fn expand_tilde(path: &str) -> PathBuf {
