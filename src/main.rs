@@ -151,9 +151,12 @@ async fn async_main(cli: Cli) -> Result<()> {
 
                 // Configure TLS if certificates provided
                 if let (Some(cert_path), Some(key_path)) = (tls_cert, tls_key) {
+                    use ferrix::server::remote::TlsMode;
                     remote_server = remote_server.with_tls(
                         &std::path::PathBuf::from(cert_path),
-                        &std::path::PathBuf::from(key_path)
+                        &std::path::PathBuf::from(key_path),
+                        TlsMode::ServerOnly,  // Default to server-only TLS
+                        None  // No client CA for server-only mode
                     )?;
                 }
 

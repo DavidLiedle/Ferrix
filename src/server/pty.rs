@@ -4,6 +4,7 @@ use portable_pty::{CommandBuilder, PtySize, native_pty_system, Child};
 use tokio::sync::{mpsc, broadcast};
 
 use crate::error::{FerrixError, Result};
+use crate::resilience::retry::RetryPolicy;
 
 pub struct Pty {
     writer_tx: mpsc::Sender<Vec<u8>>,
@@ -37,8 +38,49 @@ impl Pty {
         cmd.cwd(&working_dir);
         tracing::info!("Set PTY command working directory to: {:?}", working_dir);
 
-        let child = pty_pair.slave.spawn_command(cmd)
-            .map_err(|e| FerrixError::Pty(format!("Failed to spawn shell: {}", e)))?;
+        // Retry spawn_command with exponential backoff
+        // This handles transient "resource temporarily unavailable" errors
+        let retry_policy = RetryPolicy::default()
+            .max_retries(3)
+            .base_delay(std::time::Duration::from_millis(50));
+
+        let child = {
+            let mut last_error = None;
+            let mut child_result = None;
+
+            for attempt in 0..=retry_policy.max_retries {
+                let mut cmd_clone = CommandBuilder::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()));
+                cmd_clone.cwd(&working_dir);
+
+                match pty_pair.slave.spawn_command(cmd_clone) {
+                    Ok(child) => {
+                        if attempt > 0 {
+                            tracing::info!("PTY spawn succeeded after {} retries", attempt);
+                        }
+                        child_result = Some(child);
+                        break;
+                    }
+                    Err(err) => {
+                        tracing::debug!("PTY spawn failed (attempt {}/{}): {}", attempt + 1, retry_policy.max_retries + 1, err);
+                        last_error = Some(err);
+
+                        if attempt < retry_policy.max_retries {
+                            let delay = retry_policy.calculate_delay(attempt);
+                            tracing::debug!("Retrying PTY spawn in {:?}", delay);
+                            std::thread::sleep(delay);
+                        }
+                    }
+                }
+            }
+
+            child_result.ok_or_else(|| {
+                FerrixError::Pty(format!(
+                    "Failed to spawn shell after {} attempts: {}",
+                    retry_policy.max_retries + 1,
+                    last_error.map(|e| e.to_string()).unwrap_or_else(|| "unknown error".to_string())
+                ))
+            })?
+        };
 
         let child = Arc::new(Mutex::new(child));
 

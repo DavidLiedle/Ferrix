@@ -16,6 +16,7 @@ use super::metrics::ServerMetrics;
 use super::health::HealthChecker;
 use super::backpressure::PressureMonitor;
 use super::rate_limiting::{RateLimits, ClientId};
+use super::circuit_breaker::CircuitBreakerManager;
 
 /// Centralized infrastructure for production operations
 #[derive(Clone)]
@@ -34,6 +35,9 @@ pub struct ServerInfrastructure {
 
     /// Rate limiting
     pub rate_limits: Arc<RateLimits>,
+
+    /// Circuit breakers for fault tolerance
+    pub circuit_breakers: Arc<CircuitBreakerManager>,
 }
 
 impl ServerInfrastructure {
@@ -44,6 +48,7 @@ impl ServerInfrastructure {
         let health = Arc::new(HealthChecker::new());
         let pressure = Arc::new(PressureMonitor::new(limits.clone(), metrics.clone()));
         let rate_limits = Arc::new(RateLimits::new(limits.clone(), metrics.clone()));
+        let circuit_breakers = Arc::new(CircuitBreakerManager::new());
 
         Self {
             metrics,
@@ -51,6 +56,7 @@ impl ServerInfrastructure {
             limits,
             pressure,
             rate_limits,
+            circuit_breakers,
         }
     }
 
@@ -61,6 +67,7 @@ impl ServerInfrastructure {
         let health = Arc::new(HealthChecker::new());
         let pressure = Arc::new(PressureMonitor::new(limits.clone(), metrics.clone()));
         let rate_limits = Arc::new(RateLimits::new(limits.clone(), metrics.clone()));
+        let circuit_breakers = Arc::new(CircuitBreakerManager::new());
 
         Self {
             metrics,
@@ -68,6 +75,7 @@ impl ServerInfrastructure {
             limits,
             pressure,
             rate_limits,
+            circuit_breakers,
         }
     }
 
@@ -203,6 +211,26 @@ impl ServerInfrastructure {
     /// Get current pressure status
     pub async fn get_pressure(&self) -> super::backpressure::PressureStatus {
         self.pressure.check_pressure().await
+    }
+
+    /// Check if a PTY operation is allowed through circuit breaker
+    pub async fn is_pty_operation_allowed(&self) -> bool {
+        self.circuit_breakers.is_request_allowed("pty").await
+    }
+
+    /// Record successful PTY operation
+    pub async fn record_pty_success(&self) {
+        self.circuit_breakers.record_success("pty").await;
+    }
+
+    /// Record failed PTY operation
+    pub async fn record_pty_failure(&self) {
+        self.circuit_breakers.record_failure("pty").await;
+    }
+
+    /// Get circuit breaker statistics
+    pub async fn get_circuit_stats(&self) -> super::circuit_breaker::CircuitBreakerStats {
+        self.circuit_breakers.get_stats().await
     }
 }
 

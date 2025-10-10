@@ -18,6 +18,8 @@ pub mod health;
 pub mod backpressure;
 pub mod rate_limiting;
 pub mod infrastructure;
+pub mod session_timeout;
+pub mod circuit_breaker;
 
 // ============================================================================
 // TIER 2: Advanced Features (feature-gated)
@@ -67,6 +69,7 @@ use session::Session;
 use snapshot::SnapshotManager;
 use recovery::RecoveryManager;
 use hooks::{HookManager, HookEvent, HookContext};
+use infrastructure::ServerInfrastructure;
 
 // Type alias for the sessions map to reduce complexity
 type SessionMap = Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>;
@@ -78,6 +81,7 @@ pub struct Server {
     keybinding_manager: Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
     hooks: Arc<RwLock<HookManager>>,
     socket_path: PathBuf,
+    infrastructure: ServerInfrastructure,
 }
 
 pub struct ClientConnection {
@@ -94,6 +98,7 @@ impl Server {
             keybinding_manager: Arc::new(RwLock::new(crate::config::keybindings::KeyBindingManager::new())),
             hooks: Arc::new(RwLock::new(HookManager::new())),
             socket_path,
+            infrastructure: ServerInfrastructure::new(),
         }
     }
 
@@ -114,6 +119,11 @@ impl Server {
 
     pub fn hooks(&self) -> Arc<RwLock<HookManager>> {
         self.hooks.clone()
+    }
+
+    /// Get infrastructure reference for remote server access
+    pub fn infrastructure(&self) -> ServerInfrastructure {
+        self.infrastructure.clone()
     }
 
     pub async fn run(&mut self, enable_recovery: bool) -> Result<()> {
@@ -173,10 +183,11 @@ impl Server {
                     let clients = self.clients.clone();
                     let keybinding_manager = self.keybinding_manager.clone();
                     let hooks = self.hooks.clone();
+                    let infrastructure = self.infrastructure.clone();
                     let client_id_log = client_id;
 
                     tokio::spawn(async move {
-                        if let Err(e) = handle_client(stream, client_id, sessions, clients, keybinding_manager, hooks).await {
+                        if let Err(e) = handle_client(stream, client_id, sessions, clients, keybinding_manager, hooks, infrastructure).await {
                             error!("Error handling client {}: {}", client_id_log.0, e);
                         }
                     });
@@ -196,8 +207,12 @@ async fn handle_client(
     clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
     keybinding_manager: Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
     hooks: Arc<RwLock<HookManager>>,
+    infrastructure: ServerInfrastructure,
 ) -> Result<()> {
     info!("New client connected: {}", client_id.0);
+
+    // Record connection
+    infrastructure.record_connection_opened();
 
     let (tx, mut rx) = mpsc::channel::<ServerMessage>(100);
 
@@ -227,6 +242,7 @@ async fn handle_client(
                             &clients,
                             &keybinding_manager,
                             &hooks,
+                            &infrastructure,
                         ).await?;
 
                         if let Some(resp) = response {
@@ -250,6 +266,9 @@ async fn handle_client(
         clients_guard.remove(&client_id);
     }
 
+    // Record disconnection
+    infrastructure.record_connection_closed();
+
     info!("Client disconnected: {}", client_id.0);
     Ok(())
 }
@@ -261,15 +280,27 @@ pub async fn handle_message(
     clients: &Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
     keybinding_manager: &Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
     hooks: &Arc<RwLock<HookManager>>,
+    infrastructure: &ServerInfrastructure,
 ) -> Result<Option<ServerMessage>> {
     match message {
         ClientMessage::CreateSession { name, working_dir } => {
+            // Check if we can create a new session
+            let current_session_count = {
+                let sessions_guard = sessions.read().await;
+                sessions_guard.len()
+            };
+
+            let rate_limit_client_id = rate_limiting::ClientId::Internal(client_id.0.to_string());
+            if !infrastructure.can_create_session(&rate_limit_client_id, current_session_count).await {
+                return Ok(Some(ServerMessage::Error {
+                    message: "Cannot create session: resource limits, backpressure, or rate limiting".to_string(),
+                }));
+            }
+
             let session_id = SessionId(Uuid::new_v4());
             let session_name = name.unwrap_or_else(|| {
                 // Generate a simple sequential session name like tmux (0, 1, 2, ...)
-                let sessions_guard = futures::executor::block_on(sessions.read());
-                let session_count = sessions_guard.len();
-                format!("{}", session_count)
+                format!("{}", current_session_count)
             });
 
             tracing::info!("Creating session with working_dir: {:?}", working_dir);
@@ -286,6 +317,9 @@ pub async fn handle_message(
                 let mut sessions_guard = sessions.write().await;
                 sessions_guard.insert(session_id.clone(), session_arc.clone());
             }
+
+            // Record metrics
+            infrastructure.record_session_created();
 
             // Start persistent PTY poller for this session
             // This runs independently of client connections
@@ -730,6 +764,9 @@ pub async fn handle_message(
                         let mut session_guard = session.write().await;
                         match session_guard.create_window(name.clone()).await {
                             Ok(window_id) => {
+                                // Record window creation
+                                infrastructure.record_window_created();
+
                                 Ok(Some(ServerMessage::WindowCreated {
                                     window_id,
                                     name: name.unwrap_or_else(|| "window".to_string()),
@@ -795,6 +832,9 @@ pub async fn handle_message(
                         let mut session_guard = session.write().await;
                         match session_guard.close_window(window_id.clone()).await {
                             Ok(()) => {
+                                // Record window destruction
+                                infrastructure.record_window_destroyed();
+
                                 Ok(Some(ServerMessage::WindowClosed { window_id }))
                             }
                             Err(e) => Ok(Some(ServerMessage::Error {
@@ -826,6 +866,9 @@ pub async fn handle_message(
                         let mut session_guard = session.write().await;
                         match session_guard.split_pane(direction).await {
                             Ok(pane_id) => {
+                                // Record pane creation
+                                infrastructure.record_pane_created();
+
                                 // Send layout update after successful split
                                 if let Some(layout) = session_guard.get_layout_info().await {
                                     Ok(Some(ServerMessage::LayoutUpdate { layout }))
@@ -987,6 +1030,9 @@ pub async fn handle_message(
                         let mut session_guard = session.write().await;
                         match session_guard.close_pane(pane_id.clone()).await {
                             Ok(()) => {
+                                // Record pane destruction
+                                infrastructure.record_pane_destroyed();
+
                                 Ok(Some(ServerMessage::PaneClosed { pane_id }))
                             }
                             Err(e) => Ok(Some(ServerMessage::Error {
@@ -1163,7 +1209,11 @@ pub async fn handle_message(
                             };
                             if let Some(focused_pane_id) = focused_pane_id {
                                 match session_guard.close_pane(focused_pane_id).await {
-                                    Ok(()) => Ok(None),
+                                    Ok(()) => {
+                                        // Record pane destruction
+                                        infrastructure.record_pane_destroyed();
+                                        Ok(None)
+                                    }
                                     Err(e) => Ok(Some(ServerMessage::Error {
                                         message: format!("Failed to kill pane: {}", e),
                                     }))

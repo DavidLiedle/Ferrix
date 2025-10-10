@@ -153,6 +153,7 @@ impl ComponentCheck for MemoryCheck {
 
 /// File descriptor availability check
 pub struct FileDescriptorCheck {
+    #[allow(dead_code)] // Used on Linux, but not on other platforms
     warning_threshold_percent: f32,
 }
 

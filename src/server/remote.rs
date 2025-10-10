@@ -8,13 +8,29 @@ use rustls::{ServerConfig, ClientConfig, RootCertStore};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 use futures::{StreamExt, SinkExt};
-use tracing::{info, error};
+use tracing::{info, error, warn};
 use std::pin::Pin;
 
 use crate::error::{Result, FerrixError};
 use crate::protocol::{ClientMessage, ServerMessage, FerrixCodec, ClientId, SessionId, AuthCredentials};
 use super::Server;
 use super::rate_limiter::RateLimiter;
+use super::session_timeout::SessionTimeoutTracker;
+
+/// TLS mode for remote server
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TlsMode {
+    /// Server-only TLS (default) - server authenticates to client
+    ServerOnly,
+    /// Mutual TLS - both server and client authenticate
+    MutualAuth,
+}
+
+impl Default for TlsMode {
+    fn default() -> Self {
+        TlsMode::ServerOnly
+    }
+}
 
 /// Wrapper enum for different stream types
 enum Stream {
@@ -74,6 +90,7 @@ pub struct RemoteServer {
     auth_handler: Arc<dyn AuthenticationHandler>,
     server: Arc<Server>,
     rate_limiter: Arc<RateLimiter>,
+    timeout_tracker: Arc<SessionTimeoutTracker>,
 }
 
 /// Client connector for remote sessions
@@ -104,17 +121,33 @@ impl RemoteServer {
         // Default: 5 failed attempts, 15 minute lockout
         let rate_limiter = RateLimiter::new(5, Duration::from_secs(900));
 
+        // Default timeout config: 1 hour idle, 24 hour absolute
+        let timeout_tracker = SessionTimeoutTracker::new();
+
         Self {
             bind_addr,
             tls_config: None,
             auth_handler,
             server,
             rate_limiter: Arc::new(rate_limiter),
+            timeout_tracker: Arc::new(timeout_tracker),
         }
     }
 
-    /// Enable TLS with certificate and key
-    pub fn with_tls(mut self, cert_path: &PathBuf, key_path: &PathBuf) -> Result<Self> {
+    /// Enable TLS with optional mTLS support
+    ///
+    /// # Arguments
+    /// * `cert_path` - Path to server certificate
+    /// * `key_path` - Path to server private key
+    /// * `mode` - TLS mode (ServerOnly or MutualAuth)
+    /// * `client_ca_path` - Path to client CA certificate (required for MutualAuth)
+    pub fn with_tls(
+        mut self,
+        cert_path: &PathBuf,
+        key_path: &PathBuf,
+        mode: TlsMode,
+        client_ca_path: Option<&PathBuf>,
+    ) -> Result<Self> {
         let cert = std::fs::read(cert_path)
             .map_err(|e| FerrixError::Other(format!("Failed to read certificate: {}", e)))?;
 
@@ -134,10 +167,54 @@ impl RemoteServer {
             .map(rustls::pki_types::CertificateDer::from)
             .collect::<Vec<_>>();
 
-        let config = ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(cert_chain, rustls::pki_types::PrivateKeyDer::from(rustls::pki_types::PrivatePkcs8KeyDer::from(key.secret_der().to_vec())))
-            .map_err(|e| FerrixError::Other(format!("Failed to create TLS config: {}", e)))?;
+        let config = match mode {
+            TlsMode::ServerOnly => {
+                // Server-only TLS - no client authentication
+                ServerConfig::builder()
+                    .with_no_client_auth()
+                    .with_single_cert(
+                        cert_chain,
+                        rustls::pki_types::PrivateKeyDer::from(
+                            rustls::pki_types::PrivatePkcs8KeyDer::from(key.secret_der().to_vec())
+                        )
+                    )
+                    .map_err(|e| FerrixError::Other(format!("Failed to create TLS config: {}", e)))?
+            }
+            TlsMode::MutualAuth => {
+                // Mutual TLS - require client certificates
+                let ca_path = client_ca_path.ok_or_else(|| {
+                    FerrixError::Other("Client CA certificate path required for mutual TLS".to_string())
+                })?;
+
+                let ca_cert = std::fs::read(ca_path)
+                    .map_err(|e| FerrixError::Other(format!("Failed to read client CA certificate: {}", e)))?;
+
+                let ca_certs = rustls_pemfile::certs(&mut ca_cert.as_ref())
+                    .map(|c| c.map(|c| c.to_vec()))
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(|e| FerrixError::Other(format!("Failed to parse client CA certificate: {}", e)))?;
+
+                let mut client_cert_verifier = RootCertStore::empty();
+                for cert in ca_certs {
+                    client_cert_verifier.add(rustls::pki_types::CertificateDer::from(cert))
+                        .map_err(|e| FerrixError::Other(format!("Failed to add client CA: {}", e)))?;
+                }
+
+                ServerConfig::builder()
+                    .with_client_cert_verifier(
+                        rustls::server::WebPkiClientVerifier::builder(Arc::new(client_cert_verifier))
+                            .build()
+                            .map_err(|e| FerrixError::Other(format!("Failed to build client verifier: {}", e)))?
+                    )
+                    .with_single_cert(
+                        cert_chain,
+                        rustls::pki_types::PrivateKeyDer::from(
+                            rustls::pki_types::PrivatePkcs8KeyDer::from(key.secret_der().to_vec())
+                        )
+                    )
+                    .map_err(|e| FerrixError::Other(format!("Failed to create mTLS config: {}", e)))?
+            }
+        };
 
         self.tls_config = Some(Arc::new(config));
         Ok(self)
@@ -162,9 +239,10 @@ impl RemoteServer {
             let auth_handler = self.auth_handler.clone();
             let tls_acceptor = tls_acceptor.clone();
             let rate_limiter = self.rate_limiter.clone();
+            let timeout_tracker = self.timeout_tracker.clone();
 
             tokio::spawn(async move {
-                if let Err(e) = Self::handle_client(stream, peer_addr, server, auth_handler, tls_acceptor, rate_limiter).await {
+                if let Err(e) = Self::handle_client(stream, peer_addr, server, auth_handler, tls_acceptor, rate_limiter, timeout_tracker).await {
                     error!("Error handling remote client {}: {}", peer_addr, e);
                 }
             });
@@ -178,6 +256,7 @@ impl RemoteServer {
         auth_handler: Arc<dyn AuthenticationHandler>,
         tls_acceptor: Option<TlsAcceptor>,
         rate_limiter: Arc<RateLimiter>,
+        timeout_tracker: Arc<SessionTimeoutTracker>,
     ) -> Result<()> {
         // Check if address is rate limited
         if rate_limiter.is_locked(&peer_addr).await {
@@ -237,11 +316,15 @@ impl RemoteServer {
 
         info!("Remote client {} authenticated as {:?}", peer_addr, client_id);
 
+        // Register session timeout tracking
+        timeout_tracker.register_session(client_id).await;
+
         // Get server state references
         let sessions = server.sessions();
         let clients = server.clients();
         let keybinding_manager = server.keybinding_manager();
         let hooks = server.hooks();
+        let infrastructure = server.infrastructure();
 
         // Register the remote client in the clients map
         let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerMessage>(100);
@@ -263,15 +346,28 @@ impl RemoteServer {
                 Some(msg) = framed.next() => {
                     match msg {
                         Ok(client_msg) => {
-                            // Check authorization for the action
-                            let action = format!("{:?}", client_msg);
-                            if !auth_handler.authorize(&client_id, &action).await.unwrap_or(false) {
+                            // Record activity to reset idle timer
+                            timeout_tracker.record_activity(&client_id).await;
+
+                            // Check for timeout
+                            if let Some(reason) = timeout_tracker.is_timed_out(&client_id).await {
+                                warn!("Client {} timed out: {}", peer_addr, reason.description());
+                                framed.send(ServerMessage::Error {
+                                    message: format!("Session timeout: {}", reason.description())
+                                }).await?;
+                                break;
+                            }
+
+                            // Check authorization for the action using stable AuthAction enum
+                            use crate::auth::AuthAction;
+                            let action = AuthAction::from_client_message(&client_msg);
+                            if !auth_handler.authorize(&client_id, action.as_str()).await.unwrap_or(false) {
                                 framed.send(ServerMessage::Error { message: "Unauthorized action".to_string() }).await?;
                                 continue;
                             }
 
                             // Process message through server using the real handle_message function
-                            match super::handle_message(client_msg, &client_id, &sessions, &clients, &keybinding_manager, &hooks).await {
+                            match super::handle_message(client_msg, &client_id, &sessions, &clients, &keybinding_manager, &hooks, &infrastructure).await {
                                 Ok(Some(response)) => {
                                     framed.send(response).await?;
                                 }
@@ -302,6 +398,9 @@ impl RemoteServer {
             let mut clients_guard = clients.write().await;
             clients_guard.remove(&client_id);
         }
+
+        // Remove session timeout tracking
+        timeout_tracker.remove_session(&client_id).await;
 
         info!("Remote client {} disconnected", peer_addr);
         Ok(())

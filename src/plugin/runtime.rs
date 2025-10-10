@@ -31,7 +31,7 @@ struct LoadedPlugin {
     exports: HashMap<String, wasmtime::Func>,
 }
 
-struct PluginState {
+pub(crate) struct PluginState {
     wasi: WasiP1Ctx,
     context: PluginContext,
     manifest: PluginManifest,
@@ -342,7 +342,7 @@ impl PluginRuntime {
     }
 
     /// Get plugin instance for low-level operations
-    pub async fn get_plugin_instance(&self, plugin_id: &str) -> Option<(Instance, Arc<Mutex<Store<PluginState>>>)> {
+    pub(crate) async fn get_plugin_instance(&self, plugin_id: &str) -> Option<(Instance, Arc<Mutex<Store<PluginState>>>)> {
         let plugins = self.plugins.read().await;
         plugins.get(plugin_id).map(|p| (p.instance, p.store.clone()))
     }
