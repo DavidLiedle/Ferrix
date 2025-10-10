@@ -500,6 +500,45 @@ pub enum Commands {
         #[arg(short, long, help = "Watch metrics in real-time (refresh every N seconds)")]
         watch: Option<u64>,
     },
+
+    #[command(about = "Inspect session state (read-only)")]
+    Inspect {
+        #[arg(help = "Session ID or name to inspect")]
+        session: String,
+
+        #[arg(long, help = "Output format (text, json)")]
+        format: Option<String>,
+
+        #[arg(short, long, help = "Show detailed information")]
+        verbose: bool,
+    },
+
+    #[command(about = "Export session state for offline analysis")]
+    DumpState {
+        #[arg(help = "Session ID or name")]
+        session: String,
+
+        #[arg(short, long, help = "Output file path (defaults to stdout)")]
+        output: Option<String>,
+
+        #[arg(long, help = "Include PTY buffer contents")]
+        include_buffers: bool,
+    },
+
+    #[command(about = "Profile server performance")]
+    Profile {
+        #[arg(long, help = "Profile CPU usage")]
+        cpu: bool,
+
+        #[arg(long, help = "Profile heap allocations")]
+        heap: bool,
+
+        #[arg(short, long, default_value = "30", help = "Duration in seconds")]
+        duration: u64,
+
+        #[arg(short, long, help = "Output file path")]
+        output: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

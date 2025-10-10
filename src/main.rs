@@ -2101,6 +2101,144 @@ async fn async_main(cli: Cli) -> Result<()> {
             }
         }
 
+        Some(Commands::Inspect { session, format, verbose }) => {
+            let mut client = Client::new(socket_path)?;
+            client.connect().await?;
+
+            let sessions = client.list_sessions().await?;
+
+            let session_id = if let Ok(uuid) = uuid::Uuid::parse_str(session) {
+                ferrix::protocol::SessionId(uuid)
+            } else {
+                sessions
+                    .iter()
+                    .find(|s| s.name == *session)
+                    .map(|s| s.id.clone())
+                    .ok_or_else(|| ferrix::error::FerrixError::SessionNotFound(session.clone()))?
+            };
+
+            // For now, print basic session information
+            // TODO: Add detailed inspection of session state (windows, panes, processes)
+            let format_type = format.as_deref().unwrap_or("text");
+
+            let session_info = sessions.iter()
+                .find(|s| s.id == session_id)
+                .ok_or_else(|| ferrix::error::FerrixError::SessionNotFound(session.clone()))?;
+
+            match format_type {
+                "json" => {
+                    println!("{{\"session_id\":\"{}\",\"name\":\"{}\",\"windows\":{},\"created_at\":\"{}\"}}",
+                        session_info.id.0,
+                        session_info.name,
+                        session_info.windows,
+                        session_info.created_at.format("%Y-%m-%d %H:%M:%S")
+                    );
+                }
+                _ => {
+                    println!("Session Inspection: {}", session_info.name);
+                    println!("{}", "=".repeat(50));
+                    println!("ID: {}", session_info.id.0);
+                    println!("Windows: {}", session_info.windows);
+                    println!("Created: {}", session_info.created_at.format("%Y-%m-%d %H:%M:%S"));
+
+                    if *verbose {
+                        println!("\nNote: Detailed inspection (process tree, memory usage) requires server-side implementation");
+                    }
+                }
+            }
+        }
+
+        Some(Commands::DumpState { session, output, include_buffers }) => {
+            let mut client = Client::new(socket_path)?;
+            client.connect().await?;
+
+            let sessions = client.list_sessions().await?;
+
+            let session_id = if let Ok(uuid) = uuid::Uuid::parse_str(session) {
+                ferrix::protocol::SessionId(uuid)
+            } else {
+                sessions
+                    .iter()
+                    .find(|s| s.name == *session)
+                    .map(|s| s.id.clone())
+                    .ok_or_else(|| ferrix::error::FerrixError::SessionNotFound(session.clone()))?
+            };
+
+            let session_info = sessions.iter()
+                .find(|s| s.id == session_id)
+                .ok_or_else(|| ferrix::error::FerrixError::SessionNotFound(session.clone()))?;
+
+            // Generate state dump (basic version for now)
+            // TODO: Add comprehensive state dump including window/pane tree, processes, buffers
+            let state_dump = format!(
+                "{{\n  \"session_id\": \"{}\",\n  \"name\": \"{}\",\n  \"windows\": {},\n  \"created_at\": \"{}\",\n  \"include_buffers\": {},\n  \"dump_timestamp\": \"{}\"\n}}",
+                session_info.id.0,
+                session_info.name,
+                session_info.windows,
+                session_info.created_at.format("%Y-%m-%d %H:%M:%S"),
+                include_buffers,
+                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")
+            );
+
+            if let Some(output_path) = output {
+                std::fs::write(output_path, &state_dump)?;
+                println!("✓ Session state dumped to: {}", output_path);
+            } else {
+                println!("{}", state_dump);
+            }
+
+            if *include_buffers {
+                println!("\nNote: Buffer contents export requires server-side implementation");
+            }
+        }
+
+        Some(Commands::Profile { cpu, heap, duration, output }) => {
+            if !cpu && !heap {
+                eprintln!("Error: Specify at least one profiling mode (--cpu or --heap)");
+                std::process::exit(1);
+            }
+
+            println!("Starting profiler for {} seconds...", duration);
+
+            if *cpu {
+                println!("  CPU profiling: enabled");
+            }
+            if *heap {
+                println!("  Heap profiling: enabled");
+            }
+
+            // TODO: Integrate with pprof or similar profiling library
+            // For now, collect basic metrics over the duration
+            use ferrix::server::metrics::ServerMetrics;
+            let metrics = ServerMetrics::global();
+
+            let start_snapshot = metrics.snapshot();
+            tokio::time::sleep(tokio::time::Duration::from_secs(*duration)).await;
+            let end_snapshot = metrics.snapshot();
+
+            let profile_data = format!(
+                "{{\n  \"duration_seconds\": {},\n  \"cpu_profiling\": {},\n  \"heap_profiling\": {},\n  \"metrics_delta\": {{\n    \"messages_sent\": {},\n    \"messages_received\": {},\n    \"pty_bytes_read\": {},\n    \"pty_bytes_written\": {}\n  }},\n  \"timestamp\": \"{}\"\n}}",
+                duration,
+                cpu,
+                heap,
+                end_snapshot.messages_sent.saturating_sub(start_snapshot.messages_sent),
+                end_snapshot.messages_received.saturating_sub(start_snapshot.messages_received),
+                end_snapshot.pty_bytes_read.saturating_sub(start_snapshot.pty_bytes_read),
+                end_snapshot.pty_bytes_written.saturating_sub(start_snapshot.pty_bytes_written),
+                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")
+            );
+
+            if let Some(output_path) = output {
+                std::fs::write(output_path, &profile_data)?;
+                println!("✓ Profile data saved to: {}", output_path);
+            } else {
+                println!("\nProfile Results:");
+                println!("{}", profile_data);
+            }
+
+            println!("\nNote: Full CPU/heap profiling requires integration with profiling libraries (e.g., pprof, valgrind)");
+        }
+
         Some(Commands::SplitPane { .. }) |
         Some(Commands::SelectPane { .. }) |
         Some(Commands::KillPane { .. }) |
