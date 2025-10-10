@@ -9,6 +9,9 @@ use wgpu::{
 };
 use winit::window::Window;
 
+#[cfg(feature = "gpu")]
+use fontdue::{Font, FontSettings};
+
 // Inline shader since include_str! needs the file at compile time
 const TERMINAL_SHADER: &str = r#"
 struct Uniforms {
@@ -78,14 +81,24 @@ pub struct GpuRenderer {
 }
 
 struct GlyphCache {
-    #[allow(dead_code)] // Will be used when GPU renderer is fully implemented
     texture: wgpu::Texture,
     texture_view: TextureView,
-    #[allow(dead_code)] // Will be used when GPU renderer is fully implemented
     atlas_width: u32,
-    #[allow(dead_code)] // Will be used when GPU renderer is fully implemented
     atlas_height: u32,
     glyphs: std::collections::HashMap<char, GlyphInfo>,
+    #[cfg(feature = "gpu")]
+    #[allow(dead_code)] // Used for future dynamic glyph loading
+    font: Font,
+    #[cfg(feature = "gpu")]
+    #[allow(dead_code)] // Used for future dynamic glyph loading
+    font_size: f32,
+    // Track current position in atlas for dynamic glyph addition
+    #[allow(dead_code)] // Used for future dynamic glyph loading
+    next_x: u32,
+    #[allow(dead_code)] // Used for future dynamic glyph loading
+    next_y: u32,
+    #[allow(dead_code)] // Used for future dynamic glyph loading
+    row_height: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -121,8 +134,7 @@ impl GpuRenderer {
         });
 
         // Create surface
-        let surface = instance.create_surface(window.clone())
-            .map_err(|e| anyhow::anyhow!("Failed to create surface: {}", e))?;
+        let surface = instance.create_surface(window.clone())?;
 
         // Get adapter
         let adapter = instance
@@ -132,7 +144,7 @@ impl GpuRenderer {
                 compatible_surface: Some(&surface),
             })
             .await
-            .ok_or_else(|| anyhow::anyhow!("Failed to find suitable GPU adapter"))?;
+            .ok_or_else(|| crate::error::FerrixError::Other("Failed to find suitable GPU adapter".to_string()))?;
 
         // Create device and queue
         let (device, queue) = adapter
@@ -145,8 +157,7 @@ impl GpuRenderer {
                 },
                 None,
             )
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to create device: {}", e))?;
+            .await?;
 
         let device = Arc::new(device);
         let queue = Arc::new(queue);
@@ -187,7 +198,7 @@ impl GpuRenderer {
         });
 
         // Create glyph cache texture
-        let glyph_cache = GlyphCache::new(&device, 2048, 2048)?;
+        let glyph_cache = GlyphCache::new(&device, &queue, 2048, 2048)?;
 
         // Create bind group layout
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -418,16 +429,19 @@ impl GpuRenderer {
                     // Generate quad vertices for this character
                     let color = color_to_rgba(cell.foreground);
 
+                    // Apply italic transformation (shear) if needed
+                    let italic_offset = if cell.attributes.italic { 2.0 } else { 0.0 };
+
                     // Top-left
                     vertices.push(Vertex {
-                        position: [x, y, 0.0],
+                        position: [x + italic_offset, y, 0.0],
                         tex_coords: [glyph_info.x, glyph_info.y],
                         color,
                     });
 
                     // Top-right
                     vertices.push(Vertex {
-                        position: [x + char_width, y, 0.0],
+                        position: [x + char_width + italic_offset, y, 0.0],
                         tex_coords: [glyph_info.x + glyph_info.width, glyph_info.y],
                         color,
                     });
@@ -446,15 +460,114 @@ impl GpuRenderer {
                         color,
                     });
 
-                    // Indices for two triangles (quad)
-                    // We actually need to duplicate vertices for proper triangle rendering
-                    // Triangle 1: top-left, top-right, bottom-right
-                    // Triangle 2: top-left, bottom-right, bottom-left
+                    // For bold text, render a second time with slight offset
+                    if cell.attributes.bold {
+                        let bold_offset = 0.5;
+
+                        // Top-left
+                        vertices.push(Vertex {
+                            position: [x + italic_offset + bold_offset, y, 0.0],
+                            tex_coords: [glyph_info.x, glyph_info.y],
+                            color,
+                        });
+
+                        // Top-right
+                        vertices.push(Vertex {
+                            position: [x + char_width + italic_offset + bold_offset, y, 0.0],
+                            tex_coords: [glyph_info.x + glyph_info.width, glyph_info.y],
+                            color,
+                        });
+
+                        // Bottom-right
+                        vertices.push(Vertex {
+                            position: [x + char_width + bold_offset, y + char_height, 0.0],
+                            tex_coords: [glyph_info.x + glyph_info.width, glyph_info.y + glyph_info.height],
+                            color,
+                        });
+
+                        // Bottom-left
+                        vertices.push(Vertex {
+                            position: [x + bold_offset, y + char_height, 0.0],
+                            tex_coords: [glyph_info.x, glyph_info.y + glyph_info.height],
+                            color,
+                        });
+                    }
+
+                    // Add underline if needed
+                    if cell.attributes.underline {
+                        self.add_line_vertices(
+                            &mut vertices,
+                            x,
+                            y + char_height - 2.0,
+                            x + char_width,
+                            y + char_height - 2.0,
+                            1.0,
+                            color,
+                        );
+                    }
+
+                    // Add strikethrough if needed
+                    if cell.attributes.strikethrough {
+                        self.add_line_vertices(
+                            &mut vertices,
+                            x,
+                            y + char_height / 2.0,
+                            x + char_width,
+                            y + char_height / 2.0,
+                            1.0,
+                            color,
+                        );
+                    }
                 }
             }
         }
 
         Ok(vertices)
+    }
+
+    fn add_line_vertices(
+        &self,
+        vertices: &mut Vec<Vertex>,
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        thickness: f32,
+        color: [f32; 4],
+    ) {
+        // Create a thin quad for the line
+        let half_thickness = thickness / 2.0;
+
+        // Use a white pixel from the texture atlas (we can use 0,0 coords which should be filled)
+        let tex_coord = [0.0, 0.0];
+
+        // Top-left
+        vertices.push(Vertex {
+            position: [x1, y1 - half_thickness, 0.0],
+            tex_coords: tex_coord,
+            color,
+        });
+
+        // Top-right
+        vertices.push(Vertex {
+            position: [x2, y2 - half_thickness, 0.0],
+            tex_coords: tex_coord,
+            color,
+        });
+
+        // Bottom-right
+        vertices.push(Vertex {
+            position: [x2, y2 + half_thickness, 0.0],
+            tex_coords: tex_coord,
+            color,
+        });
+
+        // Bottom-left
+        vertices.push(Vertex {
+            position: [x1, y1 + half_thickness, 0.0],
+            tex_coords: tex_coord,
+            color,
+        });
     }
 }
 
@@ -489,7 +602,7 @@ impl GlyphCache {
         total_cells.saturating_sub(used_cells)
     }
 
-    fn new(device: &Device, width: u32, height: u32) -> Result<Self> {
+    fn new(device: &Device, queue: &Queue, width: u32, height: u32) -> Result<Self> {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Glyph Atlas"),
             size: wgpu::Extent3d {
@@ -507,30 +620,148 @@ impl GlyphCache {
 
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Pre-populate with ASCII characters
-        let mut glyphs = std::collections::HashMap::new();
+        #[cfg(feature = "gpu")]
+        {
+            // Try to load a monospace font from common locations
+            let font = Self::load_font()?;
 
-        // This is a simplified version - in production, you'd use a font rasterizer
-        // like fontdue or ab_glyph to generate actual glyph bitmaps
-        for (i, ch) in (32u8..127u8).enumerate() {
-            let row = i / 16;
-            let col = i % 16;
+            let font_size = 16.0;
+            let mut glyphs = std::collections::HashMap::new();
+            let mut next_x = 0;
+            let mut next_y = 0;
+            let mut row_height = 0;
 
-            glyphs.insert(ch as char, GlyphInfo {
-                x: (col as f32 * 64.0) / width as f32,
-                y: (row as f32 * 64.0) / height as f32,
-                width: 64.0 / width as f32,
-                height: 64.0 / height as f32,
-            });
+            // Pre-rasterize ASCII characters
+            for ch in 32u8..127u8 {
+                let ch = ch as char;
+                let (metrics, bitmap) = font.rasterize(ch, font_size);
+
+                // Check if we need to move to next row
+                if next_x + metrics.width as u32 > width {
+                    next_x = 0;
+                    next_y += row_height;
+                    row_height = 0;
+                }
+
+                // Store glyph info with texture coordinates (0.0 to 1.0 range)
+                glyphs.insert(ch, GlyphInfo {
+                    x: next_x as f32 / width as f32,
+                    y: next_y as f32 / height as f32,
+                    width: metrics.width as f32 / width as f32,
+                    height: metrics.height as f32 / height as f32,
+                });
+
+                // Upload glyph bitmap to texture if not empty
+                if !bitmap.is_empty() {
+                    // Convert grayscale to RGBA
+                    let rgba_data: Vec<u8> = bitmap
+                        .iter()
+                        .flat_map(|&alpha| [255u8, 255u8, 255u8, alpha])
+                        .collect();
+
+                    queue.write_texture(
+                        wgpu::ImageCopyTexture {
+                            texture: &texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d {
+                                x: next_x,
+                                y: next_y,
+                                z: 0,
+                            },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &rgba_data,
+                        wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(metrics.width as u32 * 4),
+                            rows_per_image: Some(metrics.height as u32),
+                        },
+                        wgpu::Extent3d {
+                            width: metrics.width as u32,
+                            height: metrics.height as u32,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
+
+                // Update position for next glyph
+                next_x += metrics.width as u32 + 2; // +2 for padding
+                row_height = row_height.max(metrics.height as u32 + 2);
+            }
+
+            Ok(Self {
+                texture,
+                texture_view,
+                atlas_width: width,
+                atlas_height: height,
+                glyphs,
+                font,
+                font_size,
+                next_x,
+                next_y: next_y + row_height,
+                row_height,
+            })
         }
 
-        Ok(Self {
-            texture,
-            texture_view,
-            atlas_width: width,
-            atlas_height: height,
-            glyphs,
-        })
+        #[cfg(not(feature = "gpu"))]
+        {
+            // Fallback for when GPU feature is not enabled
+            Ok(Self {
+                texture,
+                texture_view,
+                atlas_width: width,
+                atlas_height: height,
+                glyphs: std::collections::HashMap::new(),
+                next_x: 0,
+                next_y: 0,
+                row_height: 0,
+            })
+        }
+    }
+
+    #[cfg(feature = "gpu")]
+    fn load_font() -> Result<Font> {
+        // Try to load a monospace font from common system locations
+        let font_candidates = if cfg!(target_os = "macos") {
+            vec![
+                "/System/Library/Fonts/Monaco.ttf",
+                "/System/Library/Fonts/Menlo.ttc",
+                "/System/Library/Fonts/Courier.dfont",
+                "/Library/Fonts/Courier New.ttf",
+            ]
+        } else if cfg!(target_os = "linux") {
+            vec![
+                "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+                "/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf",
+                "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+                "/usr/share/fonts/liberation-mono/LiberationMono-Regular.ttf",
+            ]
+        } else if cfg!(target_os = "windows") {
+            vec![
+                "C:\\Windows\\Fonts\\consola.ttf",
+                "C:\\Windows\\Fonts\\cour.ttf",
+                "C:\\Windows\\Fonts\\lucon.ttf",
+            ]
+        } else {
+            vec![]
+        };
+
+        // Try each candidate font
+        for path in &font_candidates {
+            if let Ok(font_data) = std::fs::read(path) {
+                if let Ok(font) = Font::from_bytes(font_data.as_slice(), FontSettings::default()) {
+                    tracing::info!("Loaded system font from: {}", path);
+                    return Ok(font);
+                }
+            }
+        }
+
+        // If no system font found, return error with helpful message
+        Err(crate::error::FerrixError::Other(format!(
+            "Failed to load any monospace font. Tried: {:?}",
+            font_candidates
+        )))
     }
 }
 

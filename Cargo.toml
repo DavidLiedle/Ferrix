@@ -101,6 +101,7 @@ wgpu = { version = "23.0", optional = true }                      # gpu
 raw-window-handle = { version = "0.6", optional = true }          # gpu
 winit = { version = "0.30", optional = true }                     # gpu
 bytemuck = { version = "1.20", features = ["derive"], optional = true }  # gpu
+fontdue = { version = "0.9", optional = true }                    # gpu - font rasterization
 battery = { version = "0.7", optional = true }                    # battery-status
 
 [dev-dependencies]
@@ -192,7 +193,7 @@ ai-assist = ["dep:reqwest"]           # AI command suggestions
 # ============================================================================
 gpu = [                                # GPU-accelerated rendering
     "dep:wgpu", "dep:raw-window-handle",
-    "dep:winit", "dep:bytemuck"
+    "dep:winit", "dep:bytemuck", "dep:fontdue"
 ]
 battery-status = ["dep:battery"]       # Battery info in status bar
                                        # ⚠️  Has nix vulnerability (RUSTSEC-2021-0119)

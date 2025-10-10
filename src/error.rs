@@ -141,6 +141,20 @@ impl From<wgpu::SurfaceError> for FerrixError {
     }
 }
 
+#[cfg(feature = "gpu")]
+impl From<wgpu::CreateSurfaceError> for FerrixError {
+    fn from(err: wgpu::CreateSurfaceError) -> Self {
+        FerrixError::Other(format!("GPU surface creation error: {}", err))
+    }
+}
+
+#[cfg(feature = "gpu")]
+impl From<wgpu::RequestDeviceError> for FerrixError {
+    fn from(err: wgpu::RequestDeviceError) -> Self {
+        FerrixError::Other(format!("GPU device request error: {}", err))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
