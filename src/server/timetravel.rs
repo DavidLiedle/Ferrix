@@ -317,7 +317,7 @@ impl TimeTravelEngine {
 
     /// Set playback speed (0.5x, 1x, 2x, etc.)
     pub fn set_playback_speed(&mut self, speed: f32) {
-        self.playback_state.playback_speed = speed.max(0.1).min(10.0);
+        self.playback_state.playback_speed = speed.clamp(0.1, 10.0);
     }
 
     /// Add a bookmark at current position

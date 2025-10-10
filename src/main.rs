@@ -1972,6 +1972,8 @@ async fn async_main(cli: Cli) -> Result<()> {
         }
 
         // Catch-all for feature-gated commands that aren't available
+        // This is unreachable when --all-features is enabled, but necessary for builds without certain features
+        #[allow(unreachable_patterns)]
         Some(_) => {
             eprintln!("This command is not available in this build");
             eprintln!("Rebuild with the appropriate feature flag to enable it:");

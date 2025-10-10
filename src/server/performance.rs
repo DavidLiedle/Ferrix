@@ -167,8 +167,7 @@ impl OutputBuffer {
 
         // Ensure reasonable bounds
         batch_size
-            .max(4096)  // Minimum 4KB
-            .min(1024 * 1024)  // Maximum 1MB
+            .clamp(4096, 1024 * 1024)  // 4KB to 1MB
             .min(buffer.len())  // Don't exceed buffer size
     }
 
@@ -425,8 +424,8 @@ impl DeltaCompressor {
         let min_len = self.last_frame.len().min(data.len());
 
         // XOR with previous frame
-        for i in 0..min_len {
-            delta.push(data[i] ^ self.last_frame[i]);
+        for (&d, &lf) in data.iter().zip(self.last_frame.iter()).take(min_len) {
+            delta.push(d ^ lf);
         }
 
         // Append any additional bytes
@@ -460,8 +459,8 @@ impl DeltaCompressor {
         let min_len = self.last_frame.len().min(delta.len());
 
         // XOR with previous frame to recover data
-        for i in 0..min_len {
-            result.push(delta[i] ^ self.last_frame[i]);
+        for (&d, &lf) in delta.iter().zip(self.last_frame.iter()).take(min_len) {
+            result.push(d ^ lf);
         }
 
         // Append any additional bytes

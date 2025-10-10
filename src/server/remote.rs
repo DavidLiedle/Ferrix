@@ -18,18 +18,13 @@ use super::rate_limiter::RateLimiter;
 use super::session_timeout::SessionTimeoutTracker;
 
 /// TLS mode for remote server
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TlsMode {
     /// Server-only TLS (default) - server authenticates to client
+    #[default]
     ServerOnly,
     /// Mutual TLS - both server and client authenticate
     MutualAuth,
-}
-
-impl Default for TlsMode {
-    fn default() -> Self {
-        TlsMode::ServerOnly
-    }
 }
 
 /// Wrapper enum for different stream types

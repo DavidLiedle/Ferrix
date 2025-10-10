@@ -172,7 +172,7 @@ impl MarketplaceClient {
         // Check cache first
         let cache_key = serde_json::to_string(&query).unwrap_or_default();
         if let Some((cached_results, cached_at)) = self.cache.search_cache.get(&cache_key) {
-            let cache_age = cached_at.signed_duration_since(Utc::now()).num_seconds().abs() as u64;
+            let cache_age = cached_at.signed_duration_since(Utc::now()).num_seconds().unsigned_abs();
             if cache_age < self.cache.cache_duration.as_secs() {
                 return Ok(cached_results.clone());
             }
