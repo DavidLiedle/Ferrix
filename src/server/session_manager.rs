@@ -1,8 +1,9 @@
 use std::sync::Arc;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use tokio::sync::{RwLock, broadcast};
 use tokio::time::{interval, Duration};
 use tracing::{info, warn};
+use dashmap::DashMap;
 
 use crate::protocol::{SessionId, ClientId, PaneId, ServerMessage};
 use crate::error::Result;
@@ -11,20 +12,20 @@ use super::ClientConnection;
 
 /// Manages sessions and their associated clients, handling multi-client attachment
 pub struct SessionManager {
-    /// All active sessions
-    sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
+    /// All active sessions - DashMap provides lock-free concurrent access
+    sessions: Arc<DashMap<SessionId, Arc<RwLock<Session>>>>,
 
     /// Mapping of session IDs to the clients attached to them
-    session_clients: Arc<RwLock<HashMap<SessionId, HashSet<ClientId>>>>,
+    session_clients: Arc<DashMap<SessionId, HashSet<ClientId>>>,
 
     /// All connected clients
-    clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
+    clients: Arc<DashMap<ClientId, ClientConnection>>,
 
     /// Broadcast channel for session updates
     update_sender: broadcast::Sender<SessionUpdate>,
 
     /// Session output polling tasks
-    session_pollers: Arc<RwLock<HashMap<SessionId, tokio::task::JoinHandle<()>>>>,
+    session_pollers: Arc<DashMap<SessionId, tokio::task::JoinHandle<()>>>,
 
     /// Auto-save task handle
     auto_save_task: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
@@ -45,54 +46,42 @@ pub enum UpdateType {
 
 impl SessionManager {
     pub fn new(
-        sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
-        clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
+        sessions: Arc<DashMap<SessionId, Arc<RwLock<Session>>>>,
+        clients: Arc<DashMap<ClientId, ClientConnection>>,
     ) -> Self {
         let (update_sender, _) = broadcast::channel(1000);
 
         Self {
             sessions,
-            session_clients: Arc::new(RwLock::new(HashMap::new())),
+            session_clients: Arc::new(DashMap::new()),
             clients,
             update_sender,
-            session_pollers: Arc::new(RwLock::new(HashMap::new())),
+            session_pollers: Arc::new(DashMap::new()),
             auto_save_task: Arc::new(RwLock::new(None)),
         }
     }
 
     /// Attach a client to a session
     pub async fn attach_client(&self, client_id: ClientId, session_id: SessionId) -> Result<()> {
-        // Check if session exists
-        {
-            let sessions_guard = self.sessions.read().await;
-            if !sessions_guard.contains_key(&session_id) {
-                return Err(crate::error::FerrixError::SessionNotFound(session_id.0.to_string()));
-            }
+        // Check if session exists - DashMap provides lock-free concurrent access
+        if !self.sessions.contains_key(&session_id) {
+            return Err(crate::error::FerrixError::SessionNotFound(session_id.0.to_string()));
         }
 
         // Add client to session mapping
-        {
-            let mut session_clients = self.session_clients.write().await;
-            session_clients.entry(session_id.clone())
-                .or_insert_with(HashSet::new)
-                .insert(client_id);
-        }
+        self.session_clients.entry(session_id.clone())
+            .or_insert_with(HashSet::new)
+            .insert(client_id);
 
         // Update client's attached session
-        {
-            let mut clients_guard = self.clients.write().await;
-            if let Some(client) = clients_guard.get_mut(&client_id) {
-                client.attached_session = Some(session_id.clone());
-            }
+        if let Some(mut client) = self.clients.get_mut(&client_id) {
+            client.attached_session = Some(session_id.clone());
         }
 
         // Start polling task for this session if not already running
-        {
-            let mut pollers = self.session_pollers.write().await;
-            if !pollers.contains_key(&session_id) {
-                let handle = self.start_session_poller(session_id.clone()).await;
-                pollers.insert(session_id.clone(), handle);
-            }
+        if !self.session_pollers.contains_key(&session_id) {
+            let handle = self.start_session_poller(session_id.clone()).await;
+            self.session_pollers.insert(session_id.clone(), handle);
         }
 
         info!("Client {} attached to session {}", client_id.0, session_id.0);
@@ -101,33 +90,26 @@ impl SessionManager {
 
     /// Detach a client from its current session
     pub async fn detach_client(&self, client_id: ClientId) -> Result<()> {
-        let session_id = {
-            let mut clients_guard = self.clients.write().await;
-            if let Some(client) = clients_guard.get_mut(&client_id) {
+        // Get and clear the client's attached session
+        let session_id = self.clients.get_mut(&client_id)
+            .and_then(|mut client| {
                 let session = client.attached_session.clone();
                 client.attached_session = None;
                 session
-            } else {
-                None
-            }
-        };
+            });
 
         if let Some(session_id) = session_id {
             // Remove client from session mapping
-            let should_stop_poller = {
-                let mut session_clients = self.session_clients.write().await;
-                if let Some(clients) = session_clients.get_mut(&session_id) {
+            let should_stop_poller = self.session_clients.get_mut(&session_id)
+                .map(|mut clients| {
                     clients.remove(&client_id);
                     clients.is_empty()
-                } else {
-                    false
-                }
-            };
+                })
+                .unwrap_or(false);
 
             // Stop polling task if no clients are attached
             if should_stop_poller {
-                let mut pollers = self.session_pollers.write().await;
-                if let Some(handle) = pollers.remove(&session_id) {
+                if let Some((_, handle)) = self.session_pollers.remove(&session_id) {
                     handle.abort();
                     info!("Stopped polling for session {} (no attached clients)", session_id.0);
                 }

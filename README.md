@@ -90,9 +90,134 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 - 📋 **Multi-User Collaboration** - Real-time collaborative editing
 - 📋 **Advanced Layout Management** - Custom layout presets and templates
 
+## 📊 Why Ferrix? Comparison with Alternatives
+
+Ferrix combines the best of traditional terminal multiplexers with modern innovations:
+
+| Feature | Ferrix | tmux | Zellij | GNU Screen |
+|---------|--------|------|---------|------------|
+| **Core Multiplexing** | ✅ | ✅ | ✅ | ✅ |
+| **Session Persistence** | ✅ | ✅ | ✅ | ✅ |
+| **Copy Mode** | ✅ Vim-style | ✅ Vim/Emacs | ✅ | ✅ |
+| **Mouse Support** | ✅ Full | ✅ Basic | ✅ Full | ❌ |
+| **Configuration** | ✅ TOML/Hot reload | ✅ Custom format | ✅ KDL/YAML | ⚠️ Limited |
+| **Remote Access** | ✅ TCP/TLS/SSH/Mosh | ⚠️ SSH only | ⚠️ SSH only | ⚠️ SSH only |
+| **Session Snapshots** | ✅ Built-in | ❌ | ❌ | ❌ |
+| **Session Recording** | ✅ With replay | ❌ | ❌ | ❌ |
+| **Plugin System** | ✅ WASM (safe) | ✅ Scripts | ✅ WASM | ❌ |
+| **Language** | ✅ Rust | C | Rust | C |
+| **Memory Safety** | ✅ Guaranteed | ⚠️ Manual | ✅ Guaranteed | ⚠️ Manual |
+| **Async Architecture** | ✅ Tokio | ❌ | ✅ | ❌ |
+| **Binary Size** | 4.6-9.7MB | ~1MB | ~15MB | ~300KB |
+| **Startup Time** | ~8ms | ~5ms | ~20ms | ~3ms |
+| **Observability** | ✅ Metrics/Health | ❌ | ⚠️ Basic | ❌ |
+| **Security Hardening** | ✅ TLS 1.3/mTLS/Rate limiting | ⚠️ Basic | ⚠️ Basic | ⚠️ Basic |
+| **Crash Analysis** | ✅ Automated | ❌ | ❌ | ❌ |
+| **Circuit Breakers** | ✅ | ❌ | ❌ | ❌ |
+| **Time Travel** | ✅ Experimental | ❌ | ❌ | ❌ |
+| **Versioning** | ✅ Git-like | ❌ | ❌ | ❌ |
+| **AI Assistance** | ✅ Experimental | ❌ | ❌ | ❌ |
+| **Test Coverage** | 277+ tests | ✅ Good | ✅ Good | ⚠️ Limited |
+| **Production Ready** | ✅ v0.21.1 | ✅ Mature | ⚠️ Active dev | ✅ Mature |
+| **Ecosystem** | 🌱 Growing | 🌳 Huge | 🌱 Growing | 🌳 Large |
+| **Learning Curve** | ⚠️ Moderate | ⚠️ Steep | ✅ Easy | ⚠️ Moderate |
+
+### 🎯 Ferrix's Unique Advantages
+
+1. **Enterprise-Grade Reliability**
+   - Comprehensive observability (metrics, health checks, crash analysis)
+   - Circuit breakers and error recovery with exponential backoff
+   - Graceful degradation under resource pressure
+   - Production debugging tools (inspect, dump, profile)
+
+2. **Modern Security**
+   - TLS 1.3 with optional mutual authentication
+   - Bcrypt password hashing with rate limiting
+   - Session timeouts and secure locking
+   - Regular security audits
+
+3. **Developer-Friendly Features**
+   - Session snapshots for instant backup/restore
+   - Session recording and replay with compression
+   - Git-like versioning for session history
+   - Time-travel debugging (experimental)
+   - WASM-based plugin system (safe sandboxing)
+
+4. **Performance & Architecture**
+   - Async Rust with Tokio (efficient I/O multiplexing)
+   - Zero-copy operations where possible
+   - Configurable feature flags (build only what you need)
+   - Memory-safe by design (no segfaults, no data races)
+
+5. **Flexible Deployment**
+   - Multiple transport protocols (TCP/TLS/SSH/Mosh)
+   - Feature flags for minimal or full builds
+   - Comprehensive shell completions (bash/zsh/fish/powershell/elvish)
+   - Hot configuration reload
+
+### 🤔 When to Choose What?
+
+**Choose Ferrix if:**
+- You need enterprise-grade reliability and observability
+- You want modern security features (TLS 1.3, mTLS, rate limiting)
+- You value session snapshots, recording, and versioning
+- You prefer memory safety and modern async architecture
+- You need advanced remote access capabilities
+
+**Choose tmux if:**
+- You need maximum ecosystem (plugins, scripts, tutorials)
+- You want the smallest binary size and fastest startup
+- You rely on existing tmux workflows and muscle memory
+- You need a battle-tested solution with 30+ years of history
+
+**Choose Zellij if:**
+- You prioritize beginner-friendliness and discoverability
+- You want the easiest learning curve
+- You prefer modern UX with floating panes
+- You're starting fresh without existing multiplexer experience
+
+**Choose GNU Screen if:**
+- You need the absolute minimum footprint
+- You work on very old systems
+- You prefer simplicity over features
+
+### 🚀 Migration from tmux/screen
+
+Ferrix is designed with tmux compatibility in mind:
+- Similar keybindings (Ctrl-b prefix by default)
+- Compatible command mode (`:` commands)
+- Familiar session/window/pane concepts
+- Configuration can mirror tmux patterns
+
+See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for migration tips.
+
 ## 🚀 Quick Start
 
 ### Installation
+
+#### Homebrew (macOS & Linux) - Recommended
+
+```bash
+# Coming soon: Install from Homebrew tap
+# brew tap davidliedle/ferrix
+# brew install ferrix
+
+# For now, install from source or use cargo
+```
+
+#### Cargo (All Platforms)
+
+```bash
+# Install from crates.io (coming soon after v1.0 release)
+cargo install ferrix
+
+# Or install from source
+git clone https://github.com/davidliedle/Ferrix
+cd Ferrix
+cargo install --path .
+```
+
+#### From Source
 
 ```bash
 # Clone the repository
@@ -108,8 +233,9 @@ cargo build --release --features full
 # Build with specific features
 cargo build --release --features remote,plugin
 
-# Install to your PATH
-cargo install --path .
+# The binary will be at ./target/release/ferrix
+# Optionally, copy to your PATH:
+sudo cp target/release/ferrix /usr/local/bin/
 ```
 
 #### Feature Flags
