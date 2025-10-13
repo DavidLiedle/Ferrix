@@ -21,6 +21,7 @@ pub mod infrastructure;
 pub mod session_timeout;
 pub mod circuit_breaker;
 pub mod memory_monitor;
+pub mod shutdown;
 
 // ============================================================================
 // TIER 2: Advanced Features (feature-gated)
