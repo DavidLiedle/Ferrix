@@ -257,7 +257,7 @@ ferrix profile --heap
 ### 7. Lock Contention Optimization
 **Priority:** P2
 **Effort:** 3-4 days
-**Status:** 📋 Planned
+**Status:** ✅ Completed (commit 4eb991c)
 
 **Current Pattern:**
 ```rust
@@ -269,16 +269,16 @@ SessionMap: RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>
 ```
 
 **Optimization:**
-- Use `DashMap` for lock-free session lookup
-- Add lock contention metrics
-- Consider message-passing for write-heavy paths
+- ✅ Use `DashMap` for lock-free session lookup
+- ⏳ Add lock contention metrics (pending)
+- ⏳ Consider message-passing for write-heavy paths (pending)
 
 ---
 
 ### 8. Protocol Message Size Limits
 **Priority:** P2
 **Effort:** 1 day
-**Status:** 📋 Planned
+**Status:** ✅ Completed (already implemented in codebase)
 
 **Risk:**
 ```rust
@@ -295,6 +295,11 @@ if length > MAX_MESSAGE_SIZE {
     return Err(FerrixError::Protocol("Message too large"));
 }
 ```
+
+**Implementation:**
+- ✅ MAX_MESSAGE_SIZE constant defined (10MB)
+- ✅ Validation in both FerrixCodec and FerrixClientCodec
+- ✅ Tests added (test_message_size_limit_server_codec, test_message_size_limit_client_codec)
 
 ---
 
@@ -337,9 +342,11 @@ if length > MAX_MESSAGE_SIZE {
 
 ### Phase 3: Optimization (1 week) → v1.0.0-rc1
 **Goal:** Scale to 1000+ concurrent sessions
+**Status:** 🔄 IN PROGRESS
 
 **Week 5:**
-- [ ] Lock contention optimization (P2.7)
+- [x] Lock contention optimization (P2.7) - DashMap migration complete
+- [ ] Lock contention metrics
 - [ ] Memory leak detection (P1)
 - [ ] Graceful shutdown improvements (P1)
 
@@ -450,7 +457,7 @@ These can be implemented immediately for high impact:
 
 ### Medium Risk (Address in Phase 2)
 - ✅ ~~Limited error recovery~~ → Retry & circuit breaker implemented
-- ⚠️ Lock contention → Bottleneck at scale (P2.7 - pending)
+- ✅ ~~Lock contention~~ → DashMap migration eliminates global lock bottleneck
 - ✅ ~~No crash analysis~~ → Automated crash capture & analysis
 
 ### Low Risk (Polish)
@@ -481,11 +488,13 @@ Ferrix is already production-ready with solid fundamentals:
 
 ---
 
-*Last Updated: 2025-10-10*
+*Last Updated: 2025-10-13*
 *Current Version: v0.21.1*
 *Target Version: v1.0.0*
 
 **Recent Progress:**
 - ✅ ALL P0 items completed (Observability, Resource Management, Security)
 - ✅ ALL P1 items completed (Error Recovery, Debugging Tools, Crash Analysis)
-- 🎯 Ready for Phase 3 (Optimization) or Phase 4 (Validation)
+- ✅ P2.7 Lock Contention Optimization completed (DashMap migration)
+- ✅ P2.8 Protocol Message Size Limits completed (already implemented)
+- 🔄 Phase 3 (Optimization) in progress
