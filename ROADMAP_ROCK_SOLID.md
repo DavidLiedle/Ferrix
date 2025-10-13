@@ -346,7 +346,7 @@ if length > MAX_MESSAGE_SIZE {
 
 **Week 5:**
 - [x] Lock contention optimization (P2.7) - DashMap migration complete
-- [ ] Lock contention metrics
+- [x] Lock contention metrics - Comprehensive DashMap metrics added
 - [ ] Memory leak detection (P1)
 - [ ] Graceful shutdown improvements (P1)
 
