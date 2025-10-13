@@ -4,12 +4,12 @@ use tokio::sync::RwLock;
 use tokio::time::{Duration, interval};
 use tracing::{info, error, warn};
 use chrono::Utc;
+use dashmap::DashMap;
 
 use crate::error::{FerrixError, Result};
 use crate::protocol::SessionId;
 use super::snapshot::{SnapshotManager, SessionSnapshot};
 use super::session::Session;
-use std::collections::HashMap;
 
 const RECOVERY_FILE: &str = ".ferrix_recovery";
 const AUTO_SAVE_INTERVAL: u64 = 300; // 5 minutes
@@ -34,7 +34,7 @@ impl RecoveryManager {
 
     pub async fn start_auto_save(
         &self,
-        sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
+        sessions: Arc<DashMap<SessionId, Arc<RwLock<Session>>>>,
     ) {
         if !self.auto_save_enabled {
             return;
@@ -45,9 +45,10 @@ impl RecoveryManager {
         loop {
             interval.tick().await;
 
-            let sessions_guard = sessions.read().await;
-
-            for (session_id, session_arc) in sessions_guard.iter() {
+            // DashMap iteration - no global lock needed
+            for entry in sessions.iter() {
+                let session_id = entry.key();
+                let session_arc = entry.value();
                 let session_guard = session_arc.read().await;
 
                 let snapshot = session_guard.create_snapshot(
@@ -182,7 +183,7 @@ impl RecoveryManager {
 // Signal handler for graceful shutdown
 pub fn setup_signal_handlers(
     recovery_manager: Arc<RecoveryManager>,
-    sessions: Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>,
+    sessions: Arc<DashMap<SessionId, Arc<RwLock<Session>>>>,
 ) {
     use tokio::signal;
 
@@ -204,9 +205,11 @@ pub fn setup_signal_handlers(
 
         // Save all active sessions before shutdown
         info!("Saving all active sessions...");
-        let sessions_guard = sessions.read().await;
 
-        for (session_id, session_arc) in sessions_guard.iter() {
+        // DashMap iteration - no global lock needed
+        for entry in sessions.iter() {
+            let session_id = entry.key();
+            let session_arc = entry.value();
             let session_guard = session_arc.read().await;
 
             let snapshot = session_guard.create_snapshot(

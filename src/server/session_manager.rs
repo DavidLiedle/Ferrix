@@ -134,11 +134,8 @@ impl SessionManager {
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-                // Get session
-                let session_arc = {
-                    let sessions_guard = sessions.read().await;
-                    sessions_guard.get(&session_id).cloned()
-                };
+                // Get session - DashMap lock-free access
+                let session_arc = sessions.get(&session_id).map(|entry| entry.value().clone());
 
                 if let Some(session_arc) = session_arc {
                     let mut session_guard = session_arc.write().await;
@@ -147,12 +144,10 @@ impl SessionManager {
                     if let Ok(pane_outputs) = session_guard.get_all_pane_outputs().await {
                         for (pane_id, output) in pane_outputs {
                             if !output.is_empty() {
-                                // Get list of attached clients
-                                let client_ids = {
-                                    let session_clients_guard = session_clients.read().await;
-                                    session_clients_guard.get(&session_id).cloned()
-                                        .unwrap_or_default()
-                                };
+                                // Get list of attached clients - DashMap lock-free access
+                                let client_ids = session_clients.get(&session_id)
+                                    .map(|entry| entry.value().clone())
+                                    .unwrap_or_default();
 
                                 if client_ids.is_empty() {
                                     // No clients attached, exit poller
@@ -161,9 +156,8 @@ impl SessionManager {
                                 }
 
                                 // Send output to all attached clients
-                                let clients_guard = clients.read().await;
                                 for client_id in client_ids {
-                                    if let Some(client) = clients_guard.get(&client_id) {
+                                    if let Some(client) = clients.get(&client_id) {
                                         let _ = client.sender.send(ServerMessage::PaneOutput {
                                             pane_id: pane_id.clone(),
                                             data: output.clone()
@@ -193,19 +187,17 @@ impl SessionManager {
 
     /// Get a list of clients attached to a session
     pub async fn get_session_clients(&self, session_id: &SessionId) -> Vec<ClientId> {
-        let session_clients_guard = self.session_clients.read().await;
-        session_clients_guard.get(session_id)
-            .map(|set| set.iter().cloned().collect())
+        self.session_clients.get(session_id)
+            .map(|entry| entry.value().iter().cloned().collect())
             .unwrap_or_default()
     }
 
     /// Broadcast a message to all clients attached to a session
     pub async fn broadcast_to_session(&self, session_id: &SessionId, message: ServerMessage) {
         let client_ids = self.get_session_clients(session_id).await;
-        let clients_guard = self.clients.read().await;
 
         for client_id in client_ids {
-            if let Some(client) = clients_guard.get(&client_id) {
+            if let Some(client) = self.clients.get(&client_id) {
                 let _ = client.sender.send(message.clone()).await;
             }
         }
@@ -221,9 +213,8 @@ impl SessionManager {
         // Detach the client from any session
         let _ = self.detach_client(client_id).await;
 
-        // Remove the client from the clients map
-        let mut clients_guard = self.clients.write().await;
-        clients_guard.remove(&client_id);
+        // Remove the client from the clients map - DashMap direct removal
+        self.clients.remove(&client_id);
 
         info!("Cleaned up disconnected client {}", client_id.0);
     }
@@ -238,8 +229,10 @@ impl SessionManager {
             loop {
                 timer.tick().await;
 
-                let sessions_guard = sessions.read().await;
-                for (session_id, session_arc) in sessions_guard.iter() {
+                // DashMap iteration - no global lock needed
+                for entry in sessions.iter() {
+                    let session_id = entry.key();
+                    let session_arc = entry.value();
                     let session = session_arc.read().await;
 
                     if session.should_auto_save() {
@@ -286,8 +279,7 @@ impl SessionManager {
 
     /// Enable auto-save for a specific session
     pub async fn enable_session_auto_save(&self, session_id: SessionId, interval_seconds: u64) -> Result<()> {
-        let sessions_guard = self.sessions.read().await;
-        if let Some(session_arc) = sessions_guard.get(&session_id) {
+        if let Some(session_arc) = self.sessions.get(&session_id) {
             let mut session = session_arc.write().await;
             session.enable_auto_save(interval_seconds);
             info!("Enabled auto-save for session {} with interval {}s", session_id.0, interval_seconds);
@@ -299,8 +291,7 @@ impl SessionManager {
 
     /// Disable auto-save for a specific session
     pub async fn disable_session_auto_save(&self, session_id: SessionId) -> Result<()> {
-        let sessions_guard = self.sessions.read().await;
-        if let Some(session_arc) = sessions_guard.get(&session_id) {
+        if let Some(session_arc) = self.sessions.get(&session_id) {
             let mut session = session_arc.write().await;
             session.disable_auto_save();
             info!("Disabled auto-save for session {}", session_id.0);

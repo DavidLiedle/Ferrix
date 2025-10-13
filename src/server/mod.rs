@@ -53,11 +53,11 @@ pub mod timetravel;
 // #[cfg(test)]
 // mod recovery_tests;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::UnixListener;
 use tokio::sync::{RwLock, mpsc};
+use dashmap::DashMap;
 use tokio_util::codec::Framed;
 use futures::{StreamExt, SinkExt};
 use tracing::{error, info, warn};
@@ -71,13 +71,13 @@ use recovery::RecoveryManager;
 use hooks::{HookManager, HookEvent, HookContext};
 use infrastructure::ServerInfrastructure;
 
-// Type alias for the sessions map to reduce complexity
-type SessionMap = Arc<RwLock<HashMap<SessionId, Arc<RwLock<Session>>>>>;
+// Type alias for the sessions map - DashMap provides lock-free concurrent access
+type SessionMap = Arc<DashMap<SessionId, Arc<RwLock<Session>>>>;
 
 #[derive(Clone)]
 pub struct Server {
     sessions: SessionMap,
-    clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
+    clients: Arc<DashMap<ClientId, ClientConnection>>,
     keybinding_manager: Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
     hooks: Arc<RwLock<HookManager>>,
     socket_path: PathBuf,
@@ -93,8 +93,8 @@ pub struct ClientConnection {
 impl Server {
     pub fn new(socket_path: PathBuf) -> Self {
         Self {
-            sessions: Arc::new(RwLock::new(HashMap::new())),
-            clients: Arc::new(RwLock::new(HashMap::new())),
+            sessions: Arc::new(DashMap::new()),
+            clients: Arc::new(DashMap::new()),
             keybinding_manager: Arc::new(RwLock::new(crate::config::keybindings::KeyBindingManager::new())),
             hooks: Arc::new(RwLock::new(HookManager::new())),
             socket_path,
@@ -108,7 +108,7 @@ impl Server {
     }
 
     /// Get clients reference for remote server access
-    pub fn clients(&self) -> Arc<RwLock<HashMap<ClientId, ClientConnection>>> {
+    pub fn clients(&self) -> Arc<DashMap<ClientId, ClientConnection>> {
         self.clients.clone()
     }
 
@@ -143,8 +143,8 @@ impl Server {
                         let session_id = session.id.clone();
                         let session_name = session.name.clone();
 
-                        let mut sessions_guard = self.sessions.write().await;
-                        sessions_guard.insert(session_id.clone(), Arc::new(RwLock::new(session)));
+                        // DashMap direct insertion - no lock needed
+                        self.sessions.insert(session_id.clone(), Arc::new(RwLock::new(session)));
 
                         info!("Recovered session {} ({}) from crash", session_name, session_id.0);
                     }
@@ -204,7 +204,7 @@ async fn handle_client(
     stream: tokio::net::UnixStream,
     client_id: ClientId,
     sessions: SessionMap,
-    clients: Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
+    clients: Arc<DashMap<ClientId, ClientConnection>>,
     keybinding_manager: Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
     hooks: Arc<RwLock<HookManager>>,
     infrastructure: ServerInfrastructure,
@@ -216,17 +216,15 @@ async fn handle_client(
 
     let (tx, mut rx) = mpsc::channel::<ServerMessage>(100);
 
-    {
-        let mut clients_guard = clients.write().await;
-        clients_guard.insert(
-            client_id,
-            ClientConnection {
-                id: client_id,
-                attached_session: None,
-                sender: tx.clone(),
-            },
-        );
-    }
+    // DashMap direct insertion - no lock needed
+    clients.insert(
+        client_id,
+        ClientConnection {
+            id: client_id,
+            attached_session: None,
+            sender: tx.clone(),
+        },
+    );
 
     let mut framed = Framed::new(stream, FerrixCodec);
 
@@ -261,10 +259,8 @@ async fn handle_client(
         }
     }
 
-    {
-        let mut clients_guard = clients.write().await;
-        clients_guard.remove(&client_id);
-    }
+    // DashMap direct removal - no lock needed
+    clients.remove(&client_id);
 
     // Record disconnection
     infrastructure.record_connection_closed();
@@ -277,18 +273,15 @@ pub async fn handle_message(
     message: ClientMessage,
     client_id: &ClientId,
     sessions: &SessionMap,
-    clients: &Arc<RwLock<HashMap<ClientId, ClientConnection>>>,
+    clients: &Arc<DashMap<ClientId, ClientConnection>>,
     keybinding_manager: &Arc<RwLock<crate::config::keybindings::KeyBindingManager>>,
     hooks: &Arc<RwLock<HookManager>>,
     infrastructure: &ServerInfrastructure,
 ) -> Result<Option<ServerMessage>> {
     match message {
         ClientMessage::CreateSession { name, working_dir } => {
-            // Check if we can create a new session
-            let current_session_count = {
-                let sessions_guard = sessions.read().await;
-                sessions_guard.len()
-            };
+            // Check if we can create a new session - DashMap lock-free access
+            let current_session_count = sessions.len();
 
             let rate_limit_client_id = rate_limiting::ClientId::Internal(client_id.0.to_string());
             if !infrastructure.can_create_session(&rate_limit_client_id, current_session_count).await {
@@ -313,10 +306,8 @@ pub async fn handle_message(
             };
             let session_arc = Arc::new(RwLock::new(session));
 
-            {
-                let mut sessions_guard = sessions.write().await;
-                sessions_guard.insert(session_id.clone(), session_arc.clone());
-            }
+            // DashMap direct insertion - no lock needed
+            sessions.insert(session_id.clone(), session_arc.clone());
 
             // Record metrics
             infrastructure.record_session_created();
@@ -341,9 +332,9 @@ pub async fn handle_message(
                     if let Ok(pane_outputs) = pane_outputs {
                         for (pane_id, output) in pane_outputs {
                             if !output.is_empty() {
-                                // Broadcast to all clients attached to this session
-                                let clients_guard = clients_clone.read().await;
-                                for (_, client) in clients_guard.iter() {
+                                // Broadcast to all clients attached to this session - DashMap iteration
+                                for client_ref in clients_clone.iter() {
+                                    let client = client_ref.value();
                                     if client.attached_session == Some(session_id_clone.clone()) {
                                         // Ignore send errors - client might have disconnected
                                         let _ = client.sender.send(ServerMessage::PaneOutput {
@@ -366,20 +357,16 @@ pub async fn handle_message(
                         // All panes are dead - detach clients and destroy session
                         tracing::info!("All panes in session {} are dead, destroying session", session_id_clone.0);
 
-                        // Send detach message to all attached clients
-                        let clients_guard = clients_clone.read().await;
-                        for (_, client) in clients_guard.iter() {
+                        // Send detach message to all attached clients - DashMap iteration
+                        for client_ref in clients_clone.iter() {
+                            let client = client_ref.value();
                             if client.attached_session == Some(session_id_clone.clone()) {
                                 let _ = client.sender.send(ServerMessage::SessionDetached).await;
                             }
                         }
-                        drop(clients_guard);
 
-                        // Remove session from sessions map
-                        {
-                            let mut sessions_guard = sessions_clone.write().await;
-                            sessions_guard.remove(&session_id_clone);
-                        }
+                        // Remove session from sessions map - DashMap direct removal
+                        sessions_clone.remove(&session_id_clone);
 
                         // Exit the polling loop since session is destroyed
                         break;
@@ -404,12 +391,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::AttachSession { session_id } => {
-            let sessions_guard = sessions.read().await;
-
-            if let Some(session) = sessions_guard.get(&session_id) {
+            // DashMap lock-free access
+            if let Some(session_arc) = sessions.get(&session_id) {
                 {
-                    let mut clients_guard = clients.write().await;
-                    if let Some(client) = clients_guard.get_mut(client_id) {
+                    if let Some(mut client) = clients.get_mut(client_id) {
                         client.attached_session = Some(session_id.clone());
                     }
                 }
@@ -428,12 +413,11 @@ pub async fn handle_message(
                 }
 
                 // Send layout info immediately after attach
-                let session_guard = session.read().await;
+                let session_guard = session_arc.read().await;
                 let session_name = session_guard.name.clone();
                 if let Some(layout) = session_guard.get_layout_info().await {
-                    // Get the client's sender channel
-                    let clients_guard = clients.read().await;
-                    if let Some(client) = clients_guard.get(client_id) {
+                    // Get the client's sender channel - DashMap access
+                    if let Some(client) = clients.get(client_id) {
                         // Send layout update asynchronously
                         let _ = client.sender.send(ServerMessage::LayoutUpdate { layout }).await;
                     }
@@ -447,8 +431,8 @@ pub async fn handle_message(
                         let pane_guard = pane_arc.read().await;
                         let buffer = pane_guard.get_raw_output_buffer();
                         if !buffer.is_empty() {
-                            let clients_guard = clients.read().await;
-                            if let Some(client) = clients_guard.get(client_id) {
+                            // DashMap access
+                            if let Some(client) = clients.get(client_id) {
                                 let _ = client.sender.send(ServerMessage::PaneOutput {
                                     pane_id: pane_id.clone(),
                                     data: buffer.to_vec()
@@ -470,8 +454,7 @@ pub async fn handle_message(
 
         ClientMessage::DetachSession => {
             let detached_session_id = {
-                let mut clients_guard = clients.write().await;
-                if let Some(client) = clients_guard.get_mut(client_id) {
+                if let Some(mut client) = clients.get_mut(client_id) {
                     let session_id = client.attached_session.clone();
                     client.attached_session = None;
                     session_id
@@ -494,16 +477,17 @@ pub async fn handle_message(
         }
 
         ClientMessage::ListSessions => {
-            let sessions_guard = sessions.read().await;
             let mut session_list = Vec::new();
 
-            for (id, session) in sessions_guard.iter() {
-                let session_guard = session.read().await;
+            // DashMap iteration - no global lock needed
+            for entry in sessions.iter() {
+                let id = entry.key();
+                let session_arc = entry.value();
+                let session_guard = session_arc.read().await;
 
-                // Count actual attached clients for this session
-                let clients_guard = clients.read().await;
-                let attached_count = clients_guard.values()
-                    .filter(|client| client.attached_session.as_ref() == Some(id))
+                // Count actual attached clients for this session - DashMap iteration
+                let attached_count = clients.iter()
+                    .filter(|client_entry| client_entry.value().attached_session.as_ref() == Some(id))
                     .count();
 
                 session_list.push(SessionInfo {
@@ -521,9 +505,8 @@ pub async fn handle_message(
         }
 
         ClientMessage::KillSession { session_id } => {
-            let mut sessions_guard = sessions.write().await;
-
-            if sessions_guard.remove(&session_id).is_some() {
+            // DashMap direct removal - no lock needed
+            if sessions.remove(&session_id).is_some() {
                 info!("Killed session {}", session_id.0);
 
                 // Trigger SessionClosed hook
@@ -543,12 +526,11 @@ pub async fn handle_message(
         }
 
         ClientMessage::Input { data } => {
-            let clients_guard = clients.read().await;
-            if let Some(client) = clients_guard.get(client_id) {
+            // DashMap lock-free access
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let sessions_guard = sessions.read().await;
-                    if let Some(session) = sessions_guard.get(session_id) {
-                        let mut session_guard = session.write().await;
+                    if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         session_guard.handle_input(data).await?;
                     }
                 }
@@ -557,12 +539,11 @@ pub async fn handle_message(
         }
 
         ClientMessage::Resize { cols, rows } => {
-            let clients_guard = clients.read().await;
-            if let Some(client) = clients_guard.get(client_id) {
+            // DashMap lock-free access
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let sessions_guard = sessions.read().await;
-                    if let Some(session) = sessions_guard.get(session_id) {
-                        let mut session_guard = session.write().await;
+                    if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         // Reserve 1 row for status bar at bottom
                         let pane_rows = rows.saturating_sub(1).max(1);
                         session_guard.resize(cols, pane_rows).await?;
@@ -595,8 +576,7 @@ pub async fn handle_message(
                 }
             };
 
-            let sessions_guard = sessions.read().await;
-            if let Some(session_arc) = sessions_guard.get(&session_id) {
+                        if let Some(session_arc) = sessions.get(&session_id) {
                 let session_guard = session_arc.read().await;
 
                 // Create snapshot from session state
@@ -677,8 +657,8 @@ pub async fn handle_message(
                     let session = Session::from_snapshot(snapshot.clone());
                     let session_id = session.id.clone();
 
-                    let mut sessions_guard = sessions.write().await;
-                    sessions_guard.insert(session_id.clone(), Arc::new(RwLock::new(session)));
+                    // DashMap direct insertion - no lock needed
+                    sessions.insert(session_id.clone(), Arc::new(RwLock::new(session)));
 
                     info!("Loaded snapshot from {:?}", path);
                     Ok(Some(ServerMessage::SnapshotLoaded { session_id }))
@@ -704,12 +684,10 @@ pub async fn handle_message(
             match snapshot_manager.load_snapshot(&path) {
                 Ok(snapshot) => {
                     // Restore into existing session
-                    let sessions_guard = sessions.read().await;
-                    if let Some(session_arc) = sessions_guard.get(&session_id) {
+                                        if let Some(session_arc) = sessions.get(&session_id) {
                         let mut session = session_arc.write().await;
                         session.restore_from_snapshot(snapshot).await;
                         drop(session);
-                        drop(sessions_guard);
 
                         info!("Restored snapshot from {:?} into session {}", path, session_id.0);
                         Ok(Some(ServerMessage::Output {
@@ -757,11 +735,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::CreateWindow { name } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.create_window(name.clone()).await {
                             Ok(window_id) => {
                                 // Record window creation
@@ -794,11 +771,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::SwitchWindow { window_id } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.switch_window(window_id.clone()).await {
                             Ok(()) => {
                                 Ok(Some(ServerMessage::WindowSwitched { window_id }))
@@ -825,11 +801,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::CloseWindow { window_id } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.close_window(window_id.clone()).await {
                             Ok(()) => {
                                 // Record window destruction
@@ -859,11 +834,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::SplitPane { direction } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.split_pane(direction).await {
                             Ok(pane_id) => {
                                 // Record pane creation
@@ -902,11 +876,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::NavigatePane { direction } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
 
                         use crate::protocol::messages::PaneNavigationDirection;
                         use layout::NavigationDirection;
@@ -949,11 +922,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::SelectLastPane => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
 
                         match session_guard.select_last_pane().await {
                             Ok(()) => {
@@ -986,11 +958,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::SelectPaneByIndex { index } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
 
                         match session_guard.select_pane_by_index(index) {
                             Ok(()) => {
@@ -1023,11 +994,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::ClosePane { pane_id } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.close_pane(pane_id.clone()).await {
                             Ok(()) => {
                                 // Record pane destruction
@@ -1057,11 +1027,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::ResizePane { direction, amount } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.resize_pane(direction, amount).await {
                             Ok(()) => {
                                 // Send layout update after resizing
@@ -1093,11 +1062,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::NextWindow => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.next_window().await {
                             Ok(()) => {
                                 // Send layout update after switching windows
@@ -1129,11 +1097,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::PreviousWindow => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.previous_window().await {
                             Ok(()) => {
                                 // Send layout update after switching windows
@@ -1165,11 +1132,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::ZoomPane => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.zoom_pane().await {
                             Ok((zoomed, pane_id)) => Ok(Some(ServerMessage::PaneZoomStatusUpdate {
                                 zoomed,
@@ -1197,11 +1163,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::KillPane => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         if let Some(current_window) = session_guard.get_current_window() {
                             let focused_pane_id = {
                                 let window_guard = current_window.read().await;
@@ -1246,11 +1211,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::ListWindows => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let sessions_guard = sessions.read().await;
-                    if let Some(session) = sessions_guard.get(session_id) {
-                        let session_guard = session.read().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let session_guard = session_arc.read().await;
                         let window_list = session_guard.list_windows();
                         Ok(Some(ServerMessage::WindowList { windows: window_list }))
                     } else {
@@ -1271,11 +1235,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::ApplyLayoutPreset { preset_name } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let sessions_guard = sessions.read().await;
-                    if let Some(session) = sessions_guard.get(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         if session_guard.apply_layout_preset(&preset_name) {
                             Ok(Some(ServerMessage::LayoutApplied { preset_name }))
                         } else {
@@ -1301,11 +1264,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::CycleLayout => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let sessions_guard = sessions.read().await;
-                    if let Some(session) = sessions_guard.get(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         let preset_name = session_guard.cycle_layout();
                         Ok(Some(ServerMessage::LayoutApplied { preset_name }))
                     } else {
@@ -1346,11 +1308,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::EnterCopyMode => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.enter_copy_mode().await {
                             Ok(()) => {
                                 // Get the buffer content and send initial update
@@ -1389,11 +1350,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::ExitCopyMode => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.exit_copy_mode().await {
                             Ok(()) => Ok(Some(ServerMessage::CopyModeExited)),
                             Err(e) => Ok(Some(ServerMessage::Error {
@@ -1418,11 +1378,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::CopyModeInput { key } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.handle_copy_mode_input(key).await {
                             Ok(Some(copy_mode_state)) => {
                                 Ok(Some(ServerMessage::CopyModeUpdate {
@@ -1457,11 +1416,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::TogglePaneSync => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         let enabled = session_guard.toggle_pane_sync();
                         Ok(Some(ServerMessage::PaneSyncStatusUpdate { enabled }))
                     } else {
@@ -1482,11 +1440,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::SetPaneSync { enabled } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         let actual_enabled = session_guard.set_pane_sync(enabled);
                         Ok(Some(ServerMessage::PaneSyncStatusUpdate { enabled: actual_enabled }))
                     } else {
@@ -1507,11 +1464,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::LockSession => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         let locked = session_guard.lock_session();
                         Ok(Some(ServerMessage::SessionLockStatusUpdate { locked }))
                     } else {
@@ -1532,11 +1488,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::UnlockSession => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         let locked = session_guard.unlock_session();
                         Ok(Some(ServerMessage::SessionLockStatusUpdate { locked }))
                     } else {
@@ -1557,11 +1512,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::SetSessionLock { locked } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         let actual_locked = session_guard.set_session_lock(locked);
                         Ok(Some(ServerMessage::SessionLockStatusUpdate { locked: actual_locked }))
                     } else {
@@ -1582,11 +1536,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::RenameWindow { window_id, new_name } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.rename_window(window_id, new_name.clone()).await {
                             Ok(renamed_window_id) => {
                                 Ok(Some(ServerMessage::WindowRenamed {
@@ -1616,11 +1569,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::ToggleActivityMonitoring { pane_id } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.toggle_activity_monitoring(pane_id).await {
                             Ok((target_pane, enabled)) => {
                                 let activity_status = session_guard.get_activity_status(&target_pane).await;
@@ -1652,11 +1604,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::SetActivityMonitoring { pane_id, enabled } => {
-            if let Some(client) = clients.read().await.get(client_id) {
+            if let Some(client) = clients.get(client_id) {
                 if let Some(session_id) = &client.attached_session {
-                    let mut sessions_guard = sessions.write().await;
-                    if let Some(session) = sessions_guard.get_mut(session_id) {
-                        let mut session_guard = session.write().await;
+                                        if let Some(session_arc) = sessions.get(session_id) {
+                        let mut session_guard = session_arc.write().await;
                         match session_guard.set_activity_monitoring(pane_id, enabled).await {
                             Ok((target_pane, actual_enabled)) => {
                                 let activity_status = session_guard.get_activity_status(&target_pane).await;
@@ -1795,14 +1746,13 @@ pub async fn handle_message(
             let target_session_id = if let Some(sid) = session_id {
                 Some(sid)
             } else {
-                clients.read().await.get(client_id)
+                clients.get(client_id)
                     .and_then(|c| c.attached_session.clone())
             };
 
             if let Some(sid) = target_session_id {
-                let mut sessions_guard = sessions.write().await;
-                if let Some(session) = sessions_guard.get_mut(&sid) {
-                    let mut session_guard = session.write().await;
+                                if let Some(session_arc) = sessions.get(&sid) {
+                    let mut session_guard = session_arc.write().await;
                     let interval = interval_minutes.unwrap_or(5);
                     session_guard.auto_save_enabled = true;
                     session_guard.auto_save_interval = std::time::Duration::from_secs(interval * 60);
@@ -1824,14 +1774,13 @@ pub async fn handle_message(
             let target_session_id = if let Some(sid) = session_id {
                 Some(sid)
             } else {
-                clients.read().await.get(client_id)
+                clients.get(client_id)
                     .and_then(|c| c.attached_session.clone())
             };
 
             if let Some(sid) = target_session_id {
-                let mut sessions_guard = sessions.write().await;
-                if let Some(session) = sessions_guard.get_mut(&sid) {
-                    let mut session_guard = session.write().await;
+                                if let Some(session_arc) = sessions.get(&sid) {
+                    let mut session_guard = session_arc.write().await;
                     session_guard.auto_save_enabled = false;
 
                     Ok(Some(ServerMessage::AutoSaveDisabled))
@@ -1851,14 +1800,13 @@ pub async fn handle_message(
             let target_session_id = if let Some(sid) = session_id {
                 Some(sid)
             } else {
-                clients.read().await.get(client_id)
+                clients.get(client_id)
                     .and_then(|c| c.attached_session.clone())
             };
 
             if let Some(sid) = target_session_id {
-                let sessions_guard = sessions.read().await;
-                if let Some(session) = sessions_guard.get(&sid) {
-                    let session_guard = session.read().await;
+                                if let Some(session_arc) = sessions.get(&sid) {
+                    let session_guard = session_arc.read().await;
                     let interval_minutes = session_guard.auto_save_interval.as_secs() / 60;
                     let next_save = session_guard.last_auto_save.and_then(|last| {
                         chrono::Duration::from_std(session_guard.auto_save_interval)
@@ -1886,13 +1834,12 @@ pub async fn handle_message(
 
         ClientMessage::StartRecording { session_id, output_path } => {
             let sid = session_id.or_else(|| {
-                let clients_guard = futures::executor::block_on(clients.read());
-                clients_guard.get(client_id).and_then(|c| c.attached_session.clone())
+                // DashMap lock-free access
+                clients.get(client_id).and_then(|c| c.attached_session.clone())
             });
 
             if let Some(sid) = sid {
-                let sessions_guard = sessions.read().await;
-                if let Some(session_arc) = sessions_guard.get(&sid) {
+                                if let Some(session_arc) = sessions.get(&sid) {
                     let mut session_guard = session_arc.write().await;
 
                     let path = output_path.unwrap_or_else(|| {
@@ -1932,13 +1879,12 @@ pub async fn handle_message(
 
         ClientMessage::StopRecording { session_id } => {
             let sid = session_id.or_else(|| {
-                let clients_guard = futures::executor::block_on(clients.read());
-                clients_guard.get(client_id).and_then(|c| c.attached_session.clone())
+                // DashMap lock-free access
+                clients.get(client_id).and_then(|c| c.attached_session.clone())
             });
 
             if let Some(sid) = sid {
-                let sessions_guard = sessions.read().await;
-                if let Some(session_arc) = sessions_guard.get(&sid) {
+                                if let Some(session_arc) = sessions.get(&sid) {
                     let mut session_guard = session_arc.write().await;
 
                     match session_guard.stop_recording().await {
@@ -1971,13 +1917,12 @@ pub async fn handle_message(
 
         ClientMessage::PauseRecording { session_id } => {
             let sid = session_id.or_else(|| {
-                let clients_guard = futures::executor::block_on(clients.read());
-                clients_guard.get(client_id).and_then(|c| c.attached_session.clone())
+                // DashMap lock-free access
+                clients.get(client_id).and_then(|c| c.attached_session.clone())
             });
 
             if let Some(sid) = sid {
-                let sessions_guard = sessions.read().await;
-                if let Some(session_arc) = sessions_guard.get(&sid) {
+                                if let Some(session_arc) = sessions.get(&sid) {
                     let mut session_guard = session_arc.write().await;
 
                     match session_guard.pause_recording().await {
@@ -2005,13 +1950,12 @@ pub async fn handle_message(
 
         ClientMessage::ResumeRecording { session_id } => {
             let sid = session_id.or_else(|| {
-                let clients_guard = futures::executor::block_on(clients.read());
-                clients_guard.get(client_id).and_then(|c| c.attached_session.clone())
+                // DashMap lock-free access
+                clients.get(client_id).and_then(|c| c.attached_session.clone())
             });
 
             if let Some(sid) = sid {
-                let sessions_guard = sessions.read().await;
-                if let Some(session_arc) = sessions_guard.get(&sid) {
+                                if let Some(session_arc) = sessions.get(&sid) {
                     let mut session_guard = session_arc.write().await;
 
                     match session_guard.resume_recording().await {
@@ -2039,13 +1983,12 @@ pub async fn handle_message(
 
         ClientMessage::RecordingStatus { session_id } => {
             let sid = session_id.or_else(|| {
-                let clients_guard = futures::executor::block_on(clients.read());
-                clients_guard.get(client_id).and_then(|c| c.attached_session.clone())
+                // DashMap lock-free access
+                clients.get(client_id).and_then(|c| c.attached_session.clone())
             });
 
             if let Some(sid) = sid {
-                let sessions_guard = sessions.read().await;
-                if let Some(session_arc) = sessions_guard.get(&sid) {
+                                if let Some(session_arc) = sessions.get(&sid) {
                     let session_guard = session_arc.read().await;
 
                     let status = session_guard.get_recording_status().await;
@@ -2082,13 +2025,12 @@ pub async fn handle_message(
                         info!("Starting playback of recording: {:?}", path);
 
                         // Notify client playback has started
-                        let clients_guard = clients_clone.read().await;
-                        if let Some(client) = clients_guard.get(&client_id_clone) {
+                        // DashMap lock-free access
+                        if let Some(client) = clients_clone.get(&client_id_clone) {
                             let _ = client.sender.send(ServerMessage::RecordingPlaybackStarted {
                                 path: path.clone()
                             }).await;
                         }
-                        drop(clients_guard);
 
                         // Play the recording
                         if let Err(e) = player.play(speed, |event| {
@@ -2098,8 +2040,8 @@ pub async fn handle_message(
                             Box::pin(async move {
                                 use crate::server::recording::RecordingEvent;
 
-                                let clients_guard = clients_clone2.read().await;
-                                if let Some(client) = clients_guard.get(&client_id_clone2) {
+                                // DashMap lock-free access
+                                if let Some(client) = clients_clone2.get(&client_id_clone2) {
                                     match event {
                                         RecordingEvent::Output { data, .. } => {
                                             let _ = client.sender.send(ServerMessage::Output { data }).await;
@@ -2120,15 +2062,15 @@ pub async fn handle_message(
                         }
 
                         // Notify client playback has finished
-                        let clients_guard = clients_clone.read().await;
-                        if let Some(client) = clients_guard.get(&client_id_clone) {
+                        // DashMap lock-free access
+                        if let Some(client) = clients_clone.get(&client_id_clone) {
                             let _ = client.sender.send(ServerMessage::RecordingPlaybackFinished).await;
                         }
                     }
                     Err(e) => {
                         error!("Failed to load recording: {}", e);
-                        let clients_guard = clients_clone.read().await;
-                        if let Some(client) = clients_guard.get(&client_id_clone) {
+                        // DashMap lock-free access
+                        if let Some(client) = clients_clone.get(&client_id_clone) {
                             let _ = client.sender.send(ServerMessage::Error {
                                 message: format!("Failed to load recording: {}", e),
                             }).await;
@@ -2184,9 +2126,8 @@ pub async fn handle_message(
         // Session versioning commands
         #[cfg(feature = "versioning")]
         ClientMessage::InitVersioning { session_id } => {
-            let sessions_guard = sessions.read().await;
-            if let Some(session) = sessions_guard.get(&session_id) {
-                let mut session_guard = session.write().await;
+                        if let Some(session_arc) = sessions.get(&session_id) {
+                let mut session_guard = session_arc.write().await;
                 match session_guard.init_versioning().await {
                     Ok(()) => {
                         Ok(Some(ServerMessage::Success))
@@ -2204,9 +2145,8 @@ pub async fn handle_message(
 
         #[cfg(feature = "versioning")]
         ClientMessage::CommitSession { session_id, message } => {
-            let sessions_guard = sessions.read().await;
-            if let Some(session) = sessions_guard.get(&session_id) {
-                let mut session_guard = session.write().await;
+                        if let Some(session_arc) = sessions.get(&session_id) {
+                let mut session_guard = session_arc.write().await;
                 // Get author name from environment, fallback to "User"
                 let author_name = std::env::var("USER")
                     .or_else(|_| std::env::var("USERNAME"))
@@ -2232,9 +2172,8 @@ pub async fn handle_message(
 
         #[cfg(feature = "versioning")]
         ClientMessage::CreateBranch { session_id, branch_name, description: _ } => {
-            let sessions_guard = sessions.read().await;
-            if let Some(session) = sessions_guard.get(&session_id) {
-                let mut session_guard = session.write().await;
+                        if let Some(session_arc) = sessions.get(&session_id) {
+                let mut session_guard = session_arc.write().await;
                 match session_guard.create_branch(&branch_name, None).await {
                     Ok(()) => {
                         Ok(Some(ServerMessage::BranchCreated {
@@ -2255,9 +2194,8 @@ pub async fn handle_message(
 
         #[cfg(feature = "versioning")]
         ClientMessage::CheckoutBranch { session_id, branch_name } => {
-            let sessions_guard = sessions.read().await;
-            if let Some(session) = sessions_guard.get(&session_id) {
-                let mut session_guard = session.write().await;
+                        if let Some(session_arc) = sessions.get(&session_id) {
+                let mut session_guard = session_arc.write().await;
                 match session_guard.checkout_branch(&branch_name).await {
                     Ok(()) => {
                         Ok(Some(ServerMessage::BranchCheckedOut {
@@ -2278,9 +2216,8 @@ pub async fn handle_message(
 
         #[cfg(feature = "versioning")]
         ClientMessage::MergeBranch { session_id, branch_name, strategy } => {
-            let sessions_guard = sessions.read().await;
-            if let Some(session) = sessions_guard.get(&session_id) {
-                let mut session_guard = session.write().await;
+                        if let Some(session_arc) = sessions.get(&session_id) {
+                let mut session_guard = session_arc.write().await;
                 let auto_resolve = strategy == "auto";
                 match session_guard.merge_branch(&branch_name, auto_resolve).await {
                     Ok((conflicts, _resolved)) => {
@@ -2303,9 +2240,8 @@ pub async fn handle_message(
 
         #[cfg(feature = "versioning")]
         ClientMessage::ListBranches { session_id } => {
-            let sessions_guard = sessions.read().await;
-            if let Some(session) = sessions_guard.get(&session_id) {
-                let session_guard = session.read().await;
+                        if let Some(session_arc) = sessions.get(&session_id) {
+                let session_guard = session_arc.read().await;
                 let branches = session_guard.list_branches();
                 let branch_infos: Vec<crate::protocol::BranchInfo> = branches.into_iter().map(|b| {
                     crate::protocol::BranchInfo {
@@ -2330,9 +2266,8 @@ pub async fn handle_message(
 
         #[cfg(feature = "versioning")]
         ClientMessage::ShowLog { session_id, limit } => {
-            let sessions_guard = sessions.read().await;
-            if let Some(session) = sessions_guard.get(&session_id) {
-                let session_guard = session.read().await;
+                        if let Some(session_arc) = sessions.get(&session_id) {
+                let session_guard = session_arc.read().await;
                 let log_entries = session_guard.get_commit_log(limit.unwrap_or(10));
                 let commit_infos: Vec<crate::protocol::CommitInfo> = log_entries.into_iter().map(|c| {
                     crate::protocol::CommitInfo {
@@ -2357,9 +2292,8 @@ pub async fn handle_message(
 
         #[cfg(feature = "versioning")]
         ClientMessage::ShowDiff { session_id, from_commit, to_commit } => {
-            let sessions_guard = sessions.read().await;
-            if let Some(session) = sessions_guard.get(&session_id) {
-                let session_guard = session.read().await;
+                        if let Some(session_arc) = sessions.get(&session_id) {
+                let session_guard = session_arc.read().await;
                 match session_guard.diff_commits(Some(&from_commit), Some(&to_commit)) {
                     Ok(diff) => {
                         Ok(Some(ServerMessage::DiffResult {
@@ -2380,9 +2314,10 @@ pub async fn handle_message(
 
         ClientMessage::PtyResponse { pane_id, data } => {
             // Find the session that has this pane and write the response to it
-            let sessions_guard = sessions.read().await;
-            for session in sessions_guard.values() {
-                let session_guard = session.read().await;
+            // DashMap iteration - no global lock needed
+            for entry in sessions.iter() {
+                let session_arc = entry.value();
+                let session_guard = session_arc.read().await;
                 // Search all windows in the session
                 for window in &session_guard.windows {
                     let mut window_guard = window.write().await;

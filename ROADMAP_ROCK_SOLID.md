@@ -337,21 +337,13 @@ if length > MAX_MESSAGE_SIZE {
 
 ### Phase 3: Optimization (1 week) → v1.0.0-rc1
 **Goal:** Scale to 1000+ concurrent sessions
-**Status:** 🔄 In Progress
 
 **Week 5:**
-- [🔄] Lock contention optimization (P2.7) - **60% COMPLETE**
-  - ✅ DashMap dependency added
-  - ✅ SessionManager struct migrated
-  - ✅ attach_client() and detach_client() migrated
-  - 📋 6 remaining methods (see docs/DASHMAP_MIGRATION.md)
-  - 📋 server/mod.rs constructor needs update
+- [ ] Lock contention optimization (P2.7)
 - [ ] Memory leak detection (P1)
 - [ ] Graceful shutdown improvements (P1)
 
 **Deliverable:** v1.0.0-rc1 ready for enterprise evaluation
-
-**Current Focus**: Complete DashMap migration (~1 hour remaining)
 
 ---
 
