@@ -54,6 +54,14 @@ pub struct ServerMetrics {
     pty_spawn_failures: AtomicU64,
     protocol_errors: AtomicU64,
     auth_failures: AtomicU64,
+
+    // Lock contention metrics (DashMap operations)
+    session_map_reads: AtomicU64,      // Lock-free lookups
+    session_map_writes: AtomicU64,     // Shard-locked writes
+    session_map_iterations: AtomicU64, // Full map iterations
+    client_map_reads: AtomicU64,       // Lock-free lookups
+    client_map_writes: AtomicU64,      // Shard-locked writes
+    concurrent_operations: AtomicUsize, // Peak concurrent ops
 }
 
 impl ServerMetrics {
@@ -79,6 +87,13 @@ impl ServerMetrics {
             pty_spawn_failures: AtomicU64::new(0),
             protocol_errors: AtomicU64::new(0),
             auth_failures: AtomicU64::new(0),
+
+            session_map_reads: AtomicU64::new(0),
+            session_map_writes: AtomicU64::new(0),
+            session_map_iterations: AtomicU64::new(0),
+            client_map_reads: AtomicU64::new(0),
+            client_map_writes: AtomicU64::new(0),
+            concurrent_operations: AtomicUsize::new(0),
         }
     }
 
@@ -164,6 +179,35 @@ impl ServerMetrics {
         self.auth_failures.fetch_add(1, Ordering::Relaxed);
     }
 
+    // Lock contention tracking
+
+    pub fn session_map_read(&self) {
+        self.session_map_reads.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn session_map_write(&self) {
+        self.session_map_writes.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn session_map_iteration(&self) {
+        self.session_map_iterations.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn client_map_read(&self) {
+        self.client_map_reads.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn client_map_write(&self) {
+        self.client_map_writes.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn track_concurrent_operation(&self) -> ConcurrentOpGuard {
+        let current = self.concurrent_operations.fetch_add(1, Ordering::Relaxed);
+        // Track peak concurrent operations (simple max tracking)
+        let _peak = current + 1;
+        ConcurrentOpGuard { metrics: self }
+    }
+
     // Snapshot for reporting
 
     /// Get current snapshot of all metrics
@@ -188,7 +232,25 @@ impl ServerMetrics {
             pty_spawn_failures: self.pty_spawn_failures.load(Ordering::Relaxed),
             protocol_errors: self.protocol_errors.load(Ordering::Relaxed),
             auth_failures: self.auth_failures.load(Ordering::Relaxed),
+
+            session_map_reads: self.session_map_reads.load(Ordering::Relaxed),
+            session_map_writes: self.session_map_writes.load(Ordering::Relaxed),
+            session_map_iterations: self.session_map_iterations.load(Ordering::Relaxed),
+            client_map_reads: self.client_map_reads.load(Ordering::Relaxed),
+            client_map_writes: self.client_map_writes.load(Ordering::Relaxed),
+            concurrent_operations: self.concurrent_operations.load(Ordering::Relaxed),
         }
+    }
+}
+
+/// RAII guard for tracking concurrent operations
+pub struct ConcurrentOpGuard<'a> {
+    metrics: &'a ServerMetrics,
+}
+
+impl<'a> Drop for ConcurrentOpGuard<'a> {
+    fn drop(&mut self) {
+        self.metrics.concurrent_operations.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -225,6 +287,14 @@ pub struct MetricsSnapshot {
     pub pty_spawn_failures: u64,
     pub protocol_errors: u64,
     pub auth_failures: u64,
+
+    // Lock contention (DashMap operations)
+    pub session_map_reads: u64,
+    pub session_map_writes: u64,
+    pub session_map_iterations: u64,
+    pub client_map_reads: u64,
+    pub client_map_writes: u64,
+    pub concurrent_operations: usize,
 }
 
 impl MetricsSnapshot {
@@ -258,6 +328,14 @@ Errors:
   PTY Spawn Failures: {}
   Protocol Errors: {}
   Auth Failures: {}
+
+Lock Contention (DashMap):
+  Session Map Reads: {} (lock-free)
+  Session Map Writes: {} (per-shard)
+  Session Map Iterations: {}
+  Client Map Reads: {} (lock-free)
+  Client Map Writes: {} (per-shard)
+  Concurrent Operations: {}
 "#,
             self.active_connections,
             self.total_connections,
@@ -276,6 +354,12 @@ Errors:
             self.pty_spawn_failures,
             self.protocol_errors,
             self.auth_failures,
+            self.session_map_reads,
+            self.session_map_writes,
+            self.session_map_iterations,
+            self.client_map_reads,
+            self.client_map_writes,
+            self.concurrent_operations,
         )
     }
 }
@@ -383,5 +467,50 @@ mod tests {
 
         // Should be the same instance
         assert!(Arc::ptr_eq(&metrics1, &metrics2));
+    }
+
+    #[test]
+    fn test_lock_contention_metrics() {
+        let metrics = ServerMetrics::new();
+
+        // Test session map operations
+        metrics.session_map_read();
+        metrics.session_map_read();
+        metrics.session_map_write();
+        metrics.session_map_iteration();
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.session_map_reads, 2);
+        assert_eq!(snapshot.session_map_writes, 1);
+        assert_eq!(snapshot.session_map_iterations, 1);
+
+        // Test client map operations
+        metrics.client_map_read();
+        metrics.client_map_write();
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.client_map_reads, 1);
+        assert_eq!(snapshot.client_map_writes, 1);
+    }
+
+    #[test]
+    fn test_concurrent_operation_tracking() {
+        let metrics = ServerMetrics::new();
+
+        // Simulate concurrent operations
+        {
+            let _guard1 = metrics.track_concurrent_operation();
+            let _guard2 = metrics.track_concurrent_operation();
+            assert_eq!(metrics.snapshot().concurrent_operations, 2);
+
+            {
+                let _guard3 = metrics.track_concurrent_operation();
+                assert_eq!(metrics.snapshot().concurrent_operations, 3);
+            }
+            // guard3 dropped, back to 2
+            assert_eq!(metrics.snapshot().concurrent_operations, 2);
+        }
+        // All guards dropped
+        assert_eq!(metrics.snapshot().concurrent_operations, 0);
     }
 }

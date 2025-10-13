@@ -306,6 +306,9 @@ pub async fn handle_message(
             };
             let session_arc = Arc::new(RwLock::new(session));
 
+            // Track metrics: session map write (per-shard lock)
+            infrastructure.metrics.session_map_write();
+
             // DashMap direct insertion - no lock needed
             sessions.insert(session_id.clone(), session_arc.clone());
 
@@ -391,6 +394,10 @@ pub async fn handle_message(
         }
 
         ClientMessage::AttachSession { session_id } => {
+            // Track metrics: lock-free session read + client write
+            infrastructure.metrics.session_map_read();
+            infrastructure.metrics.client_map_write();
+
             // DashMap lock-free access
             if let Some(session_arc) = sessions.get(&session_id) {
                 {
@@ -477,6 +484,9 @@ pub async fn handle_message(
         }
 
         ClientMessage::ListSessions => {
+            // Track metrics: full map iteration
+            infrastructure.metrics.session_map_iteration();
+
             let mut session_list = Vec::new();
 
             // DashMap iteration - no global lock needed
@@ -505,6 +515,9 @@ pub async fn handle_message(
         }
 
         ClientMessage::KillSession { session_id } => {
+            // Track metrics: session map write (removal)
+            infrastructure.metrics.session_map_write();
+
             // DashMap direct removal - no lock needed
             if sessions.remove(&session_id).is_some() {
                 info!("Killed session {}", session_id.0);
