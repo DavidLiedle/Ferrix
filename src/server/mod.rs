@@ -20,6 +20,7 @@ pub mod rate_limiting;
 pub mod infrastructure;
 pub mod session_timeout;
 pub mod circuit_breaker;
+pub mod memory_monitor;
 
 // ============================================================================
 // TIER 2: Advanced Features (feature-gated)
@@ -169,6 +170,15 @@ impl Server {
             let recovery_manager_clone = recovery_manager.clone();
             tokio::spawn(async move {
                 recovery_manager_clone.start_auto_save(sessions_clone).await;
+            });
+        }
+
+        // Start memory monitoring
+        {
+            let memory_monitor = Arc::new(memory_monitor::MemoryMonitor::new());
+            let metrics = self.infrastructure.metrics.clone();
+            tokio::spawn(async move {
+                memory_monitor.start_monitoring(metrics).await;
             });
         }
 
