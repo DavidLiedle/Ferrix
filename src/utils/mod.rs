@@ -1,14 +1,5 @@
-// Utils module placeholder
-// Will be expanded with clipboard and terminal utilities
+//! Utility modules for Ferrix
+//!
+//! This module contains various utility functions and helpers.
 
-
-#[cfg(test)]
-mod tests {
-    
-
-    #[test]
-    fn test_utils_module() {
-        // Utility module test
-        assert!(true);
-    }
-}
+pub mod suggestions;
