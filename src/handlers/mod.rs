@@ -5,60 +5,37 @@
 //!
 //! ## Refactoring Guide
 //!
-//! The main.rs file currently contains ~76 command handlers in a single large
-//! match statement (~2400 lines). This creates maintenance challenges:
-//! - Difficult to navigate and find specific handlers
-//! - Hard to test individual command categories
-//! - Merge conflicts more likely in team development
+//! The main.rs file is being refactored to extract command handlers into
+//! organized modules. This improves:
+//! - Code navigation and findability
+//! - Testing of individual command categories
+//! - Reduced merge conflicts in team development
 //!
 //! ### Extraction Pattern
 //!
-//! To extract handlers:
-//!
 //! 1. Create a new module file (e.g., `session.rs` for session commands)
 //! 2. Move related command handlers into handler functions
-//! 3. Each handler should be async and return `Result<()>`
+//! 3. Each handler should be async (if needed) and return `Result<()>`
 //! 4. Add the module to this file and re-export publicly
 //! 5. Update main.rs to call the handler functions
 //!
-//! ### Example
+//! ## Extracted Handlers
 //!
-//! Before (in main.rs):
-//! ```rust
-//! Some(Commands::Kill { target }) => {
-//!     let socket_path = PathBuf::from(&cli.socket);
-//!     let mut client = Client::new(socket_path);
-//!     client.connect().await?;
-//!     client.kill_session(target.as_deref()).await?;
-//!     println!("Session killed");
-//! }
-//! ```
+//! ### ✅ Session Handlers (5 commands)
+//! - `new` - Create new session
+//! - `attach` - Attach to session
+//! - `list` - List all sessions
+//! - `kill` - Kill a session
+//! - `detach` - Detach from session
 //!
-//! After (in handlers/session.rs):
-//! ```rust
-//! pub async fn handle_kill(socket_path: PathBuf, target: &Option<String>) -> Result<()> {
-//!     let mut client = Client::new(socket_path);
-//!     client.connect().await?;
-//!     client.kill_session(target.as_deref()).await?;
-//!     println!("Session killed");
-//!     Ok(())
-//! }
-//! ```
+//! ### ✅ Config Handlers (3 commands)
+//! - `reload-config` - Reload configuration
+//! - `generate-config` - Generate default config file
+//! - `validate-config` - Validate config file
 //!
-//! In main.rs:
-//! ```rust
-//! Some(Commands::Kill { target }) => {
-//!     ferrix::handlers::session::handle_kill(socket_path.clone(), target).await?;
-//! }
-//! ```
+//! ## Remaining Categories (68 handlers)
 //!
-//! ## Handler Categories
-//!
-//! Based on analysis, handlers should be grouped as follows:
-//!
-//! - **session.rs** (5): New, Attach, List, Kill, Detach
 //! - **snapshot.rs** (7): SaveSnapshot, LoadSnapshot, RestoreSnapshot, etc.
-//! - **config.rs** (3): ReloadConfig, GenerateConfig, ValidateConfig
 //! - **keys.rs** (7): ListKeys, BindKey, UnbindKey, ResetKeys, etc.
 //! - **remote.rs** (2): Connect, UserManagement
 //! - **server.rs** (1): Server startup (complex, ~90 lines)
@@ -67,18 +44,16 @@
 //! - **session_state.rs** (3): LockSession, UnlockSession, SetSessionLock
 //! - **autosave.rs** (2): EnableAutoSave, DisableAutoSave
 //! - **layout.rs** (~5): ApplyLayout, CycleLayout, SaveLayout, etc.
-//! - **misc.rs**: SendKeys, Inspect, Dump, etc.
-//!
-//! Total: ~76 handlers across 12 categories
+//! - **misc.rs** (~35): SendKeys, Inspect, Dump, RenameWindow, etc.
 
-// Currently no handlers extracted yet - this is the infrastructure for future work
-// TODO: Extract session handlers first as they're the most commonly used
+pub mod session;
+pub mod config;
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn test_handlers_module() {
-        // Placeholder test to ensure module compiles
+        // Module structure is valid
         assert!(true);
     }
 }

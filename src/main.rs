@@ -159,91 +159,23 @@ async fn async_main(cli: Cli) -> Result<()> {
         }
 
         Some(Commands::New { session, command: _, detached }) => {
-            let mut client = Client::new(socket_path)?;
-            client.connect().await?;
-
-            let session_id = client.create_session(session.clone()).await?;
-
-            if !detached {
-                client.attach_session(session_id).await?;
-            } else {
-                println!("Session created: {}", session_id.0);
-            }
+            ferrix::handlers::session::handle_new(socket_path, session.clone(), *detached).await?;
         }
 
         Some(Commands::Attach { target }) => {
-            let mut client = Client::new(socket_path)?;
-            client.connect().await?;
-
-            if let Some(target_str) = target {
-                let sessions = client.list_sessions().await?;
-
-                let session_id = if let Ok(uuid) = uuid::Uuid::parse_str(target_str) {
-                    ferrix::protocol::SessionId(uuid)
-                } else {
-                    sessions
-                        .iter()
-                        .find(|s| s.name == *target_str)
-                        .map(|s| s.id.clone())
-                        .ok_or_else(|| ferrix::error::FerrixError::SessionNotFound(target_str.clone()))?
-                };
-
-                client.attach_session(session_id).await?;
-            } else {
-                let sessions = client.list_sessions().await?;
-
-                if sessions.is_empty() {
-                    eprintln!("No sessions available");
-                } else {
-                    let first_session = &sessions[0];
-                    client.attach_session(first_session.id.clone()).await?;
-                }
-            }
+            ferrix::handlers::session::handle_attach(socket_path, target.clone()).await?;
         }
 
         Some(Commands::List) => {
-            let mut client = Client::new(socket_path)?;
-            client.connect().await?;
-
-            let sessions = client.list_sessions().await?;
-
-            if sessions.is_empty() {
-                println!("No active sessions");
-            } else {
-                println!("Active sessions:");
-                for session in sessions {
-                    println!("  {} ({}) - {} windows - created at {}",
-                        session.name,
-                        session.id.0,
-                        session.windows,
-                        session.created_at.format("%Y-%m-%d %H:%M:%S")
-                    );
-                }
-            }
+            ferrix::handlers::session::handle_list(socket_path).await?;
         }
 
         Some(Commands::Kill { target }) => {
-            let mut client = Client::new(socket_path)?;
-            client.connect().await?;
-
-            let sessions = client.list_sessions().await?;
-
-            let session_id = if let Ok(uuid) = uuid::Uuid::parse_str(target) {
-                ferrix::protocol::SessionId(uuid)
-            } else {
-                sessions
-                    .iter()
-                    .find(|s| s.name == *target)
-                    .map(|s| s.id.clone())
-                    .ok_or_else(|| ferrix::error::FerrixError::SessionNotFound(target.clone()))?
-            };
-
-            client.kill_session(session_id).await?;
-            println!("Session killed");
+            ferrix::handlers::session::handle_kill(socket_path, target.clone()).await?;
         }
 
         Some(Commands::Detach) => {
-            eprintln!("Detach must be used from within an attached session (Ctrl-b d)");
+            ferrix::handlers::session::handle_detach();
         }
 
         Some(Commands::SaveSnapshot { session, name, description }) => {
@@ -396,74 +328,15 @@ async fn async_main(cli: Cli) -> Result<()> {
         }
 
         Some(Commands::ReloadConfig) => {
-            println!("Note: Config hot reload is automatically handled when attached to a session.");
-            println!("Use Ctrl-b r to reload config while in a session, or restart the client.");
+            ferrix::handlers::config::handle_reload();
         }
 
         Some(Commands::GenerateConfig { force, output }) => {
-            use ferrix::config::Config;
-            use std::path::PathBuf;
-
-            let config_path = if let Some(path) = output {
-                PathBuf::from(path)
-            } else {
-                Config::get_config_path()?
-            };
-
-            if config_path.exists() && !force {
-                eprintln!("Configuration file already exists at {:?}", config_path);
-                eprintln!("Use --force to overwrite");
-                return Ok(());
-            }
-
-            // Create config directory if it doesn't exist
-            if let Some(parent) = config_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-
-            let default_config = Config::default();
-            default_config.save()?;
-            println!("Generated configuration file at {:?}", config_path);
-            println!("Edit this file to customize Ferrix behavior");
-            println!("Key bindings can be customized in the [keybindings] section");
+            ferrix::handlers::config::handle_generate(*force, output.clone())?;
         }
 
         Some(Commands::ValidateConfig { path }) => {
-            use ferrix::config::ferrixrc::FerrixRc;
-            use std::path::PathBuf;
-
-            let config_path = if let Some(p) = path {
-                PathBuf::from(p)
-            } else if let Ok(p) = std::env::var("FERRIXRC") {
-                PathBuf::from(p)
-            } else if let Some(home) = dirs::home_dir() {
-                home.join(".ferrixrc")
-            } else {
-                eprintln!("Could not determine config file location");
-                return Ok(());
-            };
-
-            if !config_path.exists() {
-                eprintln!("Configuration file not found at {:?}", config_path);
-                return Ok(());
-            }
-
-            println!("Validating configuration file: {:?}", config_path);
-
-            match FerrixRc::load() {
-                Ok(config) => {
-                    println!("✓ Configuration is valid");
-                    println!("  - {} keybindings defined", config.keybindings.len());
-                    println!("  - {} hooks registered", config.hooks.len());
-                    println!("  - {} aliases configured", config.aliases.len());
-                    println!("  - {} startup commands", config.startup_commands.len());
-                    println!("  - {} plugins configured", config.settings.plugins.len());
-                }
-                Err(e) => {
-                    eprintln!("✗ Configuration validation failed:");
-                    eprintln!("  {}", e);
-                }
-            }
+            ferrix::handlers::config::handle_validate(path.clone())?;
         }
 
         #[cfg(feature = "remote")]
