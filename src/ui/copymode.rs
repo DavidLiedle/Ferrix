@@ -222,6 +222,11 @@ impl CopyMode {
 
     pub fn update_search(&mut self, query: String) {
         self.search_query = query;
+        self.refresh_search_matches();
+    }
+
+    /// Refresh search matches based on current search_query (no clone needed)
+    fn refresh_search_matches(&mut self) {
         self.search_matches.clear();
 
         if self.search_query.is_empty() {
@@ -489,11 +494,11 @@ impl CopyMode {
                 match key.code {
                     KeyCode::Char(c) => {
                         self.search_query.push(c);
-                        self.update_search(self.search_query.clone());
+                        self.refresh_search_matches();
                     }
                     KeyCode::Backspace => {
                         self.search_query.pop();
-                        self.update_search(self.search_query.clone());
+                        self.refresh_search_matches();
                     }
                     KeyCode::Enter => {
                         self.jump_to_next_match();

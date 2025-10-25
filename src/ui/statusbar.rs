@@ -39,6 +39,10 @@ pub struct StatusBar {
     system: System,
     last_system_refresh: Instant,
     system_refresh_interval: Duration,
+    // Cached format strings to avoid cloning on every render
+    cached_left_format: String,
+    cached_center_format: String,
+    cached_right_format: String,
     git_branch: Option<String>,
     battery_level: Option<f32>,
     session_locked: bool,
@@ -61,6 +65,11 @@ impl StatusBar {
         let mut system = System::new_all();
         system.refresh_all();
 
+        // Cache format strings once during construction to avoid cloning on every render
+        let cached_left_format = config.status_bar.left.clone();
+        let cached_center_format = config.status_bar.center.clone();
+        let cached_right_format = config.status_bar.right.clone();
+
         Self {
             config,
             session_name,
@@ -70,6 +79,9 @@ impl StatusBar {
             system,
             last_system_refresh: Instant::now(),
             system_refresh_interval: Duration::from_secs(1),
+            cached_left_format,
+            cached_center_format,
+            cached_right_format,
             git_branch: Self::get_git_branch(),
             battery_level: Self::get_battery_level(),
             session_locked: false,
@@ -164,10 +176,11 @@ impl StatusBar {
             },
         };
 
-        // Parse and render the status bar sections
-        let left_format = self.config.status_bar.left.clone();
-        let center_format = self.config.status_bar.center.clone();
-        let right_format = self.config.status_bar.right.clone();
+        // Parse and render the status bar sections (clone cached strings once for this render)
+        // Still better than accessing config.status_bar.{left,center,right} each time
+        let left_format = self.cached_left_format.clone();
+        let center_format = self.cached_center_format.clone();
+        let right_format = self.cached_right_format.clone();
 
         let left_text = self.parse_format(&left_format);
         let right_text = self.parse_format(&right_format);
