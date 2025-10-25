@@ -324,8 +324,8 @@ impl RemoteServer {
         // Register the remote client in the clients map
         let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerMessage>(100);
         {
-            let mut clients_guard = clients.write().await;
-            clients_guard.insert(
+            // DashMap is lock-free, no need for .write()
+            clients.insert(
                 client_id,
                 super::ClientConnection {
                     id: client_id,
@@ -390,8 +390,8 @@ impl RemoteServer {
 
         // Clean up client connection
         {
-            let mut clients_guard = clients.write().await;
-            clients_guard.remove(&client_id);
+            // DashMap is lock-free, no need for .write()
+            clients.remove(&client_id);
         }
 
         // Remove session timeout tracking

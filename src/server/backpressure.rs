@@ -33,6 +33,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use sysinfo::System;
@@ -133,6 +134,9 @@ pub struct PressureMonitor {
     cached_status: Arc<RwLock<Option<(Instant, PressureStatus)>>>,
     cache_duration: Duration,
 
+    // Cached system info for memory checks
+    cached_system: Mutex<Option<(System, Instant)>>,
+
     // Emergency shutdown flag
     emergency_mode: AtomicBool,
 
@@ -149,10 +153,34 @@ impl PressureMonitor {
             metrics,
             cached_status: Arc::new(RwLock::new(None)),
             cache_duration: Duration::from_secs(1), // Check every 1 second
+            cached_system: Mutex::new(None),
             emergency_mode: AtomicBool::new(false),
             pty_failures_last_minute: Arc::new(RwLock::new(Vec::new())),
             last_pty_failure_count: AtomicU64::new(0),
         }
+    }
+
+    /// Get memory statistics, using cache if available and recent
+    fn get_memory_stats(&self) -> (u64, u64) {
+        let mut cache = self.cached_system.lock().unwrap();
+        let now = Instant::now();
+
+        // Check if we have a cached system and it's still fresh (< 2 seconds old)
+        if let Some((ref mut sys, ref mut last_refresh)) = *cache {
+            if now.duration_since(*last_refresh) < Duration::from_secs(2) {
+                // Cache is fresh, just refresh memory
+                sys.refresh_memory();
+                return (sys.total_memory(), sys.used_memory());
+            }
+        }
+
+        // Cache is stale or doesn't exist, create new
+        let mut sys = System::new_all();
+        sys.refresh_memory();
+        let total = sys.total_memory();
+        let used = sys.used_memory();
+        *cache = Some((sys, now));
+        (total, used)
     }
 
     /// Check current pressure status (with caching)
@@ -258,11 +286,7 @@ impl PressureMonitor {
     fn check_memory_pressure(&self) -> PressureLevel {
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
-            let mut sys = System::new_all();
-            sys.refresh_memory();
-
-            let total = sys.total_memory();
-            let used = sys.used_memory();
+            let (total, used) = self.get_memory_stats();
 
             if total > 0 {
                 let usage_ratio = used as f32 / total as f32;

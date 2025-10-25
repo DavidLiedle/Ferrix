@@ -23,6 +23,8 @@ pub struct Window {
     pub activity_monitor: ActivityMonitor,
     /// Ordered list of pane IDs for indexing (index 0 = first pane, etc.)
     pub pane_order: Vec<PaneId>,
+    /// Resource limits for pane creation
+    pub limits: std::sync::Arc<crate::config::limits::ResourceLimits>,
 }
 
 impl Window {
@@ -35,7 +37,8 @@ impl Window {
         } else {
             // Create a new pane if no panes exist
             let pane_id = PaneId(Uuid::new_v4());
-            let pane = Pane::new(pane_id.clone());
+            let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+            let pane = Pane::new_with_limits(pane_id.clone(), &self.limits, working_dir);
             self.panes.insert(pane_id.clone(), Arc::new(RwLock::new(pane)));
             pane_id
         };
@@ -70,7 +73,8 @@ impl Window {
             Layout::Leaf(pane_id) => {
                 // If this pane doesn't exist, create it
                 if !self.panes.contains_key(pane_id) {
-                    let pane = Pane::new(pane_id.clone());
+                    let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+                    let pane = Pane::new_with_limits(pane_id.clone(), &self.limits, working_dir);
                     self.panes.insert(pane_id.clone(), Arc::new(RwLock::new(pane)));
                     self.activity_monitor.enable_monitoring(pane_id);
                 }
@@ -83,12 +87,18 @@ impl Window {
     }
 
     pub fn new(id: WindowId, name: String) -> Self {
-        Self::new_with_working_dir(id, name, std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")))
+        let limits = std::sync::Arc::new(crate::config::limits::ResourceLimits::default());
+        Self::new_with_limits(id, name, std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")), limits)
     }
 
     pub fn new_with_working_dir(id: WindowId, name: String, working_dir: std::path::PathBuf) -> Self {
+        let limits = std::sync::Arc::new(crate::config::limits::ResourceLimits::default());
+        Self::new_with_limits(id, name, working_dir, limits)
+    }
+
+    pub fn new_with_limits(id: WindowId, name: String, working_dir: std::path::PathBuf, limits: std::sync::Arc<crate::config::limits::ResourceLimits>) -> Self {
         let pane_id = PaneId(Uuid::new_v4());
-        let default_pane = Pane::new_with_working_dir(pane_id.clone(), 10000, working_dir);
+        let default_pane = Pane::new_with_limits(pane_id.clone(), &limits, working_dir);
 
         let mut panes = HashMap::new();
         panes.insert(pane_id.clone(), Arc::new(RwLock::new(default_pane)));
@@ -108,12 +118,14 @@ impl Window {
             zoomed_pane: None,
             activity_monitor,
             pane_order: vec![pane_id],
+            limits,
         }
     }
 
     pub async fn split_pane(&mut self, pane_id: &PaneId, direction: SplitDirection) -> Result<PaneId> {
         let new_pane_id = PaneId(Uuid::new_v4());
-        let new_pane = Pane::new(new_pane_id.clone());
+        let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+        let new_pane = Pane::new_with_limits(new_pane_id.clone(), &self.limits, working_dir);
 
         self.panes.insert(new_pane_id.clone(), Arc::new(RwLock::new(new_pane)));
 

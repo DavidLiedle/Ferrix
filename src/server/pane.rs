@@ -29,14 +29,20 @@ pub struct Pane {
 impl Pane {
     pub fn new(id: PaneId) -> Self {
         // Default constructor for backward compatibility
-        Self::new_with_config(id, 10000) // Default 10k lines
+        use crate::config::limits::ResourceLimits;
+        let limits = ResourceLimits::default();
+        Self::new_with_limits(id, &limits, std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")))
     }
 
     pub fn new_with_config(id: PaneId, scrollback_lines: usize) -> Self {
-        Self::new_with_working_dir(id, scrollback_lines, std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")))
+        Self::new_with_working_dir(id, scrollback_lines, 50000, std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")))
     }
 
-    pub fn new_with_working_dir(id: PaneId, scrollback_lines: usize, working_dir: PathBuf) -> Self {
+    pub fn new_with_limits(id: PaneId, limits: &crate::config::limits::ResourceLimits, working_dir: PathBuf) -> Self {
+        Self::new_with_working_dir(id, limits.max_scrollback_lines, limits.max_raw_buffer_bytes, working_dir)
+    }
+
+    pub fn new_with_working_dir(id: PaneId, scrollback_lines: usize, max_raw_buffer_bytes: usize, working_dir: PathBuf) -> Self {
         let mut pane = Self {
             id,
             pty: None,
@@ -50,7 +56,7 @@ impl Pane {
             exit_status: None,
             is_dead: false,
             raw_output_buffer: Vec::new(),
-            max_raw_buffer_size: 50000, // Store last 50KB of raw PTY output
+            max_raw_buffer_size: max_raw_buffer_bytes,
             scroll_position: 0, // Start at current output (not scrolled)
         };
 

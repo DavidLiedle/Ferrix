@@ -46,6 +46,9 @@ pub struct Session {
 
     #[cfg(feature = "versioning")]
     pub versioning: Option<Box<super::versioning::SessionVersioning>>,
+
+    /// Resource limits for window/pane creation
+    pub limits: Arc<crate::config::limits::ResourceLimits>,
 }
 
 #[derive(Debug, Clone)]
@@ -60,10 +63,16 @@ pub struct RecordingStatus {
 // Move these methods to proper location
 impl Session {
     pub fn new(id: SessionId, name: String) -> Self {
-        Self::new_with_working_dir(id, name, std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")))
+        let limits = Arc::new(crate::config::limits::ResourceLimits::default());
+        Self::new_with_limits(id, name, std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")), limits)
     }
 
     pub fn new_with_working_dir(id: SessionId, name: String, working_dir: PathBuf) -> Self {
+        let limits = Arc::new(crate::config::limits::ResourceLimits::default());
+        Self::new_with_limits(id, name, working_dir, limits)
+    }
+
+    pub fn new_with_limits(id: SessionId, name: String, working_dir: PathBuf, limits: Arc<crate::config::limits::ResourceLimits>) -> Self {
         let window_id = WindowId(Uuid::new_v4());
 
         // Get shell name from $SHELL environment variable (e.g., "/bin/zsh" -> "zsh")
@@ -72,7 +81,7 @@ impl Session {
             .and_then(|s| std::path::Path::new(&s).file_name().map(|f| f.to_string_lossy().to_string()))
             .unwrap_or_else(|| "bash".to_string());
 
-        let default_window = Window::new_with_working_dir(window_id.clone(), shell_name, working_dir.clone());
+        let default_window = Window::new_with_limits(window_id.clone(), shell_name, working_dir.clone(), limits.clone());
 
         Self {
             id,
@@ -97,6 +106,8 @@ impl Session {
 
             #[cfg(feature = "versioning")]
             versioning: None,
+
+            limits,
         }
     }
 
@@ -211,7 +222,7 @@ impl Session {
     pub async fn create_window(&mut self, name: Option<String>) -> Result<WindowId> {
         let window_id = WindowId(Uuid::new_v4());
         let window_name = name.unwrap_or_else(|| format!("window-{}", self.windows.len()));
-        let new_window = Window::new(window_id.clone(), window_name);
+        let new_window = Window::new_with_limits(window_id.clone(), window_name, self.working_directory.clone(), self.limits.clone());
 
         self.windows.push(Arc::new(RwLock::new(new_window)));
         self.current_window = Some(window_id.clone());
@@ -868,19 +879,20 @@ impl Session {
     }
 
     pub fn from_snapshot(snapshot: SessionSnapshot) -> Self {
+        let limits = Arc::new(crate::config::limits::ResourceLimits::default());
         let mut windows = Vec::new();
         let mut current_window = snapshot.session.current_window.clone();
 
         if snapshot.windows.is_empty() {
             // Fallback: create a default window if no windows in snapshot
             let window_id = WindowId(Uuid::new_v4());
-            let default_window = Window::new(window_id.clone(), "bash".to_string());
+            let default_window = Window::new_with_limits(window_id.clone(), "bash".to_string(), snapshot.session.working_directory.clone(), limits.clone());
             windows.push(Arc::new(RwLock::new(default_window)));
             current_window = Some(window_id);
         } else {
             // Restore windows from snapshot
             for window_state in &snapshot.windows {
-                let mut window = Window::new(window_state.id.clone(), window_state.name.clone());
+                let mut window = Window::new_with_limits(window_state.id.clone(), window_state.name.clone(), snapshot.session.working_directory.clone(), limits.clone());
 
                 // Restore window properties
                 window.layout = window_state.layout.clone();
@@ -943,6 +955,8 @@ impl Session {
 
             #[cfg(feature = "versioning")]
             versioning: None,
+
+            limits,
         }
     }
 
@@ -1225,13 +1239,13 @@ impl Session {
         if snapshot.windows.is_empty() {
             // Fallback: create a default window if no windows in snapshot
             let window_id = WindowId(Uuid::new_v4());
-            let default_window = Window::new(window_id.clone(), "bash".to_string());
+            let default_window = Window::new_with_limits(window_id.clone(), "bash".to_string(), self.working_directory.clone(), self.limits.clone());
             self.windows.push(Arc::new(RwLock::new(default_window)));
             self.current_window = Some(window_id);
         } else {
             // Restore windows
             for window_state in &snapshot.windows {
-                let mut window = Window::new(window_state.id.clone(), window_state.name.clone());
+                let mut window = Window::new_with_limits(window_state.id.clone(), window_state.name.clone(), self.working_directory.clone(), self.limits.clone());
 
                 // Restore window properties
                 window.layout = window_state.layout.clone();

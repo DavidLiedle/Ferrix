@@ -25,7 +25,7 @@
 //! ```
 
 use std::time::{Duration, Instant};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
 /// Health check result
@@ -104,6 +104,8 @@ impl ComponentCheck for PtyCheck {
 pub struct MemoryCheck {
     warning_threshold_percent: f32, // e.g., 0.8 = 80%
     critical_threshold_percent: f32, // e.g., 0.95 = 95%
+    cached_system: Mutex<Option<(sysinfo::System, Instant)>>,
+    cache_duration: Duration,
 }
 
 impl MemoryCheck {
@@ -111,7 +113,32 @@ impl MemoryCheck {
         Self {
             warning_threshold_percent: warning,
             critical_threshold_percent: critical,
+            cached_system: Mutex::new(None),
+            cache_duration: Duration::from_secs(2), // Cache for 2 seconds
         }
+    }
+
+    /// Get memory statistics, using cache if available and recent
+    fn get_memory_stats(&self) -> (u64, u64) {
+        let mut cache = self.cached_system.lock().unwrap();
+        let now = Instant::now();
+
+        // Check if we have a cached system and it's still fresh
+        if let Some((ref mut sys, ref mut last_refresh)) = *cache {
+            if now.duration_since(*last_refresh) < self.cache_duration {
+                // Cache is fresh, just refresh memory
+                sys.refresh_memory();
+                return (sys.total_memory(), sys.used_memory());
+            }
+        }
+
+        // Cache is stale or doesn't exist, create new
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_memory();
+        let total = sys.total_memory();
+        let used = sys.used_memory();
+        *cache = Some((sys, now));
+        (total, used)
     }
 }
 
@@ -121,12 +148,7 @@ impl ComponentCheck for MemoryCheck {
         // Get system memory info
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
-            use sysinfo::System;
-            let mut sys = System::new_all();
-            sys.refresh_memory();
-
-            let total = sys.total_memory();
-            let used = sys.used_memory();
+            let (total, used) = self.get_memory_stats();
 
             if total > 0 {
                 let usage_ratio = used as f32 / total as f32;

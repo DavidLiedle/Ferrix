@@ -196,23 +196,21 @@ impl MemoryMonitor {
         use std::process::Command;
 
         let output = Command::new("ps")
-            .args(&["-o", "rss,vsz", "-p", &std::process::id().to_string()])
+            .args(["-o", "rss,vsz", "-p", &std::process::id().to_string()])
             .output()?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let lines: Vec<&str> = stdout.lines().collect();
 
         if lines.len() < 2 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(std::io::Error::other(
                 "Failed to parse ps output",
             ));
         }
 
         let values: Vec<&str> = lines[1].split_whitespace().collect();
         if values.len() < 2 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(std::io::Error::other(
                 "Invalid ps output format",
             ));
         }

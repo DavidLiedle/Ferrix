@@ -37,6 +37,8 @@ pub struct StatusBar {
     windows: Vec<WindowInfo>,
     current_window: Option<WindowId>,
     system: System,
+    last_system_refresh: Instant,
+    system_refresh_interval: Duration,
     git_branch: Option<String>,
     battery_level: Option<f32>,
     session_locked: bool,
@@ -66,6 +68,8 @@ impl StatusBar {
             windows: Vec::new(),
             current_window: None,
             system,
+            last_system_refresh: Instant::now(),
+            system_refresh_interval: Duration::from_secs(1),
             git_branch: Self::get_git_branch(),
             battery_level: Self::get_battery_level(),
             session_locked: false,
@@ -79,6 +83,16 @@ impl StatusBar {
     pub fn update_windows(&mut self, windows: Vec<WindowInfo>, current: Option<WindowId>) {
         self.windows = windows;
         self.current_window = current;
+    }
+
+    /// Refresh system information only if the refresh interval has elapsed
+    /// This prevents expensive syscalls on every format operation
+    fn refresh_system_if_needed(&mut self) {
+        let now = Instant::now();
+        if now.duration_since(self.last_system_refresh) >= self.system_refresh_interval {
+            self.system.refresh_all();
+            self.last_system_refresh = now;
+        }
     }
 
     /// Display a message in the status bar
@@ -361,7 +375,7 @@ impl StatusBar {
     }
 
     fn format_cpu(&mut self) -> String {
-        self.system.refresh_all();
+        self.refresh_system_if_needed();
         let usage = self.system.global_cpu_usage();
 
         // Add visual indicator based on usage
@@ -377,7 +391,7 @@ impl StatusBar {
     }
 
     fn format_memory(&mut self) -> String {
-        self.system.refresh_all();
+        self.refresh_system_if_needed();
         let used = self.system.used_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
         let total = self.system.total_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
         let percent = (used / total * 100.0) as u32;
@@ -616,7 +630,7 @@ impl StatusBar {
     /// String-dispatched method (not detected by dead code analysis)
     #[allow(dead_code)]
     fn format_process_count(&mut self) -> String {
-        self.system.refresh_all();
+        self.refresh_system_if_needed();
         let count = self.system.processes().len();
         format!("📊{}", count)
     }
@@ -630,6 +644,7 @@ impl StatusBar {
     pub fn refresh(&mut self) {
         // Refresh dynamic values
         self.system.refresh_all();
+        self.last_system_refresh = Instant::now();
         self.git_branch = Self::get_git_branch();
         self.battery_level = Self::get_battery_level();
     }

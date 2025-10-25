@@ -2123,32 +2123,90 @@ async fn async_main(cli: Cli) -> Result<()> {
                     .ok_or_else(|| ferrix::error::FerrixError::SessionNotFound(session.clone()))?
             };
 
-            // For now, print basic session information
-            // TODO: Add detailed inspection of session state (windows, panes, processes)
+            // Get detailed session inspection
+            let inspection = client.inspect_session(session_id).await?;
             let format_type = format.as_deref().unwrap_or("text");
-
-            let session_info = sessions.iter()
-                .find(|s| s.id == session_id)
-                .ok_or_else(|| ferrix::error::FerrixError::SessionNotFound(session.clone()))?;
 
             match format_type {
                 "json" => {
-                    println!("{{\"session_id\":\"{}\",\"name\":\"{}\",\"windows\":{},\"created_at\":\"{}\"}}",
-                        session_info.id.0,
-                        session_info.name,
-                        session_info.windows,
-                        session_info.created_at.format("%Y-%m-%d %H:%M:%S")
-                    );
+                    // Output as JSON
+                    let json = serde_json::to_string_pretty(&inspection)
+                        .map_err(|e| FerrixError::Other(format!("JSON serialization error: {}", e)))?;
+                    println!("{}", json);
                 }
                 _ => {
-                    println!("Session Inspection: {}", session_info.name);
-                    println!("{}", "=".repeat(50));
-                    println!("ID: {}", session_info.id.0);
-                    println!("Windows: {}", session_info.windows);
-                    println!("Created: {}", session_info.created_at.format("%Y-%m-%d %H:%M:%S"));
+                    // Human-readable text format
+                    println!("Session Inspection: {}", inspection.name);
+                    println!("{}", "=".repeat(70));
+                    println!("ID:                  {}", inspection.id.0);
+                    println!("Created:             {}", inspection.created_at.format("%Y-%m-%d %H:%M:%S"));
+                    println!("Working Directory:   {}", inspection.working_directory);
+                    println!("Attached Clients:    {}", inspection.attached_clients);
+                    println!("Windows:             {}", inspection.windows.len());
+                    println!("Locked:              {}", if inspection.locked { "Yes" } else { "No" });
+                    println!("Pane Sync:           {}", if inspection.pane_sync_enabled { "Enabled" } else { "Disabled" });
+                    println!("Recording:           {}", if inspection.is_recording { "Active" } else { "Inactive" });
+
+                    if inspection.auto_save_enabled {
+                        println!("Auto-save:           Enabled (every {} seconds)", inspection.auto_save_interval_secs);
+                        if let Some(last_save) = inspection.last_auto_save {
+                            println!("Last Auto-save:      {}", last_save.format("%Y-%m-%d %H:%M:%S"));
+                        }
+                    } else {
+                        println!("Auto-save:           Disabled");
+                    }
 
                     if *verbose {
-                        println!("\nNote: Detailed inspection (process tree, memory usage) requires server-side implementation");
+                        println!("\n{}", "Windows & Panes".to_string());
+                        println!("{}", "-".repeat(70));
+
+                        for (win_idx, window) in inspection.windows.iter().enumerate() {
+                            let is_current = Some(window.id.clone()) == inspection.current_window_id;
+                            let marker = if is_current { "*" } else { " " };
+
+                            println!("\n{}Window {}: {} ({}x{})",
+                                marker,
+                                win_idx,
+                                window.name,
+                                window.width,
+                                window.height
+                            );
+                            println!("  ID: {}", window.id.0);
+
+                            if window.zoomed_pane.is_some() {
+                                println!("  Status: ZOOMED");
+                            }
+
+                            println!("  Panes: {}", window.panes.len());
+
+                            for (pane_idx, pane) in window.panes.iter().enumerate() {
+                                let is_current_pane = Some(pane.id.clone()) == window.current_pane;
+                                let pane_marker = if is_current_pane { "►" } else { " " };
+
+                                println!("\n  {}Pane {}:", pane_marker, pane_idx);
+                                println!("    ID:        {}", pane.id.0);
+                                println!("    Command:   {}", pane.command);
+                                println!("    Size:      {}x{}", pane.cols, pane.rows);
+                                println!("    CWD:       {}", pane.working_directory);
+                                println!("    Cursor:    ({}, {})", pane.cursor_position.0, pane.cursor_position.1);
+
+                                if pane.is_dead {
+                                    if let Some(status) = pane.exit_status {
+                                        println!("    Status:    DEAD (exit code: {})", status);
+                                    } else {
+                                        println!("    Status:    DEAD");
+                                    }
+                                    println!("    Remain:    {}", if pane.remain_on_exit { "Yes" } else { "No" });
+                                } else {
+                                    println!("    Status:    Running");
+                                }
+
+                                println!("    Scrollback: {} lines", pane.scrollback_lines);
+                                println!("    Buffer:    {} bytes", pane.raw_buffer_size);
+                            }
+                        }
+                    } else {
+                        println!("\nTip: Use --verbose for detailed window and pane information");
                     }
                 }
             }
@@ -2170,31 +2228,36 @@ async fn async_main(cli: Cli) -> Result<()> {
                     .ok_or_else(|| ferrix::error::FerrixError::SessionNotFound(session.clone()))?
             };
 
-            let session_info = sessions.iter()
-                .find(|s| s.id == session_id)
-                .ok_or_else(|| ferrix::error::FerrixError::SessionNotFound(session.clone()))?;
+            // Get comprehensive state dump
+            let dump = client.dump_state(session_id, *include_buffers).await?;
 
-            // Generate state dump (basic version for now)
-            // TODO: Add comprehensive state dump including window/pane tree, processes, buffers
-            let state_dump = format!(
-                "{{\n  \"session_id\": \"{}\",\n  \"name\": \"{}\",\n  \"windows\": {},\n  \"created_at\": \"{}\",\n  \"include_buffers\": {},\n  \"dump_timestamp\": \"{}\"\n}}",
-                session_info.id.0,
-                session_info.name,
-                session_info.windows,
-                session_info.created_at.format("%Y-%m-%d %H:%M:%S"),
-                include_buffers,
-                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S")
-            );
+            // Serialize to JSON
+            let state_dump = serde_json::to_string_pretty(&dump)
+                .map_err(|e| FerrixError::Other(format!("JSON serialization error: {}", e)))?;
 
             if let Some(output_path) = output {
                 std::fs::write(output_path, &state_dump)?;
                 println!("✓ Session state dumped to: {}", output_path);
+                println!("  Session:     {}", dump.session_info.name);
+                println!("  Windows:     {}", dump.session_info.windows.len());
+
+                let total_panes: usize = dump.session_info.windows.iter()
+                    .map(|w| w.panes.len())
+                    .sum();
+                println!("  Panes:       {}", total_panes);
+
+                if let Some(ref buffers) = dump.buffer_data {
+                    let total_buffer_size: usize = buffers.iter()
+                        .map(|b| b.raw_buffer.len() + b.scrollback_content.iter().map(|s| s.len()).sum::<usize>())
+                        .sum();
+                    println!("  Buffer data: {} bytes", total_buffer_size);
+                } else {
+                    println!("  Buffer data: Not included");
+                }
+
+                println!("  Timestamp:   {}", dump.dump_timestamp.format("%Y-%m-%d %H:%M:%S"));
             } else {
                 println!("{}", state_dump);
-            }
-
-            if *include_buffers {
-                println!("\nNote: Buffer contents export requires server-side implementation");
             }
         }
 

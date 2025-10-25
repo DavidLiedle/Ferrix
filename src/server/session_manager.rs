@@ -70,7 +70,7 @@ impl SessionManager {
 
         // Add client to session mapping
         self.session_clients.entry(session_id.clone())
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(client_id);
 
         // Update client's attached session

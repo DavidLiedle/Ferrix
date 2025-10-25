@@ -318,6 +318,28 @@ impl Client {
         Err(FerrixError::Protocol("Failed to kill session".to_string()))
     }
 
+    pub async fn inspect_session(&mut self, session_id: SessionId) -> Result<crate::protocol::DetailedSessionInfo> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::InspectSession { session_id }).await?;
+
+            if let Some(Ok(ServerMessage::SessionInspection { inspection })) = framed.next().await {
+                return Ok(inspection);
+            }
+        }
+        Err(FerrixError::Protocol("Failed to inspect session".to_string()))
+    }
+
+    pub async fn dump_state(&mut self, session_id: SessionId, include_buffers: bool) -> Result<crate::protocol::SessionStateDump> {
+        if let Some(framed) = &mut self.framed {
+            framed.send(ClientMessage::DumpState { session_id, include_buffers }).await?;
+
+            if let Some(Ok(ServerMessage::StateDump { dump })) = framed.next().await {
+                return Ok(dump);
+            }
+        }
+        Err(FerrixError::Protocol("Failed to dump state".to_string()))
+    }
+
     /// Send a generic protocol message to the server
     pub async fn send(&mut self, message: ClientMessage) -> Result<()> {
         if let Some(ref mut framed) = self.framed {

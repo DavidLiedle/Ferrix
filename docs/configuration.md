@@ -469,6 +469,288 @@ source-file -q ~/.ferrix/keybindings.toml
 source-file -q ~/.ferrixrc.local
 ```
 
+## Resource Limits Configuration
+
+### Overview
+
+Resource limits prevent memory exhaustion and ensure fair allocation across sessions, windows, and panes. These limits are configurable via TOML configuration and take effect when the server starts.
+
+**Configuration File**: `~/.config/ferrix/config.toml`
+
+### Available Limits
+
+```toml
+[limits]
+# ========================================
+# Scrollback and Buffer Sizes
+# ========================================
+
+# Maximum scrollback lines per pane
+# Default: 10,000
+# Memory Impact: ~100 bytes per line
+max_scrollback_lines = 10000
+
+# Maximum raw output buffer size per pane (bytes)
+# Default: 50,000 (50KB)
+# Purpose: Stores recent output for session persistence
+max_raw_buffer_bytes = 50000
+
+# ========================================
+# Pane and Window Limits
+# ========================================
+
+# Maximum panes per window
+# Default: 50
+# Prevents overly complex layouts
+max_panes_per_window = 50
+
+# Maximum windows per session
+# Default: 100
+# Controls session complexity
+max_windows_per_session = 100
+
+# ========================================
+# Server-Wide Limits
+# ========================================
+
+# Maximum concurrent sessions across all clients
+# Default: 1,000
+# Total sessions the server will manage
+max_concurrent_sessions = 1000
+
+# Maximum concurrent client connections
+# Default: 2,000
+# Multiple clients can attach to same session
+max_clients = 2000
+
+# ========================================
+# Memory Management
+# ========================================
+
+# Maximum server memory usage in MB (optional)
+# Default: null (unlimited)
+# When set, enables memory pressure monitoring
+max_memory_mb = null
+
+# Memory pressure threshold (0.0 to 1.0)
+# Default: 0.85 (85%)
+# Triggers graceful degradation when exceeded
+memory_pressure_threshold = 0.85
+
+# ========================================
+# Rate Limiting
+# ========================================
+
+# Maximum session creations per minute per client
+# Default: 10
+# Prevents rapid session creation spam
+max_sessions_per_minute = 10
+```
+
+### Use Case Configurations
+
+#### Minimal/Resource-Constrained (Raspberry Pi, embedded)
+```toml
+[limits]
+max_scrollback_lines = 1000          # Reduced scrollback
+max_raw_buffer_bytes = 10000         # 10KB buffer
+max_panes_per_window = 10            # Simpler layouts
+max_windows_per_session = 20         # Fewer windows
+max_concurrent_sessions = 50         # Limited sessions
+max_clients = 100
+max_memory_mb = 512                  # Hard memory cap
+memory_pressure_threshold = 0.75     # More aggressive
+```
+
+**Memory Estimate**: ~25MB for 50 sessions with 5 windows each
+
+#### Standard Development Workstation
+```toml
+[limits]
+max_scrollback_lines = 10000         # Default
+max_raw_buffer_bytes = 50000         # Default 50KB
+max_panes_per_window = 50            # Complex layouts OK
+max_windows_per_session = 100        # Many projects
+max_concurrent_sessions = 100        # Personal use
+max_clients = 200
+memory_pressure_threshold = 0.85     # Standard
+```
+
+**Memory Estimate**: ~500MB for 100 sessions with typical usage
+
+#### Log Analysis / Heavy Scrollback
+```toml
+[limits]
+max_scrollback_lines = 100000        # 10x default for logs
+max_raw_buffer_bytes = 200000        # 200KB buffer
+max_panes_per_window = 20            # Focus on scrollback
+max_windows_per_session = 50
+max_concurrent_sessions = 50
+max_clients = 100
+memory_pressure_threshold = 0.80
+```
+
+**Memory Estimate**: ~10MB per pane with full scrollback
+
+#### Multi-User Production Server
+```toml
+[limits]
+max_scrollback_lines = 5000          # Reduced per-user
+max_raw_buffer_bytes = 25000         # 25KB buffer
+max_panes_per_window = 30            # Moderate complexity
+max_windows_per_session = 50
+max_concurrent_sessions = 500        # Many users
+max_clients = 1000                   # High concurrency
+max_memory_mb = 4096                 # 4GB cap
+memory_pressure_threshold = 0.90     # Utilize more before degrading
+max_sessions_per_minute = 5          # Stricter rate limit
+```
+
+**Memory Estimate**: ~2-4GB for 500 sessions
+
+### Memory Estimation
+
+Calculate approximate memory usage:
+
+```
+Per-Pane Memory:
+  - Scrollback: max_scrollback_lines × 100 bytes
+  - Raw Buffer: max_raw_buffer_bytes
+  - Overhead: ~10KB
+
+Per-Window Memory:
+  - Panes: max_panes_per_window × (Pane Memory)
+  - Overhead: ~5KB
+
+Per-Session Memory:
+  - Windows: max_windows_per_session × (Window Memory)
+  - Overhead: ~10KB
+
+Total Server Memory:
+  - Sessions: max_concurrent_sessions × (Session Memory)
+```
+
+**Example**: Default limits
+- Pane: (10,000 × 100) + 50,000 + 10,000 = 1.06MB
+- Window (50 panes): 50 × 1.06MB = 53MB
+- Session (100 windows): 100 × 53MB = 5.3GB
+- Server (1,000 sessions): 1,000 × 5.3GB = **5.3TB max** (theoretical)
+
+**Reality**: Typical usage is far lower (most panes have <1000 scrollback lines)
+
+### Configuration Tips
+
+#### 1. Start Conservative
+Begin with reduced limits and increase based on actual usage:
+```toml
+[limits]
+max_scrollback_lines = 5000      # Half default
+max_concurrent_sessions = 50     # Small scale
+```
+
+#### 2. Monitor and Adjust
+Use operational commands to monitor:
+```bash
+ferrix metrics                    # Check memory usage
+ferrix health                     # System health status
+ferrix inspect <session>          # Per-session stats
+```
+
+#### 3. Set Memory Caps
+On shared/production systems, always set `max_memory_mb`:
+```toml
+[limits]
+max_memory_mb = 2048             # 2GB hard limit
+memory_pressure_threshold = 0.85
+```
+
+#### 4. Balance Scrollback vs Sessions
+High scrollback = fewer sessions possible:
+```toml
+# Option A: Many sessions, less scrollback
+max_scrollback_lines = 2000
+max_concurrent_sessions = 1000
+
+# Option B: Few sessions, more scrollback
+max_scrollback_lines = 50000
+max_concurrent_sessions = 100
+```
+
+#### 5. Tune for Workload
+- **Interactive Development**: More windows/panes, moderate scrollback
+- **Log Monitoring**: Huge scrollback, fewer panes
+- **CI/CD Systems**: Many sessions, minimal scrollback
+- **Shared Servers**: Strict limits, memory caps
+
+### Limit Validation
+
+Ferrix validates limits on startup:
+
+```bash
+# These will error:
+max_scrollback_lines = 0          # Must be > 0
+max_raw_buffer_bytes = 512        # Must be >= 1024
+memory_pressure_threshold = 1.5   # Must be 0.0-1.0
+```
+
+Warnings for extreme values:
+- `max_windows_per_session > 500` → performance warning
+- `max_panes_per_window > 100` → performance warning
+
+### Runtime Behavior
+
+When limits are reached:
+
+**Pane Limit**: `split-pane` returns error
+```
+Error: Cannot create pane: window at limit (50/50 panes)
+```
+
+**Window Limit**: `new-window` returns error
+```
+Error: Cannot create window: session at limit (100/100 windows)
+```
+
+**Session Limit**: `new-session` rejected
+```
+Error: Server at capacity (1000/1000 sessions)
+```
+
+**Memory Pressure**: Graceful degradation
+- Stop accepting new sessions
+- Disable auto-save temporarily
+- Trigger cleanup of dead panes
+
+### Best Practices
+
+1. **Profile First**: Run with default limits, measure actual usage
+2. **Set Memory Caps**: Always use `max_memory_mb` in production
+3. **Document Changes**: Comment why you changed limits
+4. **Version Control**: Track config changes
+5. **Test Limits**: Create sessions near limits to verify behavior
+6. **Monitor**: Use metrics to validate limits are appropriate
+
+### Troubleshooting
+
+#### "Cannot create pane" errors
+Increase `max_panes_per_window` or reduce layout complexity
+
+#### "Server at capacity" errors
+- Check `ferrix list` for dead sessions
+- Increase `max_concurrent_sessions`
+- Enable session cleanup with `auto-detach-on-exit`
+
+#### High memory usage
+- Reduce `max_scrollback_lines`
+- Reduce `max_raw_buffer_bytes`
+- Set `max_memory_mb` to enforce caps
+- Enable memory pressure monitoring
+
+#### Performance degradation
+- Reduce `max_panes_per_window` (complex layouts are expensive)
+- Reduce `max_windows_per_session`
+- Check metrics: `ferrix metrics`
+
 ## Validation and Testing
 
 ```bash

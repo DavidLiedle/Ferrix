@@ -65,7 +65,7 @@ use futures::{StreamExt, SinkExt};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::error::Result;
+use crate::error::{Result, FerrixError};
 use crate::protocol::{ClientMessage, FerrixCodec, ServerMessage, SessionId, ClientId, SessionInfo, SnapshotInfo};
 use session::Session;
 use snapshot::SnapshotManager;
@@ -308,13 +308,9 @@ pub async fn handle_message(
             });
 
             tracing::info!("Creating session with working_dir: {:?}", working_dir);
-            let session = if let Some(cwd) = working_dir {
-                tracing::info!("Using client working directory: {:?}", cwd);
-                Session::new_with_working_dir(session_id.clone(), session_name.clone(), cwd)
-            } else {
-                tracing::info!("No working_dir provided, using server's current dir");
-                Session::new(session_id.clone(), session_name.clone())
-            };
+            let cwd = working_dir.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")));
+            tracing::info!("Using working directory: {:?}", cwd);
+            let session = Session::new_with_limits(session_id.clone(), session_name.clone(), cwd, infrastructure.limits.clone());
             let session_arc = Arc::new(RwLock::new(session));
 
             // Track metrics: session map write (per-shard lock)
@@ -2356,6 +2352,167 @@ pub async fn handle_message(
                 }
             }
             Ok(None)
+        }
+
+        ClientMessage::InspectSession { session_id } => {
+            use crate::protocol::{DetailedSessionInfo, DetailedWindowInfo, DetailedPaneInfo};
+
+            // Find the session in DashMap
+            let session_arc = sessions.get(&session_id).ok_or_else(|| {
+                FerrixError::SessionNotFound(session_id.0.to_string())
+            })?;
+
+            let session_guard = session_arc.read().await;
+
+            // Get attached clients count
+            let attached_clients = clients.iter()
+                .filter(|client| client.value().attached_session == Some(session_id.clone()))
+                .count();
+
+            // Collect window information
+            let mut windows_info = Vec::new();
+            for window in &session_guard.windows {
+                let window_guard = window.read().await;
+
+                // Collect pane information for this window
+                let mut panes_info = Vec::new();
+                for (pane_id, pane) in &window_guard.panes {
+                    let pane_guard = pane.read().await;
+                    panes_info.push(DetailedPaneInfo {
+                        id: pane_id.clone(),
+                        command: pane_guard.command.clone(),
+                        working_directory: pane_guard.working_directory.to_string_lossy().to_string(),
+                        cols: pane_guard.cols,
+                        rows: pane_guard.rows,
+                        cursor_position: pane_guard.cursor_position,
+                        is_dead: pane_guard.is_dead,
+                        exit_status: pane_guard.exit_status,
+                        remain_on_exit: pane_guard.remain_on_exit,
+                        scrollback_lines: pane_guard.scrollback.len(),
+                        raw_buffer_size: pane_guard.raw_output_buffer.len(),
+                    });
+                }
+
+                windows_info.push(DetailedWindowInfo {
+                    id: window_guard.id.clone(),
+                    name: window_guard.name.clone(),
+                    width: window_guard.width,
+                    height: window_guard.height,
+                    zoomed_pane: window_guard.zoomed_pane.clone(),
+                    current_pane: window_guard.current_pane.clone(),
+                    last_pane: window_guard.last_pane.clone(),
+                    panes: panes_info,
+                });
+            }
+
+            let inspection = DetailedSessionInfo {
+                id: session_guard.id.clone(),
+                name: session_guard.name.clone(),
+                created_at: session_guard.created_at,
+                attached_clients,
+                working_directory: session_guard.working_directory.to_string_lossy().to_string(),
+                locked: session_guard.locked,
+                pane_sync_enabled: session_guard.pane_sync_enabled,
+                auto_save_enabled: session_guard.auto_save_enabled,
+                auto_save_interval_secs: session_guard.auto_save_interval.as_secs(),
+                last_auto_save: session_guard.last_auto_save,
+                is_recording: session_guard.recorder.is_some(),
+                windows: windows_info,
+                current_window_id: session_guard.current_window.clone(),
+            };
+
+            Ok(Some(ServerMessage::SessionInspection { inspection }))
+        }
+
+        ClientMessage::DumpState { session_id, include_buffers } => {
+            use crate::protocol::{SessionStateDump, PaneBufferDump};
+
+            // Find the session in DashMap
+            let session_arc = sessions.get(&session_id).ok_or_else(|| {
+                FerrixError::SessionNotFound(session_id.0.to_string())
+            })?;
+
+            let session_guard = session_arc.read().await;
+
+            // Get attached clients count
+            let attached_clients = clients.iter()
+                .filter(|client| client.value().attached_session == Some(session_id.clone()))
+                .count();
+
+            // Collect window information
+            let mut windows_info = Vec::new();
+            let mut buffer_data = if include_buffers { Some(Vec::new()) } else { None };
+
+            for window in &session_guard.windows {
+                let window_guard = window.read().await;
+
+                // Collect pane information for this window
+                let mut panes_info = Vec::new();
+                for (pane_id, pane) in &window_guard.panes {
+                    let pane_guard = pane.read().await;
+                    panes_info.push(crate::protocol::DetailedPaneInfo {
+                        id: pane_id.clone(),
+                        command: pane_guard.command.clone(),
+                        working_directory: pane_guard.working_directory.to_string_lossy().to_string(),
+                        cols: pane_guard.cols,
+                        rows: pane_guard.rows,
+                        cursor_position: pane_guard.cursor_position,
+                        is_dead: pane_guard.is_dead,
+                        exit_status: pane_guard.exit_status,
+                        remain_on_exit: pane_guard.remain_on_exit,
+                        scrollback_lines: pane_guard.scrollback.len(),
+                        raw_buffer_size: pane_guard.raw_output_buffer.len(),
+                    });
+
+                    // Collect buffer data if requested
+                    if let Some(ref mut buffers) = buffer_data {
+                        let scrollback_content: Vec<String> = pane_guard.scrollback.iter()
+                            .map(|line| line.clone())
+                            .collect();
+
+                        buffers.push(PaneBufferDump {
+                            pane_id: pane_id.clone(),
+                            raw_buffer: pane_guard.raw_output_buffer.clone(),
+                            scrollback_content,
+                        });
+                    }
+                }
+
+                windows_info.push(crate::protocol::DetailedWindowInfo {
+                    id: window_guard.id.clone(),
+                    name: window_guard.name.clone(),
+                    width: window_guard.width,
+                    height: window_guard.height,
+                    zoomed_pane: window_guard.zoomed_pane.clone(),
+                    current_pane: window_guard.current_pane.clone(),
+                    last_pane: window_guard.last_pane.clone(),
+                    panes: panes_info,
+                });
+            }
+
+            let session_info = crate::protocol::DetailedSessionInfo {
+                id: session_guard.id.clone(),
+                name: session_guard.name.clone(),
+                created_at: session_guard.created_at,
+                attached_clients,
+                working_directory: session_guard.working_directory.to_string_lossy().to_string(),
+                locked: session_guard.locked,
+                pane_sync_enabled: session_guard.pane_sync_enabled,
+                auto_save_enabled: session_guard.auto_save_enabled,
+                auto_save_interval_secs: session_guard.auto_save_interval.as_secs(),
+                last_auto_save: session_guard.last_auto_save,
+                is_recording: session_guard.recorder.is_some(),
+                windows: windows_info,
+                current_window_id: session_guard.current_window.clone(),
+            };
+
+            let dump = SessionStateDump {
+                session_info,
+                dump_timestamp: chrono::Utc::now(),
+                buffer_data,
+            };
+
+            Ok(Some(ServerMessage::StateDump { dump }))
         }
 
         _ => {

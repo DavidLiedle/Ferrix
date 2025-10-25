@@ -239,6 +239,15 @@ pub enum ClientMessage {
         pane_id: PaneId,
         data: Vec<u8>,
     },
+    /// Request detailed session inspection
+    InspectSession {
+        session_id: SessionId,
+    },
+    /// Request comprehensive state dump
+    DumpState {
+        session_id: SessionId,
+        include_buffers: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -498,6 +507,14 @@ pub enum ServerMessage {
         session_id: SessionId,
         conflict_path: String,
     },
+    /// Detailed session inspection data
+    SessionInspection {
+        inspection: DetailedSessionInfo,
+    },
+    /// Comprehensive state dump
+    StateDump {
+        dump: SessionStateDump,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -609,6 +626,70 @@ pub struct BranchInfo {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub is_current: bool,
 }
+
+/// Detailed session inspection data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetailedSessionInfo {
+    pub id: SessionId,
+    pub name: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub attached_clients: usize,
+    pub working_directory: String,
+    pub locked: bool,
+    pub pane_sync_enabled: bool,
+    pub auto_save_enabled: bool,
+    pub auto_save_interval_secs: u64,
+    pub last_auto_save: Option<chrono::DateTime<chrono::Utc>>,
+    pub is_recording: bool,
+    pub windows: Vec<DetailedWindowInfo>,
+    pub current_window_id: Option<WindowId>,
+}
+
+/// Detailed window information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetailedWindowInfo {
+    pub id: WindowId,
+    pub name: String,
+    pub width: u16,
+    pub height: u16,
+    pub zoomed_pane: Option<PaneId>,
+    pub current_pane: Option<PaneId>,
+    pub last_pane: Option<PaneId>,
+    pub panes: Vec<DetailedPaneInfo>,
+}
+
+/// Detailed pane information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetailedPaneInfo {
+    pub id: PaneId,
+    pub command: String,
+    pub working_directory: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub cursor_position: (u16, u16),
+    pub is_dead: bool,
+    pub exit_status: Option<i32>,
+    pub remain_on_exit: bool,
+    pub scrollback_lines: usize,
+    pub raw_buffer_size: usize,
+}
+
+/// Comprehensive session state dump
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionStateDump {
+    pub session_info: DetailedSessionInfo,
+    pub dump_timestamp: chrono::DateTime<chrono::Utc>,
+    pub buffer_data: Option<Vec<PaneBufferDump>>,
+}
+
+/// Pane buffer dump (for full state export)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaneBufferDump {
+    pub pane_id: PaneId,
+    pub raw_buffer: Vec<u8>,
+    pub scrollback_content: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     
