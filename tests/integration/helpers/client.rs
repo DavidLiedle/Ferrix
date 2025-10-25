@@ -60,6 +60,56 @@ impl TestClient {
         self.run_command(&["save-snapshot", session, "--name", name, "--description", description])
     }
 
+    /// List snapshots
+    pub fn list_snapshots(&self) -> Output {
+        self.run_command(&["list-snapshots"])
+    }
+
+    /// Enter copy mode
+    pub fn enter_copy_mode(&self) -> Output {
+        self.run_command(&["enter-copy-mode"])
+    }
+
+    /// Exit copy mode
+    pub fn exit_copy_mode(&self) -> Output {
+        self.run_command(&["exit-copy-mode"])
+    }
+
+    /// List keybindings
+    pub fn list_keys(&self) -> Output {
+        self.run_command(&["list-keys"])
+    }
+
+    /// Bind a key
+    pub fn bind_key(&self, key: &str, action: &str) -> Output {
+        self.run_command(&["bind-key", key, action])
+    }
+
+    /// Unbind a key
+    pub fn unbind_key(&self, key: &str) -> Output {
+        self.run_command(&["unbind-key", key])
+    }
+
+    /// Reset keybindings to defaults
+    pub fn reset_keys(&self) -> Output {
+        self.run_command(&["reset-keys"])
+    }
+
+    /// Create a new window
+    pub fn new_window(&self, name: &str) -> Output {
+        self.run_command(&["new-window", "-n", name])
+    }
+
+    /// List windows
+    pub fn list_windows(&self) -> Output {
+        self.run_command(&["list-windows"])
+    }
+
+    /// Rename window
+    pub fn rename_window(&self, new_name: &str) -> Output {
+        self.run_command(&["rename-window", new_name])
+    }
+
     /// Parse session list output into session names
     pub fn parse_session_list(output: &Output) -> Vec<String> {
         if !output.status.success() {

@@ -1500,13 +1500,20 @@ async fn async_main(cli: Cli) -> Result<()> {
             }
         }
 
-        Some(Commands::SplitPane { .. }) |
-        Some(Commands::SelectPane { .. }) |
-        Some(Commands::KillPane { .. }) |
-        Some(Commands::ResizePane { .. }) => {
-            eprintln!("Pane management commands require an attached session");
-            eprintln!("Use keyboard shortcuts within an attached session instead");
-            std::process::exit(1);
+        Some(Commands::SplitPane { vertical, horizontal, percentage }) => {
+            ferrix::handlers::pane::handle_split(socket_path, *vertical, *horizontal, *percentage).await?;
+        }
+
+        Some(Commands::SelectPane { target }) => {
+            ferrix::handlers::pane::handle_select(socket_path, target.clone()).await?;
+        }
+
+        Some(Commands::KillPane { target }) => {
+            ferrix::handlers::pane::handle_kill_pane(socket_path, target.clone()).await?;
+        }
+
+        Some(Commands::ResizePane { direction, amount }) => {
+            ferrix::handlers::pane::handle_resize(socket_path, direction.clone(), *amount).await?;
         }
 
         // Catch-all for feature-gated commands that aren't available
