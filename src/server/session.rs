@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use std::path::PathBuf;
+use std::collections::HashMap;
 use tokio::sync::RwLock;
 use chrono::Utc;
 use uuid::Uuid;
@@ -28,6 +29,8 @@ pub struct Session {
     pub name: String,
     pub working_directory: PathBuf,
     pub windows: Vec<Arc<RwLock<Window>>>,
+    /// O(1) lookup index: WindowId -> position in windows Vec
+    window_index: HashMap<WindowId, usize>,
     pub current_window: Option<WindowId>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub copy_mode: Option<crate::ui::copymode::CopyMode>,
@@ -83,11 +86,15 @@ impl Session {
 
         let default_window = Window::new_with_limits(window_id.clone(), shell_name, working_dir.clone(), limits.clone());
 
+        let mut window_index = HashMap::new();
+        window_index.insert(window_id.clone(), 0);
+
         Self {
             id,
             name,
             working_directory: working_dir,
             windows: vec![Arc::new(RwLock::new(default_window))],
+            window_index,
             current_window: Some(window_id),
             created_at: Utc::now(),
             copy_mode: None,
@@ -111,6 +118,18 @@ impl Session {
         }
     }
 
+    /// Get a window by ID in O(1) time using the HashMap index
+    fn get_window_by_id(&self, window_id: &WindowId) -> Option<&Arc<RwLock<Window>>> {
+        self.window_index.get(window_id)
+            .and_then(|&idx| self.windows.get(idx))
+    }
+
+    /// Get current window in O(1) time
+    fn get_current_window_fast(&self) -> Option<&Arc<RwLock<Window>>> {
+        self.current_window.as_ref()
+            .and_then(|id| self.get_window_by_id(id))
+    }
+
     pub async fn handle_input(&mut self, data: Vec<u8>) -> Result<()> {
         // If session is locked, don't pass input to the underlying panes
         if self.locked {
@@ -125,22 +144,15 @@ impl Session {
         // Record input if recording is active
         self.record_input(data.clone()).await;
 
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    drop(window_guard);
-                    let mut window_guard = window.write().await;
+        if let Some(window) = self.get_current_window_fast() {
+            let mut window_guard = window.write().await;
 
-                    if self.pane_sync_enabled {
-                        // Broadcast input to all panes in the current window
-                        window_guard.handle_input_broadcast(data).await?;
-                    } else {
-                        // Send input only to the focused pane
-                        window_guard.handle_input(data).await?;
-                    }
-                    break;
-                }
+            if self.pane_sync_enabled {
+                // Broadcast input to all panes in the current window
+                window_guard.handle_input_broadcast(data).await?;
+            } else {
+                // Send input only to the focused pane
+                window_guard.handle_input(data).await?;
             }
         }
         Ok(())
@@ -150,30 +162,17 @@ impl Session {
         // Record resize if recording is active
         self.record_resize(cols, rows).await;
 
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    drop(window_guard);
-                    let mut window_guard = window.write().await;
-                    window_guard.resize(cols, rows).await?;
-                    break;
-                }
-            }
+        if let Some(window) = self.get_current_window_fast() {
+            let mut window_guard = window.write().await;
+            window_guard.resize(cols, rows).await?;
         }
         Ok(())
     }
 
     pub async fn get_output(&mut self) -> Result<Option<Vec<u8>>> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    drop(window_guard);
-                    let mut window_guard = window.write().await;
-                    return window_guard.get_output().await;
-                }
-            }
+        if let Some(window) = self.get_current_window_fast() {
+            let mut window_guard = window.write().await;
+            return window_guard.get_output().await;
         }
         Ok(None)
     }
@@ -181,17 +180,10 @@ impl Session {
     pub async fn get_all_pane_outputs(&mut self) -> Result<Vec<(PaneId, Vec<u8>)>> {
         let mut outputs = Vec::new();
 
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    drop(window_guard);
-                    let mut window_guard = window.write().await;
-                    let pane_outputs = window_guard.get_all_pane_outputs().await?;
-                    outputs.extend(pane_outputs);
-                    break;
-                }
-            }
+        if let Some(window) = self.get_current_window_fast() {
+            let mut window_guard = window.write().await;
+            let pane_outputs = window_guard.get_all_pane_outputs().await?;
+            outputs.extend(pane_outputs);
         }
 
         // Record output after the borrow is released
@@ -224,19 +216,18 @@ impl Session {
         let window_name = name.unwrap_or_else(|| format!("window-{}", self.windows.len()));
         let new_window = Window::new_with_limits(window_id.clone(), window_name, self.working_directory.clone(), self.limits.clone());
 
+        let new_index = self.windows.len();
         self.windows.push(Arc::new(RwLock::new(new_window)));
+        self.window_index.insert(window_id.clone(), new_index);
         self.current_window = Some(window_id.clone());
 
         Ok(window_id)
     }
 
     pub async fn switch_window(&mut self, window_id: WindowId) -> Result<()> {
-        for window in &self.windows {
-            let window_guard = window.read().await;
-            if window_guard.id == window_id {
-                self.current_window = Some(window_id);
-                return Ok(());
-            }
+        if self.get_window_by_id(&window_id).is_some() {
+            self.current_window = Some(window_id);
+            return Ok(());
         }
         Err(FerrixError::WindowNotFound(format!("{:?}", window_id)))
     }
@@ -246,29 +237,29 @@ impl Session {
             return Err(FerrixError::Other("Cannot close last window".to_string()));
         }
 
-        let mut window_index = None;
-        for (i, window) in self.windows.iter().enumerate() {
-            let window_guard = window.read().await;
-            if window_guard.id == window_id {
-                window_index = Some(i);
-                break;
+        // Use HashMap to find index in O(1) time
+        let index = self.window_index.get(&window_id).copied()
+            .ok_or_else(|| FerrixError::WindowNotFound(format!("{:?}", window_id)))?;
+
+        // Remove window from Vec
+        self.windows.remove(index);
+
+        // Rebuild the index since all indices after the removed one have shifted
+        self.window_index.clear();
+        for (idx, window_arc) in self.windows.iter().enumerate() {
+            if let Ok(window_guard) = window_arc.try_read() {
+                self.window_index.insert(window_guard.id.clone(), idx);
             }
         }
 
-        if let Some(index) = window_index {
-            self.windows.remove(index);
-
-            // Update current window if needed
-            if self.current_window == Some(window_id) {
-                if let Some(first_window) = self.windows.first() {
-                    let window_guard = first_window.read().await;
-                    self.current_window = Some(window_guard.id.clone());
-                }
+        // Update current window if needed
+        if self.current_window == Some(window_id) {
+            if let Some(first_window) = self.windows.first() {
+                let window_guard = first_window.read().await;
+                self.current_window = Some(window_guard.id.clone());
             }
-            Ok(())
-        } else {
-            Err(FerrixError::WindowNotFound(format!("{:?}", window_id)))
         }
+        Ok(())
     }
 
     pub async fn next_window(&mut self) -> Result<()> {
@@ -312,113 +303,73 @@ impl Session {
     }
 
     pub async fn split_pane(&mut self, direction: SplitDirection) -> Result<PaneId> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
+        if let Some(window) = self.get_current_window_fast() {
+            let current_pane = {
                 let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    let current_pane = window_guard.current_pane.clone();
-                    drop(window_guard);
+                window_guard.current_pane.clone()
+            };
 
-                    if let Some(pane_id) = current_pane {
-                        let mut window_guard = window.write().await;
-                        return window_guard.split_pane(&pane_id, direction).await;
-                    }
-                }
+            if let Some(pane_id) = current_pane {
+                let mut window_guard = window.write().await;
+                return window_guard.split_pane(&pane_id, direction).await;
             }
         }
         Err(FerrixError::Other("No current window".to_string()))
     }
 
     pub async fn navigate_pane(&mut self, direction: NavigationDirection) -> Result<()> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    drop(window_guard);
-                    let mut window_guard = window.write().await;
-                    return window_guard.navigate_pane(direction).await;
-                }
-            }
+        if let Some(window) = self.get_current_window_fast() {
+            let mut window_guard = window.write().await;
+            return window_guard.navigate_pane(direction).await;
         }
         Err(FerrixError::Other("No current window".to_string()))
     }
 
     /// Toggle between current and last pane (tmux last-pane)
     pub async fn select_last_pane(&mut self) -> Result<()> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    drop(window_guard);
-                    let mut window_guard = window.write().await;
-                    return window_guard.select_last_pane().await;
-                }
-            }
+        if let Some(window) = self.get_current_window_fast() {
+            let mut window_guard = window.write().await;
+            return window_guard.select_last_pane().await;
         }
         Err(FerrixError::Other("No current window".to_string()))
     }
 
     /// Select a pane by its index (0-based)
     pub fn select_pane_by_index(&mut self, index: usize) -> Result<()> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                // Need to block on the async read
-                let window_guard = futures::executor::block_on(window.read());
-                if window_guard.id == *current_window_id {
-                    drop(window_guard);
-                    let mut window_guard = futures::executor::block_on(window.write());
-                    return window_guard.select_pane_by_index(index);
-                }
-            }
+        if let Some(window) = self.get_current_window_fast() {
+            let mut window_guard = futures::executor::block_on(window.write());
+            return window_guard.select_pane_by_index(index);
         }
         Err(FerrixError::Other("No current window".to_string()))
     }
 
     /// Respawn a pane (restart its PTY)
     pub async fn respawn_pane(&mut self, pane_id: PaneId) -> Result<()> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    drop(window_guard);
-                    let mut window_guard = window.write().await;
-                    return window_guard.respawn_pane(&pane_id).await;
-                }
-            }
+        if let Some(window) = self.get_current_window_fast() {
+            let mut window_guard = window.write().await;
+            return window_guard.respawn_pane(&pane_id).await;
         }
         Err(FerrixError::Other("No current window".to_string()))
     }
 
     pub async fn close_pane(&mut self, pane_id: PaneId) -> Result<()> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    drop(window_guard);
-                    let mut window_guard = window.write().await;
-                    return window_guard.close_pane(&pane_id).await;
-                }
-            }
+        if let Some(window) = self.get_current_window_fast() {
+            let mut window_guard = window.write().await;
+            return window_guard.close_pane(&pane_id).await;
         }
         Err(FerrixError::Other("No current window".to_string()))
     }
 
     pub async fn zoom_pane(&mut self) -> Result<(bool, Option<PaneId>)> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    drop(window_guard);
-                    let mut window_guard = window.write().await;
-                    let zoomed = window_guard.toggle_zoom().await?;
-                    let zoomed_pane = if zoomed {
-                        window_guard.get_zoomed_pane()
-                    } else {
-                        None
-                    };
-                    return Ok((zoomed, zoomed_pane));
-                }
-            }
+        if let Some(window) = self.get_current_window_fast() {
+            let mut window_guard = window.write().await;
+            let zoomed = window_guard.toggle_zoom().await?;
+            let zoomed_pane = if zoomed {
+                window_guard.get_zoomed_pane()
+            } else {
+                None
+            };
+            return Ok((zoomed, zoomed_pane));
         }
         Err(FerrixError::Other("No current window".to_string()))
     }
@@ -426,14 +377,10 @@ impl Session {
     pub async fn rename_window(&mut self, window_id: Option<WindowId>, new_name: String) -> Result<WindowId> {
         let target_window_id = window_id.unwrap_or_else(|| self.current_window.clone().unwrap_or_else(|| WindowId(Uuid::new_v4())));
 
-        for window in &self.windows {
-            let window_guard = window.read().await;
-            if window_guard.id == target_window_id {
-                drop(window_guard);
-                let mut window_guard = window.write().await;
-                window_guard.rename(new_name);
-                return Ok(target_window_id);
-            }
+        if let Some(window) = self.get_window_by_id(&target_window_id) {
+            let mut window_guard = window.write().await;
+            window_guard.rename(new_name);
+            return Ok(target_window_id);
         }
 
         Err(FerrixError::WindowNotFound(format!("{:?}", target_window_id)))
@@ -753,17 +700,7 @@ impl Session {
     }
 
     pub fn get_current_window(&self) -> Option<&Arc<RwLock<Window>>> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                if let Ok(window_guard) = window.try_read() {
-                    if window_guard.id == *current_window_id {
-                        drop(window_guard);
-                        return Some(window);
-                    }
-                }
-            }
-        }
-        None
+        self.get_current_window_fast()
     }
 
     pub async fn get_layout_info(&self) -> Option<crate::protocol::LayoutInfo> {
@@ -932,11 +869,20 @@ impl Session {
             }
         }
 
+        // Build window_index from windows vector
+        let mut window_index = HashMap::new();
+        for (idx, window_arc) in windows.iter().enumerate() {
+            if let Ok(window_guard) = window_arc.try_read() {
+                window_index.insert(window_guard.id.clone(), idx);
+            }
+        }
+
         Self {
             id: snapshot.session.id,
             name: snapshot.session.name,
             working_directory: snapshot.session.working_directory.clone(),
             windows,
+            window_index,
             current_window,
             created_at: snapshot.session.created_at,
             copy_mode: None,
@@ -1029,112 +975,93 @@ impl Session {
 
     // Activity monitoring methods
     pub async fn toggle_activity_monitoring(&mut self, pane_id: Option<PaneId>) -> Result<(PaneId, bool)> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    drop(window_guard);
-                    let mut window_guard = window.write().await;
+        if let Some(window) = self.get_current_window_fast() {
+            let mut window_guard = window.write().await;
 
-                    let target_pane = pane_id.unwrap_or_else(|| {
-                        window_guard.current_pane.clone().unwrap_or_else(|| {
-                            window_guard.panes.keys().next().cloned()
-                                .expect("Window must have at least one pane")
-                        })
-                    });
+            let target_pane = pane_id.unwrap_or_else(|| {
+                window_guard.current_pane.clone().unwrap_or_else(|| {
+                    window_guard.panes.keys().next().cloned()
+                        .expect("Window must have at least one pane")
+                })
+            });
 
-                    let currently_enabled = window_guard.activity_monitor.is_monitoring_enabled(&target_pane);
-                    if currently_enabled {
-                        window_guard.activity_monitor.disable_monitoring(&target_pane);
-                    } else {
-                        window_guard.activity_monitor.enable_monitoring(&target_pane);
-                    }
-
-                    return Ok((target_pane, !currently_enabled));
-                }
+            let currently_enabled = window_guard.activity_monitor.is_monitoring_enabled(&target_pane);
+            if currently_enabled {
+                window_guard.activity_monitor.disable_monitoring(&target_pane);
+            } else {
+                window_guard.activity_monitor.enable_monitoring(&target_pane);
             }
+
+            return Ok((target_pane, !currently_enabled));
         }
         Err(FerrixError::Other("No current window".to_string()))
     }
 
     pub async fn set_activity_monitoring(&mut self, pane_id: Option<PaneId>, enabled: bool) -> Result<(PaneId, bool)> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    drop(window_guard);
-                    let mut window_guard = window.write().await;
+        if let Some(window) = self.get_current_window_fast() {
+            let mut window_guard = window.write().await;
 
-                    let target_pane = pane_id.unwrap_or_else(|| {
-                        window_guard.current_pane.clone().unwrap_or_else(|| {
-                            window_guard.panes.keys().next().cloned()
-                                .expect("Window must have at least one pane")
-                        })
-                    });
+            let target_pane = pane_id.unwrap_or_else(|| {
+                window_guard.current_pane.clone().unwrap_or_else(|| {
+                    window_guard.panes.keys().next().cloned()
+                        .expect("Window must have at least one pane")
+                })
+            });
 
-                    if enabled {
-                        window_guard.activity_monitor.enable_monitoring(&target_pane);
-                    } else {
-                        window_guard.activity_monitor.disable_monitoring(&target_pane);
-                    }
-
-                    return Ok((target_pane, enabled));
-                }
+            if enabled {
+                window_guard.activity_monitor.enable_monitoring(&target_pane);
+            } else {
+                window_guard.activity_monitor.disable_monitoring(&target_pane);
             }
+
+            return Ok((target_pane, enabled));
         }
         Err(FerrixError::Other("No current window".to_string()))
     }
 
     pub async fn get_activity_status(&self, pane_id: &PaneId) -> Option<String> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
-                let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    return window_guard.activity_monitor.get_activity_status(pane_id);
-                }
-            }
+        if let Some(window) = self.get_current_window_fast() {
+            let window_guard = window.read().await;
+            return window_guard.activity_monitor.get_activity_status(pane_id);
         }
         None
     }
 
     // Pane resizing methods
     pub async fn resize_pane(&mut self, direction: crate::protocol::ResizeDirection, amount: i16) -> Result<()> {
-        if let Some(current_window_id) = &self.current_window {
-            for window in &self.windows {
+        if let Some(window) = self.get_current_window_fast() {
+            let pane_id = {
                 let window_guard = window.read().await;
-                if window_guard.id == *current_window_id {
-                    if let Some(current_pane_id) = &window_guard.current_pane {
-                        let pane_id = current_pane_id.clone();
-                        drop(window_guard);
+                window_guard.current_pane.clone()
+            };
 
-                        let window_guard = window.write().await;
-                        if let Some(pane_arc) = window_guard.panes.get(&pane_id) {
-                            let mut pane = pane_arc.write().await;
+            if let Some(pane_id) = pane_id {
+                let window_guard = window.write().await;
+                if let Some(pane_arc) = window_guard.panes.get(&pane_id) {
+                    let mut pane = pane_arc.write().await;
 
-                            // Calculate new dimensions based on direction
-                            let (new_cols, new_rows) = match direction {
-                                crate::protocol::ResizeDirection::Up => {
-                                    (pane.cols, pane.rows.saturating_add(amount as u16))
-                                }
-                                crate::protocol::ResizeDirection::Down => {
-                                    (pane.cols, pane.rows.saturating_sub(amount as u16).max(1))
-                                }
-                                crate::protocol::ResizeDirection::Left => {
-                                    (pane.cols.saturating_sub(amount as u16).max(1), pane.rows)
-                                }
-                                crate::protocol::ResizeDirection::Right => {
-                                    (pane.cols.saturating_add(amount as u16), pane.rows)
-                                }
-                            };
-
-                            // Resize the pane
-                            pane.resize(new_cols, new_rows).await?;
-                            return Ok(());
+                    // Calculate new dimensions based on direction
+                    let (new_cols, new_rows) = match direction {
+                        crate::protocol::ResizeDirection::Up => {
+                            (pane.cols, pane.rows.saturating_add(amount as u16))
                         }
-                    }
-                    return Err(FerrixError::Other("No current pane".to_string()));
+                        crate::protocol::ResizeDirection::Down => {
+                            (pane.cols, pane.rows.saturating_sub(amount as u16).max(1))
+                        }
+                        crate::protocol::ResizeDirection::Left => {
+                            (pane.cols.saturating_sub(amount as u16).max(1), pane.rows)
+                        }
+                        crate::protocol::ResizeDirection::Right => {
+                            (pane.cols.saturating_add(amount as u16), pane.rows)
+                        }
+                    };
+
+                    // Resize the pane
+                    pane.resize(new_cols, new_rows).await?;
+                    return Ok(());
                 }
             }
+            return Err(FerrixError::Other("No current pane".to_string()));
         }
         Err(FerrixError::Other("No current window".to_string()))
     }
