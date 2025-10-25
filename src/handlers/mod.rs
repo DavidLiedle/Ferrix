@@ -86,10 +86,18 @@
 //! ### ✅ Misc Handlers (1 command)
 //! - `send-keys` - Send keys to a session
 //!
-//! ## Remaining in main.rs (~36 handlers)
+//! ### ✅ Versioning Handlers (6 commands)
+//! - `init-versioning` - Initialize version control for session
+//! - `commit` - Commit current session state
+//! - `branch` - Create, list, or delete branches
+//! - `checkout` - Switch to a different branch
+//! - `merge` - Merge another branch into current
+//! - `log` - View commit history
+//!
+//! ## Remaining in main.rs (~30 handlers)
 //!
 //! These handlers remain inline in main.rs due to complexity, stubs, or feature-gating:
-//! - Versioning commands (7): init-versioning, commit, branch, checkout, merge, log, diff
+//! - Versioning commands (1): diff
 //! - Session config (4): load-session-config, save-session-config, apply-template, list-templates
 //! - Input mode (2): set-input-mode, get-input-mode
 //! - Copy mode (2): enter-copy-mode, exit-copy-mode
@@ -97,7 +105,6 @@
 //! - Window management (4): new-window, select-window, kill-window, list-windows
 //! - System commands (5): completions, health, metrics, profile
 //! - Debug/diagnostic (4): inspect, dump-state, crashes, crash-info, crash-analyze, crash-delete
-//! - Pane commands (4): split-pane, select-pane, kill-pane, resize-pane (stubs)
 
 pub mod session;
 pub mod config;
@@ -112,6 +119,7 @@ pub mod layout;
 pub mod remote;
 pub mod activity;
 pub mod misc;
+pub mod versioning;
 
 #[cfg(test)]
 mod tests {

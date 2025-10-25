@@ -354,36 +354,33 @@ async fn async_main(cli: Cli) -> Result<()> {
             ferrix::handlers::layout::handle_list();
         }
 
-        // These features are not yet implemented in the protocol
+        // Session versioning commands
         Some(Commands::InitVersioning) => {
-            let mut client = Client::new(socket_path)?;
-            match client.connect().await {
-                Ok(_) => {
-                    // Get the first session as default (in real usage, should specify session)
-                    eprintln!("Note: Session versioning requires specifying a session ID");
-                    eprintln!("This feature requires enhancement to work with attached sessions");
-                    std::process::exit(1);
-                }
-                Err(e) => {
-                    eprintln!("✗ Failed to connect to server: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            ferrix::handlers::versioning::handle_init(socket_path).await?;
         }
 
-        Some(Commands::CommitSession { message: _, author: _ }) => {
-            eprintln!("Note: Session versioning requires specifying a session ID");
-            eprintln!("This feature requires enhancement to work with attached sessions");
-            std::process::exit(1);
+        Some(Commands::CommitSession { message, author }) => {
+            ferrix::handlers::versioning::handle_commit(socket_path, message.clone(), author.clone()).await?;
         }
 
-        Some(Commands::Branch { .. }) |
-        Some(Commands::Checkout { .. }) |
-        Some(Commands::Merge { .. }) |
-        Some(Commands::Log { .. }) |
+        Some(Commands::Branch { name, list, delete }) => {
+            ferrix::handlers::versioning::handle_branch(socket_path, name.clone(), *list, delete.clone()).await?;
+        }
+
+        Some(Commands::Checkout { target, create: _ }) => {
+            ferrix::handlers::versioning::handle_checkout(socket_path, target.clone()).await?;
+        }
+
+        Some(Commands::Merge { branch, auto: _ }) => {
+            ferrix::handlers::versioning::handle_merge(socket_path, branch.clone(), None).await?;
+        }
+
+        Some(Commands::Log { limit, verbose }) => {
+            ferrix::handlers::versioning::handle_log(socket_path, *limit, *verbose).await?;
+        }
+
         Some(Commands::Diff { .. }) => {
-            eprintln!("Note: Session versioning requires specifying a session ID");
-            eprintln!("This feature requires enhancement to work with attached sessions");
+            eprintln!("Note: Session diff functionality not yet implemented");
             std::process::exit(1);
         }
 
