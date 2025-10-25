@@ -35,54 +35,8 @@ fn main() -> Result<()> {
 
     // Handle daemonization before creating the tokio runtime
     // This is critical for macOS and other Unix systems
-    #[cfg(unix)]
     if let Some(Commands::Server { foreground, .. }) = &cli.command {
-        if !foreground {
-            use daemonize::Daemonize;
-            use std::fs::File;
-
-            println!("Starting Ferrix server as daemon...");
-
-            // Create directories for daemon files if they don't exist
-            let ferrix_dir = dirs::data_local_dir()
-                .unwrap_or_else(|| PathBuf::from("/tmp"))
-                .join("ferrix");
-            std::fs::create_dir_all(&ferrix_dir).ok();
-
-            let stdout_file = File::create(ferrix_dir.join("ferrix.out"))
-                .map_err(|e| ferrix::error::FerrixError::Other(
-                    format!("Failed to create stdout log file: {}", e)
-                ))?;
-
-            let stderr_file = File::create(ferrix_dir.join("ferrix.err"))
-                .map_err(|e| ferrix::error::FerrixError::Other(
-                    format!("Failed to create stderr log file: {}", e)
-                ))?;
-
-            let daemon = Daemonize::new()
-                .pid_file(ferrix_dir.join("ferrix.pid"))
-                .chown_pid_file(true)
-                .working_directory("/tmp")
-                .stdout(stdout_file)
-                .stderr(stderr_file)
-                .privileged_action(|| "Ferrix daemon started");
-
-            match daemon.start() {
-                Ok(_) => println!("Ferrix server daemonized successfully"),
-                Err(e) => {
-                    eprintln!("Error daemonizing: {}", e);
-                    return Err(ferrix::error::FerrixError::Other(format!("Failed to daemonize: {}", e)));
-                }
-            }
-        }
-    }
-
-    // On Windows, warn if trying to run as daemon
-    #[cfg(not(unix))]
-    if let Some(Commands::Server { foreground, .. }) = &cli.command {
-        if !foreground {
-            eprintln!("Warning: Daemon mode is not supported on Windows. Running in foreground mode.");
-        }
+        ferrix::daemon::daemonize_if_needed(*foreground)?;
     }
 
     // Now create the tokio runtime AFTER daemonization
