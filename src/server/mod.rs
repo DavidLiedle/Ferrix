@@ -76,6 +76,46 @@ use infrastructure::ServerInfrastructure;
 // Type alias for the sessions map - DashMap provides lock-free concurrent access
 type SessionMap = Arc<DashMap<SessionId, Arc<RwLock<Session>>>>;
 
+/// Ferrix server instance
+///
+/// The Server manages all terminal multiplexer sessions, client connections,
+/// and provides the core multiplexing functionality. It handles:
+///
+/// - Session lifecycle (create, attach, detach, destroy)
+/// - Client connection management
+/// - PTY (pseudo-terminal) allocation and management
+/// - Window and pane management within sessions
+/// - Key binding processing
+/// - Configuration hot-reload
+/// - Snapshot/restore functionality
+/// - Hook execution
+///
+/// # Architecture
+///
+/// The server uses an async event-driven architecture with:
+/// - Lock-free concurrent data structures (DashMap) for sessions and clients
+/// - Async RwLock for infrequently modified shared state
+/// - Unix domain sockets for local client communication
+/// - Optional TCP/TLS for remote access
+///
+/// # Example
+///
+/// ```no_run
+/// use ferrix::server::Server;
+/// use std::path::PathBuf;
+/// use std::sync::Arc;
+///
+/// #[tokio::main]
+/// async fn main() -> ferrix::error::Result<()> {
+///     let socket_path = PathBuf::from("/tmp/ferrix.sock");
+///     let server = Arc::new(Server::new(socket_path));
+///
+///     // Start server with recovery disabled (default)
+///     let mut server_instance = (*server).clone();
+///     server_instance.run(false).await?;
+///     Ok(())
+/// }
+/// ```
 #[derive(Clone)]
 pub struct Server {
     sessions: SessionMap,
@@ -86,13 +126,38 @@ pub struct Server {
     infrastructure: ServerInfrastructure,
 }
 
+/// Represents an active client connection to the server
+///
+/// Each client maintains its own connection state and can be attached
+/// to at most one session at a time. Clients communicate with the server
+/// via async message passing.
 pub struct ClientConnection {
+    /// Unique identifier for this client
     pub id: ClientId,
+    /// Currently attached session, if any
     pub attached_session: Option<SessionId>,
+    /// Channel for sending messages to this client
     pub sender: mpsc::Sender<ServerMessage>,
 }
 
 impl Server {
+    /// Create a new server instance
+    ///
+    /// Creates a server that will listen on the specified Unix domain socket path.
+    /// The server is not started until `run()` is called.
+    ///
+    /// # Arguments
+    ///
+    /// * `socket_path` - Path to the Unix domain socket for client connections
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ferrix::server::Server;
+    /// use std::path::PathBuf;
+    ///
+    /// let server = Server::new(PathBuf::from("/tmp/ferrix.sock"));
+    /// ```
     pub fn new(socket_path: PathBuf) -> Self {
         Self {
             sessions: Arc::new(DashMap::new()),

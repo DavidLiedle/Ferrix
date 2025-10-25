@@ -30,21 +30,72 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
+/// Type of status bar message
 #[derive(Debug, Clone)]
 pub enum MessageType {
+    /// Informational message (blue)
     Info,
+    /// Success message (green)
     Success,
+    /// Warning message (yellow)
     Warning,
+    /// Error message (red)
     Error,
 }
 
+/// Status bar message with timestamp
 #[derive(Debug, Clone)]
 pub struct Message {
+    /// Message text to display
     pub text: String,
+    /// Type of message (affects color)
     pub msg_type: MessageType,
+    /// When the message was created
     pub timestamp: Instant,
 }
 
+/// Ferrix client instance
+///
+/// The Client provides the TUI (Terminal User Interface) for interacting with
+/// a Ferrix server. It handles:
+///
+/// - Server connection via Unix domain socket
+/// - Terminal rendering and ANSI escape sequence processing
+/// - User input handling (keyboard, mouse)
+/// - Copy mode (vi/emacs style buffer navigation)
+/// - Command mode (tmux-style command prompt)
+/// - Window/pane selection interfaces
+/// - Status bar rendering
+/// - Configuration hot-reload
+///
+/// # Architecture
+///
+/// The client uses:
+/// - Async message passing with the server via framed codec
+/// - Per-pane ANSI parsers for terminal emulation
+/// - Render throttling (~60 FPS) to prevent flicker
+/// - Event-driven input processing
+///
+/// # Example
+///
+/// ```no_run
+/// use ferrix::client::Client;
+/// use std::path::PathBuf;
+///
+/// #[tokio::main]
+/// async fn main() -> ferrix::error::Result<()> {
+///     let socket_path = PathBuf::from("/tmp/ferrix.sock");
+///     let mut client = Client::new(socket_path)?;
+///
+///     // Connect to server
+///     client.connect().await?;
+///
+///     // Attach to a session
+///     client.attach(None).await?;
+///
+///     Ok(())
+/// }
+/// ```
 pub struct Client {
     socket_path: PathBuf,
     attached_session: Option<SessionId>,
@@ -74,6 +125,35 @@ pub struct Client {
 }
 
 impl Client {
+    /// Create a new client instance
+    ///
+    /// Creates a client configured to connect to the server at the specified
+    /// socket path. The client is not connected until `connect()` is called.
+    ///
+    /// This method loads the user's configuration and initializes:
+    /// - Key bindings (including custom bindings)
+    /// - Copy mode style (vi/emacs)
+    /// - Mouse handling
+    /// - Render throttling (~60 FPS)
+    /// - All UI components (copy mode, command mode, selectors, etc.)
+    ///
+    /// # Arguments
+    ///
+    /// * `socket_path` - Path to the Unix domain socket for server connection
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Client)` on success, or an error if configuration loading fails.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use ferrix::client::Client;
+    /// use std::path::PathBuf;
+    ///
+    /// let client = Client::new(PathBuf::from("/tmp/ferrix.sock"))?;
+    /// # Ok::<(), ferrix::error::FerrixError>(())
+    /// ```
     pub fn new(socket_path: PathBuf) -> Result<Self> {
         let config = Config::load().unwrap_or_default();
         let mut key_binding_manager = KeyBindingManager::new();
