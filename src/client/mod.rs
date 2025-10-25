@@ -60,7 +60,7 @@ pub struct Client {
     window_selector: WindowSelector,
     help_overlay: HelpOverlay,
     config: Arc<RwLock<Config>>,
-    key_binding_manager: Arc<RwLock<KeyBindingManager>>,
+    key_binding_manager: Arc<KeyBindingManager>,
     prefix_mode: bool, // Track if we're waiting for the second key after prefix
     // Mouse selection state (works outside copy mode)
     active_selection: Option<((u16, u16), (u16, u16))>, // (start, end) in screen coordinates
@@ -109,7 +109,7 @@ impl Client {
             window_selector: WindowSelector::new(),
             help_overlay: HelpOverlay::new(),
             config: Arc::new(RwLock::new(config)),
-            key_binding_manager: Arc::new(RwLock::new(key_binding_manager)),
+            key_binding_manager: Arc::new(key_binding_manager),
             prefix_mode: false,
             active_selection: None,
             messages: VecDeque::new(),
@@ -139,7 +139,8 @@ impl Client {
 
         // Update the shared state
         *self.config.write().await = new_config;
-        *self.key_binding_manager.write().await = key_binding_manager;
+        // Swap the entire Arc for lock-free reads
+        self.key_binding_manager = Arc::new(key_binding_manager);
 
         info!("Configuration reloaded successfully");
         Ok(())
@@ -655,9 +656,9 @@ impl Client {
             code: key_event.code,
         };
 
-        // Check for prefix key and actions
+        // Check for prefix key and actions (lock-free read via Arc)
         let (is_prefix, action_to_execute) = {
-            let key_manager = self.key_binding_manager.read().await;
+            let key_manager = &self.key_binding_manager;
             let prefix_key = key_manager.get_prefix().clone();
 
             let is_prefix = key_binding == prefix_key;
