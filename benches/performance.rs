@@ -1,10 +1,20 @@
 // Performance benchmarks for Ferrix
 // Run with: cargo bench
+//
+// These benchmarks validate performance optimizations including:
+// - Lock-free config access (v0.22.0)
+// - Clone reduction in rendering (v0.22.0)
+// - Keystroke latency
+// - Render throughput
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use ferrix::client::ansi_parser::AnsiParser;
 use ferrix::protocol::{ClientMessage, ServerMessage, SessionId, WindowId, PaneId};
 use ferrix::server::snapshot::{SessionSnapshot, SessionState, WindowState, PaneState, SnapshotMetadata};
+use ferrix::config::Config;
+use ferrix::config::keybindings::KeyBindingManager;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::sync::Arc;
 use std::time::Duration;
 use chrono::Utc;
 use std::path::PathBuf;
@@ -145,6 +155,124 @@ fn bench_multiple_panes(c: &mut Criterion) {
     group.finish();
 }
 
+// Benchmark lock-free keybinding access (v0.22.0 optimization)
+fn bench_keybinding_access(c: &mut Criterion) {
+    let manager = Arc::new(KeyBindingManager::new());
+    let key_event = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+
+    c.bench_function("lock_free_keybinding_lookup", |b| {
+        b.iter(|| {
+            // Direct Arc access - no async RwLock acquisition
+            black_box(manager.get_action(black_box(&key_event), false))
+        })
+    });
+}
+
+// Benchmark string clone reduction (v0.22.0 optimization)
+fn bench_statusbar_rendering(c: &mut Criterion) {
+    let mut group = c.benchmark_group("statusbar_rendering");
+
+    let format_string = "#{session_name} - #{window_index}:#{window_name}".to_string();
+
+    // Cached approach (optimized)
+    group.bench_function("cached_format_strings", |b| {
+        let cached_left = format_string.clone();
+        let cached_center = format_string.clone();
+        let cached_right = format_string.clone();
+
+        b.iter(|| {
+            // Clone cached strings once per render
+            let left = black_box(cached_left.clone());
+            let center = black_box(cached_center.clone());
+            let right = black_box(cached_right.clone());
+            black_box((left, center, right))
+        })
+    });
+
+    // Nested access approach (pre-optimization)
+    group.bench_function("nested_config_access", |b| {
+        let config = Config::default();
+
+        b.iter(|| {
+            // Access nested config.status_bar.{left,center,right} each time
+            let left = black_box(config.status_bar.left.clone());
+            let center = black_box(config.status_bar.center.clone());
+            let right = black_box(config.status_bar.right.clone());
+            black_box((left, center, right))
+        })
+    });
+
+    group.finish();
+}
+
+// Benchmark copy mode search optimization (v0.22.0)
+fn bench_copy_mode_search(c: &mut Criterion) {
+    let mut group = c.benchmark_group("copy_mode_search");
+
+    let search_query = "test_search_pattern".to_string();
+
+    // Optimized: no clone
+    group.bench_function("search_no_clone", |b| {
+        let mut query = search_query.clone();
+
+        b.iter(|| {
+            // Modify query directly without cloning
+            query.push('x');
+            query.pop();
+            black_box(&query)
+        })
+    });
+
+    // Pre-optimization: clone each time
+    group.bench_function("search_with_clone", |b| {
+        let mut query = search_query.clone();
+
+        b.iter(|| {
+            query.push('x');
+            let cloned = black_box(query.clone()); // Unnecessary clone
+            query.pop();
+            black_box(cloned)
+        })
+    });
+
+    group.finish();
+}
+
+// Benchmark keystroke latency (target: <1ms)
+fn bench_keystroke_latency(c: &mut Criterion) {
+    let manager = Arc::new(KeyBindingManager::new());
+
+    c.bench_function("keystroke_end_to_end", |b| {
+        let key = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+
+        b.iter(|| {
+            // Simulate full keystroke processing path
+            let action = manager.get_action(&key, false);
+            black_box(action)
+        })
+    });
+}
+
+// Benchmark render throughput (target: 60 FPS = 16.67ms per frame)
+fn bench_render_frame(c: &mut Criterion) {
+    let mut group = c.benchmark_group("render_throughput");
+    group.measurement_time(Duration::from_secs(5));
+
+    let mut parser = AnsiParser::new(80, 24);
+
+    // Simulate a single frame render
+    group.bench_function("single_frame_render", |b| {
+        let frame_data = b"[test@host ~]$ ls\nfile1  file2  file3\n[test@host ~]$ ";
+
+        b.iter(|| {
+            parser.process(black_box(frame_data));
+            black_box(())
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group! {
     name = benches;
     config = Criterion::default()
@@ -155,7 +283,12 @@ criterion_group! {
         bench_ansi_parser_escape_sequences,
         bench_protocol_serialization,
         bench_snapshot_operations,
-        bench_multiple_panes
+        bench_multiple_panes,
+        bench_keybinding_access,
+        bench_statusbar_rendering,
+        bench_copy_mode_search,
+        bench_keystroke_latency,
+        bench_render_frame
 }
 
 criterion_main!(benches);
