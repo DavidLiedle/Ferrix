@@ -52,6 +52,10 @@ pub struct Session {
 
     /// Resource limits for window/pane creation
     pub limits: Arc<crate::config::limits::ResourceLimits>,
+    /// Pane configuration for split behavior
+    pub pane_config: crate::config::PaneConfig,
+    /// Window configuration
+    pub window_config: crate::config::WindowConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -115,6 +119,8 @@ impl Session {
             versioning: None,
 
             limits,
+            pane_config: crate::config::PaneConfig::default(),
+            window_config: crate::config::WindowConfig::default(),
         }
     }
 
@@ -214,7 +220,33 @@ impl Session {
     pub async fn create_window(&mut self, name: Option<String>) -> Result<WindowId> {
         let window_id = WindowId(Uuid::new_v4());
         let window_name = name.unwrap_or_else(|| format!("window-{}", self.windows.len()));
-        let new_window = Window::new_with_limits(window_id.clone(), window_name, self.working_directory.clone(), self.limits.clone());
+
+        // Determine working directory based on configuration
+        let working_dir = if self.window_config.inherit_current_path {
+            // Try to get current pane's working directory
+            if let Some(window) = self.get_current_window_fast() {
+                let window_guard = window.read().await;
+                if let Some(pane_id) = &window_guard.current_pane {
+                    if let Some(pane_arc) = window_guard.panes.get(pane_id) {
+                        let pane = pane_arc.read().await;
+                        pane.working_directory.clone()
+                    } else {
+                        self.working_directory.clone()
+                    }
+                } else {
+                    self.working_directory.clone()
+                }
+            } else {
+                self.working_directory.clone()
+            }
+        } else {
+            self.working_directory.clone()
+        };
+
+        let mut new_window = Window::new_with_limits(window_id.clone(), window_name, working_dir, self.limits.clone());
+
+        // Configure window with session's pane config
+        new_window.pane_config = self.pane_config.clone();
 
         let new_index = self.windows.len();
         self.windows.push(Arc::new(RwLock::new(new_window)));
@@ -903,6 +935,8 @@ impl Session {
             versioning: None,
 
             limits,
+            pane_config: crate::config::PaneConfig::default(),
+            window_config: crate::config::WindowConfig::default(),
         }
     }
 

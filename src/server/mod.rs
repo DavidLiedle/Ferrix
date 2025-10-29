@@ -48,12 +48,6 @@ pub mod collaboration;
 
 #[cfg(feature = "time-travel")]
 pub mod timetravel;
-// #[cfg(test)]
-// mod pty_tests;
-// #[cfg(test)]
-// mod remote_tests;
-// #[cfg(test)]
-// mod recovery_tests;
 
 use std::path::PathBuf;
 use std::sync::Arc;

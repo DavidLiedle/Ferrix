@@ -1,8 +1,6 @@
 pub mod connection;
 pub mod renderer;
 pub mod ansi_parser;
-// #[cfg(test)]
-// mod tests;
 
 use std::path::PathBuf;
 use tokio::net::UnixStream;

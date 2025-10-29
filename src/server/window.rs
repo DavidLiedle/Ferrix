@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::error::Result;
 use crate::protocol::{WindowId, PaneId, SplitDirection};
 use crate::format::{FormatProvider, FormatValue};
+use crate::config::PaneConfig;
 use super::pane::Pane;
 use super::layout::{Layout, NavigationDirection};
 use super::activity::{ActivityMonitor, ActivityType};
@@ -25,6 +26,8 @@ pub struct Window {
     pub pane_order: Vec<PaneId>,
     /// Resource limits for pane creation
     pub limits: std::sync::Arc<crate::config::limits::ResourceLimits>,
+    /// Pane configuration for split behavior
+    pub pane_config: PaneConfig,
 }
 
 impl Window {
@@ -119,18 +122,28 @@ impl Window {
             activity_monitor,
             pane_order: vec![pane_id],
             limits,
+            pane_config: PaneConfig::default(),
         }
     }
 
     pub async fn split_pane(&mut self, pane_id: &PaneId, direction: SplitDirection) -> Result<PaneId> {
         let new_pane_id = PaneId(Uuid::new_v4());
 
-        // Inherit working directory from the parent pane being split
-        let working_dir = if let Some(parent_pane_arc) = self.panes.get(pane_id) {
-            let parent_pane = parent_pane_arc.read().await;
-            parent_pane.working_directory.clone()
+        // Determine working directory based on configuration
+        let working_dir = if self.pane_config.inherit_working_directory {
+            // Inherit working directory from the parent pane being split
+            if let Some(parent_pane_arc) = self.panes.get(pane_id) {
+                let parent_pane = parent_pane_arc.read().await;
+                parent_pane.working_directory.clone()
+            } else {
+                // Fallback if parent pane not found
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
+            }
+        } else if let Some(ref default_path) = self.pane_config.default_path {
+            // Use configured default path
+            std::path::PathBuf::from(default_path)
         } else {
-            // Fallback to session's working directory if parent pane not found
+            // Use current server directory as fallback
             std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
         };
 

@@ -1301,8 +1301,8 @@ async fn async_main(cli: Cli) -> Result<()> {
                 println!("  Heap profiling: enabled");
             }
 
-            // TODO: Integrate with pprof or similar profiling library
-            // For now, collect basic metrics over the duration
+            // NOTE: Future enhancement could integrate with pprof/flamegraph for advanced profiling
+            // Current implementation: Collect basic metrics delta over the specified duration
             use ferrix::server::metrics::ServerMetrics;
             let metrics = ServerMetrics::global();
 
