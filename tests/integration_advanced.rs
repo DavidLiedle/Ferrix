@@ -19,7 +19,7 @@ async fn test_multi_client_attach_detach() {
     let client2 = TestClient::new(fixture.socket_path().clone());
 
     // Client 1 creates a session
-    let output = client1.new_session("shared-session", true);
+    let output = client1.new_session("shared-session", false);
     assert!(output.status.success(), "Client 1 failed to create session");
 
     sleep(Duration::from_millis(300)).await;
@@ -174,7 +174,7 @@ async fn test_window_management() {
     let client = TestClient::new(fixture.socket_path().clone());
 
     // Create a session
-    client.new_session("window-test", true);
+    client.new_session("window-test", false);
 
     sleep(Duration::from_millis(300)).await;
 

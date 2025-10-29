@@ -124,7 +124,16 @@ impl Window {
 
     pub async fn split_pane(&mut self, pane_id: &PaneId, direction: SplitDirection) -> Result<PaneId> {
         let new_pane_id = PaneId(Uuid::new_v4());
-        let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+
+        // Inherit working directory from the parent pane being split
+        let working_dir = if let Some(parent_pane_arc) = self.panes.get(pane_id) {
+            let parent_pane = parent_pane_arc.read().await;
+            parent_pane.working_directory.clone()
+        } else {
+            // Fallback to session's working directory if parent pane not found
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
+        };
+
         let new_pane = Pane::new_with_limits(new_pane_id.clone(), &self.limits, working_dir);
 
         self.panes.insert(new_pane_id.clone(), Arc::new(RwLock::new(new_pane)));

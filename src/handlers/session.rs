@@ -105,11 +105,15 @@ pub async fn handle_list(socket_path: PathBuf) -> Result<()> {
     } else {
         println!("Active sessions:");
         for session in sessions {
+            // Show shortened UUID (first 8 chars) for cleaner output
+            let short_id = session.id.0.to_string();
+            let short_id = &short_id[..8];
             println!(
-                "  {} ({}) - {} windows - created at {}",
+                "  {:<20} ({}) - {} window{} - created {}",
                 session.name,
-                session.id.0,
+                short_id,
                 session.windows,
+                if session.windows == 1 { "" } else { "s" },
                 session.created_at.format("%Y-%m-%d %H:%M:%S")
             );
         }

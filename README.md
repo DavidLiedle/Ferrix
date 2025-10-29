@@ -23,7 +23,7 @@
 
 Ferrix is a modern terminal multiplexer that combines the reliability of GNU Screen with features from Tmux, while exploring new possibilities with Rust's safety and performance. The name combines "Fe" (iron - representing Rust's memory safety) with "Matrix" (representing the matrix of terminal sessions).
 
-> **🚀 Production Ready (v0.21.1)**: Ferrix has achieved production readiness with comprehensive observability, security hardening, and operational excellence features. All P0 (Critical) and P1 (High Priority) reliability items complete. Includes multi-client session support, session persistence, crash analysis, metrics & health monitoring, resource management, and error recovery. **Ready for production use** with enterprise-grade reliability features.
+> **🚀 Production Ready (v1.0.0)**: Ferrix has achieved its first stable release with comprehensive UX improvements, bug fixes, and production-grade reliability. Includes working directory inheritance for split panes, improved terminal restoration, clean session list formatting, and zero compiler warnings. **Ready for production use** with enterprise-grade reliability features.
 
 ## ✨ Features
 
@@ -118,7 +118,7 @@ Ferrix combines the best of traditional terminal multiplexers with modern innova
 | **Versioning** | ✅ Git-like | ❌ | ❌ | ❌ |
 | **AI Assistance** | ✅ Experimental | ❌ | ❌ | ❌ |
 | **Test Coverage** | 277+ tests | ✅ Good | ✅ Good | ⚠️ Limited |
-| **Production Ready** | ✅ v0.21.1 | ✅ Mature | ⚠️ Active dev | ✅ Mature |
+| **Production Ready** | ✅ v1.0.0 | ✅ Mature | ⚠️ Active dev | ✅ Mature |
 | **Ecosystem** | 🌱 Growing | 🌳 Huge | 🌱 Growing | 🌳 Large |
 | **Learning Curve** | ⚠️ Moderate | ⚠️ Steep | ✅ Easy | ⚠️ Moderate |
 
@@ -367,9 +367,9 @@ See [SECURITY.md](SECURITY.md) for information on reporting security vulnerabili
 
 ## ✅ Production Readiness
 
-**Production Status**: Ferrix v0.21.1 is production-ready with enterprise-grade reliability features.
+**Production Status**: Ferrix v1.0.0 is production-ready with enterprise-grade reliability features and comprehensive UX improvements.
 
-### Completed (v0.21.x)
+### Completed (v1.0.0)
 - ✅ **Error Handling**: Comprehensive error handling with Result types throughout
 - ✅ **Code Quality**: Clippy-clean codebase with minimal warnings
 - ✅ **Observability**: Metrics, health checks, and crash analysis
@@ -455,7 +455,7 @@ cargo bench
 
 ## 🗺️ Development Status
 
-### Current Version: v0.21.1 (Production Ready)
+### Current Version: v1.0.0 (Stable Release)
 
 Ferrix is a **production-ready terminal multiplexer** with comprehensive features and enterprise-grade reliability.
 
@@ -471,12 +471,19 @@ Ferrix is a **production-ready terminal multiplexer** with comprehensive feature
 - ✅ Security hardening (rate limiting, mTLS, timeouts)
 - ✅ Error recovery and circuit breakers
 
-**Roadmap to v1.0:**
-- 📋 Lock contention optimization (DashMap for session lookup)
-- 📋 Chaos engineering tests (failure injection, resilience validation)
-- 📋 7-day continuous load testing
-- 📋 Security penetration testing
-- 📋 Operations runbook completion
+**v1.0.0 Release Highlights:**
+- ✅ Working directory inheritance for split panes (tmux-compatible)
+- ✅ Terminal state restoration with RAII guards (prevents corruption)
+- ✅ Clean session list formatting with shortened UUIDs
+- ✅ Configuration options for working directory behavior
+- ✅ Zero compiler warnings and clippy-clean code
+- ✅ Comprehensive bug fixes and UX improvements
+
+**Post-v1.0 Roadmap:**
+- 📋 Performance optimizations (lock contention, batching)
+- 📋 Extended testing (chaos engineering, long-running load tests)
+- 📋 Advanced features (GPU acceleration, Lua scripting)
+- 📋 Community plugins and ecosystem growth
 
 See [ROADMAP_ROCK_SOLID.md](ROADMAP_ROCK_SOLID.md) for detailed development plan.
 

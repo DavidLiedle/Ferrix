@@ -30,6 +30,67 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
+/// RAII guard to ensure terminal state is always restored on drop
+/// This prevents terminal corruption if the client exits unexpectedly
+struct TerminalGuard {
+    active: bool,
+}
+
+impl TerminalGuard {
+    fn new() -> Result<Self> {
+        terminal::enable_raw_mode()?;
+        execute!(stdout(), crossterm::terminal::EnterAlternateScreen)?;
+        execute!(stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))?;
+        execute!(stdout(), cursor::Hide)?;
+        Ok(Self { active: true })
+    }
+
+    fn disable(&mut self) {
+        if self.active {
+            self.active = false;
+            let _ = self.cleanup();
+        }
+    }
+
+    fn cleanup(&self) -> Result<()> {
+        use std::io::Write;
+
+        // Reset terminal state
+        write!(stdout(), "\x1b[?1000l")?;  // Disable X10 mouse tracking
+        write!(stdout(), "\x1b[?1002l")?;  // Disable button event tracking
+        write!(stdout(), "\x1b[?1003l")?;  // Disable any event tracking
+        write!(stdout(), "\x1b[?1006l")?;  // Disable SGR extended mode
+        write!(stdout(), "\x1b[?25h")?;    // Show cursor
+        write!(stdout(), "\x1b[m")?;        // Reset all attributes
+        std::io::stdout().flush()?;
+
+        // Disable raw mode
+        terminal::disable_raw_mode()?;
+
+        // Leave alternate screen
+        execute!(stdout(), crossterm::terminal::LeaveAlternateScreen)?;
+
+        // Clear and reset main screen
+        execute!(stdout(),
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+            crossterm::cursor::MoveTo(0, 0),
+            crossterm::cursor::Show
+        )?;
+
+        std::io::stdout().flush()?;
+        Ok(())
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        if self.active {
+            // Ignore errors during drop - we're already in an error/panic situation
+            let _ = self.cleanup();
+        }
+    }
+}
+
 /// Type of status bar message
 #[derive(Debug, Clone)]
 pub enum MessageType {
@@ -122,6 +183,8 @@ pub struct Client {
     last_render: Instant,
     render_interval: Duration,
     pending_render: bool, // Track if we skipped a render and need to catch up
+    // Terminal state guard - ensures cleanup on drop
+    terminal_guard: Option<TerminalGuard>,
 }
 
 impl Client {
@@ -197,6 +260,7 @@ impl Client {
             last_render: Instant::now(),
             render_interval: Duration::from_millis(16), // ~60 FPS max
             pending_render: false,
+            terminal_guard: None,
         })
     }
 
@@ -309,10 +373,8 @@ impl Client {
             // Set up terminal BEFORE attaching so buffer is displayed on alternate screen
             let is_tty = std::io::stdin().is_terminal();
             if is_tty {
-                terminal::enable_raw_mode()?;
-                execute!(stdout(), crossterm::terminal::EnterAlternateScreen)?;
-                execute!(stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))?;
-                execute!(stdout(), cursor::Hide)?;
+                // Create terminal guard - will auto-cleanup on drop even if error/panic occurs
+                self.terminal_guard = Some(TerminalGuard::new()?);
 
                 // Enable mouse support if configured
                 if self.mouse_handler.enabled {
@@ -446,13 +508,14 @@ impl Client {
         // Only enable raw mode if we're in an interactive terminal
         let is_tty = std::io::stdin().is_terminal();
 
-        if is_tty {
-            terminal::enable_raw_mode()?;
-            execute!(stdout(), crossterm::terminal::EnterAlternateScreen)?;
-            // Clear screen to start fresh
-            execute!(stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))?;
-            execute!(stdout(), cursor::Hide)?;
+        // Use RAII guard to ensure terminal is always restored, even on panic/error
+        let mut _guard = if is_tty {
+            Some(TerminalGuard::new()?)
+        } else {
+            None
+        };
 
+        if is_tty {
             // Enable mouse support if configured
             if self.mouse_handler.enabled {
                 execute!(stdout(), EnableMouseCapture)?;
@@ -474,36 +537,15 @@ impl Client {
         let result = self.handle_attached_session().await;
 
         if is_tty {
-            use std::io::Write;
-
             // Disable mouse capture if it was enabled
             if self.mouse_handler.enabled {
                 execute!(stdout(), DisableMouseCapture)?;
             }
 
-            // Reset terminal state BEFORE leaving alternate screen
-            write!(stdout(), "\x1b[?1000l")?;  // Disable X10 mouse tracking
-            write!(stdout(), "\x1b[?1002l")?;  // Disable button event tracking
-            write!(stdout(), "\x1b[?1003l")?;  // Disable any event tracking
-            write!(stdout(), "\x1b[?1006l")?;  // Disable SGR extended mode
-            write!(stdout(), "\x1b[?25h")?;    // Show cursor
-            write!(stdout(), "\x1b[m")?;        // Reset all attributes
-            std::io::stdout().flush()?;
-
-            // Disable raw mode while still on alternate screen
-            terminal::disable_raw_mode()?;
-
-            // Leave alternate screen
-            execute!(stdout(), crossterm::terminal::LeaveAlternateScreen)?;
-
-            // Clear the main screen after returning to it
-            execute!(stdout(),
-                crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
-                crossterm::cursor::MoveTo(0, 0),
-                crossterm::cursor::Show
-            )?;
-
-            std::io::stdout().flush()?;
+            // Explicitly disable guard before returning (ensures clean error propagation)
+            if let Some(ref mut guard) = _guard {
+                guard.disable();
+            }
         }
 
         result
@@ -515,36 +557,15 @@ impl Client {
         let result = self.handle_attached_session().await;
 
         if is_tty {
-            use std::io::Write;
-
             // Disable mouse capture if it was enabled
             if self.mouse_handler.enabled {
                 execute!(stdout(), DisableMouseCapture)?;
             }
 
-            // Reset terminal state BEFORE leaving alternate screen
-            write!(stdout(), "\x1b[?1000l")?;  // Disable X10 mouse tracking
-            write!(stdout(), "\x1b[?1002l")?;  // Disable button event tracking
-            write!(stdout(), "\x1b[?1003l")?;  // Disable any event tracking
-            write!(stdout(), "\x1b[?1006l")?;  // Disable SGR extended mode
-            write!(stdout(), "\x1b[?25h")?;    // Show cursor
-            write!(stdout(), "\x1b[m")?;        // Reset all attributes
-            std::io::stdout().flush()?;
-
-            // Disable raw mode while still on alternate screen
-            terminal::disable_raw_mode()?;
-
-            // Leave alternate screen
-            execute!(stdout(), crossterm::terminal::LeaveAlternateScreen)?;
-
-            // Clear the main screen after returning to it
-            execute!(stdout(),
-                crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
-                crossterm::cursor::MoveTo(0, 0),
-                crossterm::cursor::Show
-            )?;
-
-            std::io::stdout().flush()?;
+            // Explicitly disable and drop the guard to ensure clean terminal restoration
+            if let Some(mut guard) = self.terminal_guard.take() {
+                guard.disable();
+            }
         }
 
         result

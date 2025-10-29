@@ -101,6 +101,10 @@ pub struct WindowConfig {
     pub renumber: bool,
     pub base_index: usize,
     pub aggressive_resize: bool,
+    /// When creating a new window, inherit working directory from current pane
+    /// Default: false (use session working directory)
+    #[serde(default)]
+    pub inherit_current_path: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -108,6 +112,18 @@ pub struct PaneConfig {
     pub base_index: usize,
     pub display_borders: bool,
     pub border_style: BorderStyle,
+    /// When splitting a pane, inherit the working directory from the parent pane
+    /// Default: true (tmux-compatible behavior)
+    #[serde(default = "default_inherit_working_directory")]
+    pub inherit_working_directory: bool,
+    /// Default path for new panes (when not inheriting). If None, uses session working directory.
+    /// Example: "/home/user/projects"
+    #[serde(default)]
+    pub default_path: Option<String>,
+}
+
+fn default_inherit_working_directory() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -222,6 +238,7 @@ impl Default for WindowConfig {
             renumber: true,
             base_index: 0,
             aggressive_resize: false,
+            inherit_current_path: false,
         }
     }
 }
@@ -232,6 +249,8 @@ impl Default for PaneConfig {
             base_index: 0,
             display_borders: true,
             border_style: BorderStyle::Single,
+            inherit_working_directory: true,
+            default_path: None,
         }
     }
 }

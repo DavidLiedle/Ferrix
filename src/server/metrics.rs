@@ -201,7 +201,7 @@ impl ServerMetrics {
         self.client_map_writes.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn track_concurrent_operation(&self) -> ConcurrentOpGuard {
+    pub fn track_concurrent_operation(&self) -> ConcurrentOpGuard<'_> {
         let current = self.concurrent_operations.fetch_add(1, Ordering::Relaxed);
         // Track peak concurrent operations (simple max tracking)
         let _peak = current + 1;
