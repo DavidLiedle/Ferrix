@@ -453,6 +453,33 @@ cargo test
 cargo bench
 ```
 
+### How This Project is Built
+
+Ferrix is developed using **Claude Code**, an AI-assisted development workflow that combines human creativity with AI capabilities. This approach enables rapid iteration, comprehensive testing, and high-quality code.
+
+**Development Tools:**
+- **Claude Code CLI** - For local development, complex refactoring, and testing workflows
+- **Claude Code Web** - For quick iterations, documentation updates, and collaborative planning
+- **Traditional Tools** - Git, Cargo, and the Rust toolchain
+
+**AI-Assisted Development Workflow:**
+
+1. **Architecture & Planning** - Human developer defines requirements and system architecture, Claude Code helps explore design alternatives and identifies potential issues
+2. **Implementation** - Claude Code generates code following Rust best practices, while the developer reviews and provides domain expertise
+3. **Testing & Validation** - Comprehensive test suites written with AI assistance, validated by human testing
+4. **Documentation** - Detailed documentation maintained by both human and AI, ensuring accuracy and completeness
+5. **Refactoring & Optimization** - Continuous improvement guided by benchmarks and real-world usage
+
+**Benefits of This Approach:**
+- **Speed**: Rapid prototyping and implementation of complex features
+- **Quality**: Consistent code style, comprehensive error handling, and extensive testing
+- **Learning**: Code includes detailed comments and documentation for maintainability
+- **Innovation**: Quick experimentation with new ideas and architectural patterns
+
+**Transparency**: All code is human-reviewed and validated. The AI assists but doesn't replace human judgment, domain expertise, or architectural decisions. This collaborative approach allows for faster development while maintaining high standards of code quality and design.
+
+For more details on contributing to this AI-assisted project, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## 🗺️ Development Status
 
 ### Current Version: v1.0.0 (Stable Release)
