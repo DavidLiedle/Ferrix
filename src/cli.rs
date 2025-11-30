@@ -11,10 +11,6 @@ pub struct Cli {
     #[arg(short, long, help = "Enable debug logging")]
     pub debug: bool,
 
-    #[cfg(feature = "gpu")]
-    #[arg(long, help = "Use GPU-accelerated rendering (experimental)")]
-    pub gpu: bool,
-
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

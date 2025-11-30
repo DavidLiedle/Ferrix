@@ -172,9 +172,6 @@ allow_remote = false
 remote_port = 7755
 remote_encryption = true
 
-# GPU acceleration (experimental)
-gpu_acceleration = false
-
 # Logging
 log_level = "info"  # trace, debug, info, warn, error
 log_file = "~/.ferrix/ferrix.log"

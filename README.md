@@ -85,7 +85,6 @@ Ferrix is a modern terminal multiplexer that combines the reliability of GNU Scr
 - ✅ **Optimized Performance** - 4.6MB binary, ~8ms cold start, async/await architecture
 
 ### Future Enhancements
-- 📋 **GPU Acceleration** - Optional wgpu-based rendering for better performance
 - 📋 **Advanced Scripting** - Lua or Rhai scripting support for automation
 - 📋 **Multi-User Collaboration** - Real-time collaborative editing
 - 📋 **Advanced Layout Management** - Custom layout presets and templates
@@ -231,7 +230,7 @@ cargo build --release
 cargo build --release --features full
 
 # Build with specific features
-cargo build --release --features remote,plugin
+cargo build --release --features remote,versioning,plugin
 
 # The binary will be at ./target/release/ferrix
 # Optionally, copy to your PATH:
@@ -257,7 +256,6 @@ cargo build --release --features remote,versioning,plugin
 - **Tier 1** (Always Enabled): `clipboard`, `scrollback`, `recording`
 - **Tier 2** (Advanced): `remote` (TCP/TLS access), `performance` (output optimization)
 - **Tier 3** (Experimental): `versioning`, `collaboration`, `time-travel`, `plugin`, `ai-assist`
-- **Tier 4** (UI): `gpu`, `battery-status`
 
 See [FEATURES.md](FEATURES.md) for detailed information about each feature.
 

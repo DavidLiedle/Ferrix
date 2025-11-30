@@ -360,26 +360,8 @@ impl StatusBar {
                 "🪫"
             };
 
-            // Add charging status if available (when battery feature is enabled)
-            let status = {
-                #[cfg(feature = "battery-status")]
-                {
-                    if let Ok(manager) = battery::Manager::new() {
-                        if let Ok(mut batteries) = manager.batteries() {
-                            if let Some(Ok(battery)) = batteries.next() {
-                                match battery.state() {
-                                    battery::State::Charging => "⚡",
-                                    battery::State::Discharging => "",
-                                    battery::State::Full => "✓",
-                                    _ => "",
-                                }
-                            } else { "" }
-                        } else { "" }
-                    } else { "" }
-                }
-                #[cfg(not(feature = "battery-status"))]
-                ""
-            };
+            // Battery charging status removed (feature deprecated)
+            let status = "";
 
             format!("{}{} {:.0}%", icon, status, level)
         } else {
@@ -535,18 +517,7 @@ impl StatusBar {
     }
 
     fn get_battery_level() -> Option<f32> {
-        #[cfg(feature = "battery-status")]
-        {
-            // Get battery level using the battery crate (when feature is enabled)
-            if let Ok(manager) = battery::Manager::new() {
-                if let Ok(mut batteries) = manager.batteries() {
-                    if let Some(Ok(battery)) = batteries.next() {
-                        let charge = battery.state_of_charge().value * 100.0;
-                        return Some(charge);
-                    }
-                }
-            }
-        }
+        // Battery feature removed - use sysinfo for system monitoring instead
         None
     }
 

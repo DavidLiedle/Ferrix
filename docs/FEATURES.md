@@ -56,11 +56,12 @@ default = ["clipboard", "scrollback"]
 
 ---
 
-### TIER 4: UI Enhancements
-**Status**: ⚠️ Cosmetic, high cost
+### TIER 4: UI Enhancements (Removed)
+**Status**: ❌ Removed in v2.0 – Ferrix is now terminal-only.
 
-- **gpu** - GPU-accelerated rendering (23MB+ deps)
-- **battery-status** - Battery indicator (**has security vulnerability**)
+Previously, this tier included experimental GPU rendering and a battery-status indicator.
+These features have been removed to keep Ferrix focused on being a terminal multiplexer
+that runs inside existing terminals, and to avoid carrying unnecessary security risk.
 
 ---
 
@@ -68,7 +69,7 @@ default = ["clipboard", "scrollback"]
 
 - **essential** = clipboard + scrollback + recording (~6-7MB)
 - **power-user** = essential + remote + versioning + performance (~8-9MB)
-- **full** = everything enabled (~9.7MB)
+- **full** = everything enabled from Tiers 1–3 (~9.7MB)
 
 ---
 

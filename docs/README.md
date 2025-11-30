@@ -5,15 +5,14 @@ Welcome to the Ferrix documentation! Ferrix is a revolutionary Rust-based termin
 ## 📚 Documentation Index
 
 - [Getting Started](./getting-started.md) - Installation and basic usage
-- [Configuration Guide](./configuration.md) - Complete guide to ~/.ferrixrc
-- [Key Bindings](./keybindings.md) - Default keys and customization
+- [Configuration Guide](./configuration.md) - Complete guide to configuration
 - [Commands Reference](./commands.md) - All CLI commands
-- [Sessions & Windows](./sessions-windows.md) - Managing sessions, windows, and panes
 - [Snapshots & Recovery](./snapshots.md) - Session persistence and crash recovery
-- [Advanced Features](./advanced.md) - Plugins, hooks, and scripting
-- [Migration Guide](./migration.md) - Moving from Screen/tmux to Ferrix
-- [Architecture](./architecture.md) - Technical design and internals
-- [Contributing](./contributing.md) - Development guide
+- [Feature Flags](./FEATURES.md) - Build-time features and groups
+- [Hooks](./HOOKS.md) - Event hooks and automation
+- [Format Variables](./FORMAT_VARIABLES.md) - Status bar and formatting
+- [Shell Completions](./SHELL_COMPLETIONS.md) - Completion scripts for common shells
+- [Testing](./TESTING.md) - Test strategy and workflows
 
 ## 🚀 Quick Start
 
@@ -48,10 +47,9 @@ ferrix generate-config
 ### Revolutionary Features
 - **Session Snapshots**: Save and restore exact session state
 - **Crash Recovery**: Automatic recovery after system failures
-- **Configuration System**: Dual-format (TOML/RC) configuration
+- **Configuration System**: Flexible, file-based configuration
 - **Native Clipboard**: System clipboard integration
 - **WASM Plugins**: Extensible plugin system (coming soon)
-- **GPU Acceleration**: Hardware-accelerated rendering (planned)
 
 ### Developer-Friendly
 - **Written in Rust**: Memory-safe and blazingly fast

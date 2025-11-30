@@ -63,7 +63,6 @@ recovery_backup_dir = "~/.ferrix/recovery"
 allow_remote = false
 remote_port = 7755
 remote_encryption = true
-gpu_acceleration = false
 log_level = "info"
 log_file = "~/.ferrix/ferrix.log"
 

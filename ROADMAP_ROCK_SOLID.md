@@ -1,9 +1,12 @@
-# Ferrix Rock Solid Roadmap
-## From Production Ready → Enterprise-Grade
+# Ferrix Rock Solid Roadmap (Historical)
+## From Production Ready → Enterprise-Grade (v0.21 → v1.0)
 
 **Status:** v0.21.1 - All P0/P1 Complete ✅
-**Goal:** v1.0.0 - Rock Solid Enterprise-Grade 🎯
+**Goal (completed):** v1.0.0 - Rock Solid Enterprise-Grade 🎯
 **Timeline:** 6-7 weeks (P0/P1 completed ahead of schedule)
+
+> This document describes the journey from v0.21.x to the first v1.0.0 release.
+> For the current roadmap and future direction (v2.0+), see `ROADMAP_V2.md`.
 
 ---
 

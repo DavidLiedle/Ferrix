@@ -84,8 +84,20 @@ impl HelpOverlay {
                 true
             }
             (KeyModifiers::NONE, KeyCode::Tab) => {
+                // Next category
                 let categories = self.get_categories();
                 self.selected_category = (self.selected_category + 1) % categories.len();
+                self.scroll_offset = 0;
+                true
+            }
+            (KeyModifiers::SHIFT, KeyCode::BackTab) => {
+                // Previous category (Shift-Tab)
+                let categories = self.get_categories();
+                if self.selected_category == 0 {
+                    self.selected_category = categories.len() - 1;
+                } else {
+                    self.selected_category -= 1;
+                }
                 self.scroll_offset = 0;
                 true
             }
@@ -133,7 +145,7 @@ impl HelpOverlay {
                 ],
             },
             HelpCategory {
-                name: "Copy Mode & Selection",
+                name: "Copy & Select",
                 items: vec![
                     HelpItem { keys: "Ctrl-b [", description: "Enter copy mode" },
                     HelpItem { keys: "Space", description: "Start selection (in copy mode)" },
@@ -158,7 +170,7 @@ impl HelpOverlay {
                 ],
             },
             HelpCategory {
-                name: "Command Mode",
+                name: "Commands",
                 items: vec![
                     HelpItem { keys: "Ctrl-b :", description: "Enter command mode" },
                     HelpItem { keys: ":split-window", description: "Split current pane" },
@@ -170,7 +182,7 @@ impl HelpOverlay {
                 ],
             },
             HelpCategory {
-                name: "Advanced Features",
+                name: "Advanced",
                 items: vec![
                     HelpItem { keys: "Ctrl-b r", description: "Reload configuration" },
                     HelpItem { keys: "Ctrl-b Space", description: "Cycle through layouts" },
@@ -180,7 +192,7 @@ impl HelpOverlay {
                 ],
             },
             HelpCategory {
-                name: "Getting Help",
+                name: "Help",
                 items: vec![
                     HelpItem { keys: "Ctrl-b ?", description: "Show this help (toggle)" },
                     HelpItem { keys: "ferrix --help", description: "CLI help" },

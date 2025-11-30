@@ -183,6 +183,10 @@ pub struct Client {
     pending_render: bool, // Track if we skipped a render and need to catch up
     // Terminal state guard - ensures cleanup on drop
     terminal_guard: Option<TerminalGuard>,
+    // Dirty region tracking for optimized rendering (v2.0)
+    dirty_panes: std::collections::HashSet<PaneId>,
+    layout_dirty: bool,       // True when layout changes (resize, split, close)
+    status_bar_dirty: bool,   // True when status bar needs update
 }
 
 impl Client {
@@ -259,6 +263,9 @@ impl Client {
             render_interval: Duration::from_millis(16), // ~60 FPS max
             pending_render: false,
             terminal_guard: None,
+            dirty_panes: std::collections::HashSet::new(),
+            layout_dirty: true,  // Force initial render
+            status_bar_dirty: true,
         })
     }
 
@@ -1527,6 +1534,10 @@ impl Client {
         // Process the data through the ANSI parser
         parser.process(&data);
 
+        // Mark this pane as dirty for optimized rendering (v2.0)
+        self.dirty_panes.insert(pane_id.clone());
+        self.status_bar_dirty = true; // Status bar may show pane activity
+
         // Send any pending PTY responses back to the server
         let responses = parser.take_pending_responses();
         if !responses.is_empty() {
@@ -1571,12 +1582,37 @@ impl Client {
     }
 
     async fn render_layout(&mut self) -> Result<()> {
-        if let Some(layout) = &self.current_layout.clone() {
-            // Draw panes first
-            self.draw_panes(layout).await?;
+        // IMPORTANT: If any overlay is visible, always do a full render
+        // Overlays need the base screen rendered first
+        let force_render = self.help_overlay.is_visible()
+            || self.window_selector.is_visible()
+            || self.command_mode.is_active()
+            || self.copy_mode.is_active();
 
-            // Then draw status bar on top
-            self.render_status_bar().await?;
+        if let Some(layout) = &self.current_layout.clone() {
+            // v2.0 Optimization: Only render dirty panes (unless forced)
+            // If layout changed, render all panes (borders may have moved)
+            if self.layout_dirty || force_render {
+                self.draw_panes(layout).await?;
+                self.layout_dirty = false;
+                self.dirty_panes.clear(); // All panes rendered
+            } else if !self.dirty_panes.is_empty() {
+                // Only render panes that have changed
+                for pane in &layout.panes {
+                    if self.dirty_panes.contains(&pane.id) {
+                        // Draw border and content for dirty pane
+                        self.draw_pane_border(pane).await?;
+                        self.draw_pane_content(pane).await?;
+                    }
+                }
+                self.dirty_panes.clear();
+            }
+
+            // Render status bar only if dirty (or forced)
+            if self.status_bar_dirty || force_render {
+                self.render_status_bar().await?;
+                self.status_bar_dirty = false;
+            }
         }
 
         // Render help overlay if visible (it's an overlay over everything)
@@ -2439,6 +2475,10 @@ impl Client {
         // Store the layout for rendering
         self.current_layout = Some(layout.clone());
 
+        // Mark layout as dirty to force full redraw (v2.0)
+        self.layout_dirty = true;
+        self.status_bar_dirty = true;
+
         // Re-render the screen with the new layout
         self.render_layout().await?;
 
@@ -2453,6 +2493,7 @@ impl Client {
             timestamp: Instant::now(),
         };
         self.messages.push_back(message);
+        self.status_bar_dirty = true; // Messages shown in status bar (v2.0)
         // Keep only last 5 messages
         while self.messages.len() > 5 {
             self.messages.pop_front();

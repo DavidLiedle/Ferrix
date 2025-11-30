@@ -164,7 +164,6 @@ pub struct AdvancedConfig {
     pub allow_remote: bool,
     pub remote_port: u16,
     pub remote_encryption: bool,
-    pub gpu_acceleration: bool,
     pub log_level: String,
     pub log_file: String,
 }
@@ -284,7 +283,6 @@ impl Default for AdvancedConfig {
             allow_remote: false,
             remote_port: 7755,
             remote_encryption: true,
-            gpu_acceleration: false,
             log_level: "info".to_string(),
             log_file: "~/.ferrix/ferrix.log".to_string(),
         }

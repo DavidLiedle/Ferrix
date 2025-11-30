@@ -261,18 +261,6 @@ ferrix user passwd admin
 ferrix user list
 ```
 
-### 3. Battery Feature Security
-
-**Note**: Battery status feature is **disabled by default** to avoid nix vulnerability (RUSTSEC-2021-0119).
-
-To enable (accepts security risk for cosmetic feature):
-```bash
-# Rebuild with battery support
-cargo build --release --features battery-status
-```
-
-See [DEPENDENCY_AUDIT.md](../DEPENDENCY_AUDIT.md) for details.
-
 ---
 
 ## Service Management
@@ -575,12 +563,9 @@ ferrix kill <session-name>
 ```
 
 **Slow rendering**:
-```bash
-# Disable GPU acceleration if causing issues
-cargo build --release --no-default-features
-
-# Check terminal emulator compatibility
-```
+- Reduce scrollback size in configuration (fewer lines to render)
+- Avoid running extremely verbose commands in many panes simultaneously
+- Check terminal emulator compatibility and performance settings
 
 ### Session Recovery
 

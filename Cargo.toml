@@ -97,13 +97,7 @@ sha2 = { version = "0.10", optional = true }                      # plugin
 tar = { version = "0.4", optional = true }                        # plugin
 reqwest = { version = "0.12", features = ["blocking", "json"], optional = true }  # plugin + ai-assist
 
-# Tier 4: UI enhancements
-wgpu = { version = "23.0", optional = true }                      # gpu
-raw-window-handle = { version = "0.6", optional = true }          # gpu
-winit = { version = "0.30", optional = true }                     # gpu
-bytemuck = { version = "1.20", features = ["derive"], optional = true }  # gpu
-fontdue = { version = "0.9", optional = true }                    # gpu - font rasterization
-battery = { version = "0.7", optional = true }                    # battery-status
+# Tier 4: UI enhancements (currently empty - focused on terminal-based rendering)
 
 [dev-dependencies]
 criterion = "0.5"
@@ -154,8 +148,7 @@ default = []
 # Full: Everything enabled (for power users who want it all)
 full = [
     "remote", "ssh", "mosh", "versioning",
-    "collaboration", "time-travel", "plugin", "ai-assist",
-    "gpu", "battery-status"
+    "collaboration", "time-travel", "plugin", "ai-assist"
 ]
 
 # ============================================================================
@@ -190,14 +183,9 @@ plugin = [                             # WASM plugin system
 ai-assist = ["dep:reqwest"]           # AI command suggestions
 
 # ============================================================================
-# TIER 4: UI Enhancements (cosmetic, high dependency cost)
+# TIER 4: UI Enhancements (terminal-focused improvements)
 # ============================================================================
-gpu = [                                # GPU-accelerated rendering
-    "dep:wgpu", "dep:raw-window-handle",
-    "dep:winit", "dep:bytemuck", "dep:fontdue"
-]
-battery-status = ["dep:battery"]       # Battery info in status bar
-                                       # ⚠️  Has nix vulnerability (RUSTSEC-2021-0119)
+# Removed: gpu, battery-status (not aligned with terminal multiplexer focus)
 
 # ============================================================================
 # Feature Groups (convenience aliases)

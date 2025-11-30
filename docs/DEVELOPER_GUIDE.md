@@ -55,8 +55,8 @@ Ferrix follows a client-server architecture with asynchronous message passing:
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/ferrix.git
-cd ferrix
+git clone https://github.com/davidliedle/Ferrix.git
+cd Ferrix
 
 # Build debug version
 cargo build
@@ -84,19 +84,15 @@ cargo bench
 ### Feature Flags
 
 ```bash
-# Build with specific features
-cargo build --features "gpu,remote,plugins"
+# Build with recommended feature set (matches README)
+cargo build --release --features full
 
-# Build minimal version
-cargo build --no-default-features --features "core"
+# Minimal build (core multiplexing only)
+cargo build --release
 ```
 
-Available features:
-- `gpu`: GPU-accelerated rendering
-- `remote`: Remote session support
-- `plugins`: WASM plugin system
-- `tls`: TLS encryption for remote sessions
-- `compression`: Protocol compression
+Available feature groups and flags are documented in `FEATURES.md`. Refer there for
+the up-to-date list of `remote`, `plugin`, `versioning`, and other features.
 
 ## Project Structure
 
@@ -852,12 +848,11 @@ lsof -p $(pgrep ferrix)
 
 ### Planned Features
 
-1. **GPU Rendering**: Hardware-accelerated terminal rendering
-2. **Collaborative Sessions**: Real-time session sharing
-3. **Cloud Sync**: Session synchronization across devices
-4. **Mobile Support**: iOS/Android clients
-5. **AI Integration**: Smart command completion and suggestions
-6. **Advanced Scripting**: Lua/Python embedding for automation
+1. **Collaborative Sessions**: Real-time session sharing
+2. **Cloud Sync**: Session synchronization across devices
+3. **Mobile Support**: iOS/Android clients
+4. **AI Integration**: Smart command completion and suggestions
+5. **Advanced Scripting**: Lua/Python embedding for automation
 
 ### Architecture Evolution
 

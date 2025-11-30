@@ -31,23 +31,15 @@ nix 0.19.1
     └── ferrix 0.10.2
 ```
 
-**Mitigation Strategy**:
-- Battery crate made **optional** via `battery-status` feature
+**Mitigation Strategy (Historical for pre-v2 builds)**:
+- Battery crate was previously made **optional** via a `battery-status` feature
 - Removed from **default features** to avoid vulnerability in standard builds
-- Users can opt-in with `--features battery-status` if they want battery status bar info
-- Vulnerability is in `getgrouplist` function which battery crate may not even use
+- In current releases, the battery feature and its dependency chain have been
+  removed entirely from the project to eliminate this risk.
 
 **Impact**: Low - battery status is cosmetic feature for status bar display only
 
-**User Action Required**: None. Battery status is disabled by default.
-
-**For Users Who Want Battery Status**:
-```bash
-# Build with battery support (includes vulnerability)
-cargo build --release --features battery-status
-
-# Users accept the risk for cosmetic battery icons in status bar
-```
+**User Action Required**: None. Battery status is not available in current releases.
 
 **Upgrade Path**: Battery crate 0.7.8 is latest version and still uses old nix. No fix available from upstream. Monitoring for battery crate updates or alternative implementations.
 
@@ -158,11 +150,11 @@ fxhash 0.2.1
 **Advisory**: https://rustsec.org/advisories/RUSTSEC-2020-0168
 **Unmaintained Since**: 2020-07-14
 
-**Dependency Chain**:
+**Dependency Chain (historical)**:
 ```
 mach 0.3.2
 └── battery 0.7.8
-    └── ferrix 0.10.2 (only with battery-status feature)
+    └── ferrix 0.10.2 (only with legacy battery-status feature)
 ```
 
 **Risk Assessment**: Low
@@ -170,7 +162,7 @@ mach 0.3.2
 - macOS kernel interface bindings - stable API
 - Unmaintained since 2020 but no known vulnerabilities
 
-**Action**: Removed from default build via optional battery feature
+**Action**: Removed from current codebase; no longer used in supported builds
 
 ---
 
@@ -257,17 +249,15 @@ serial 0.4.0
 
 ## Testing Recommendations
 
-1. **Without Battery Feature** (Default):
+1. **Default Build**:
    ```bash
    cargo build --release
    cargo audit  # Should show only wasmtime low-severity
    ```
 
-2. **With Battery Feature**:
-   ```bash
-   cargo build --release --features battery-status
-   cargo audit  # Will show nix vulnerability (accepted risk)
-   ```
+2. **The battery feature is not available in current releases. Older builds that
+   exposed `--features battery-status` are deprecated and should not be used in
+   production.**
 
 3. **Minimal Features** (No GPU, No Battery):
    ```bash
