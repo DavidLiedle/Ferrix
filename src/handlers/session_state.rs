@@ -44,8 +44,6 @@ pub async fn handle_set_lock(socket_path: PathBuf, locked: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_session_state_handlers_exist() {
         // Verify all handlers compile

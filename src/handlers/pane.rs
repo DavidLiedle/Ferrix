@@ -199,8 +199,6 @@ pub async fn handle_resize(socket_path: PathBuf, direction: String, amount: u16)
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_pane_handlers_exist() {
         // Verify all handlers compile

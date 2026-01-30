@@ -53,8 +53,6 @@ pub async fn handle_set(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_activity_handlers_exist() {
         // Verify all handlers compile

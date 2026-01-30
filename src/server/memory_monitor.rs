@@ -268,8 +268,8 @@ impl MemoryMonitor {
             return;
         }
 
-        let baseline_rss = baseline.unwrap();
-        let current_rss = snapshots.last().unwrap().usage.rss;
+        let baseline_rss = baseline.expect("baseline checked above");
+        let current_rss = snapshots.last().expect("snapshots checked non-empty above").usage.rss;
 
         // Check absolute memory limit
         if let Some(limit) = self.config.memory_limit {
@@ -306,8 +306,8 @@ impl MemoryMonitor {
                 .take(30)
                 .collect();
 
-            let first_rss = recent.last().unwrap().usage.rss as f64;
-            let last_rss = recent.first().unwrap().usage.rss as f64;
+            let first_rss = recent.last().expect("recent has 30 elements").usage.rss as f64;
+            let last_rss = recent.first().expect("recent has 30 elements").usage.rss as f64;
             let samples = recent.len() as f64;
             let growth_rate = (last_rss - first_rss) / samples;
 
@@ -338,7 +338,7 @@ impl MemoryMonitor {
             return MemoryStats::default();
         }
 
-        let current = snapshots.last().unwrap();
+        let current = snapshots.last().expect("checked non-empty above");
         let current_rss = current.usage.rss;
 
         MemoryStats {

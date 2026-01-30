@@ -139,8 +139,6 @@ pub fn handle_import(archive: String) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_snapshot_handlers_exist() {
         // Verify all handlers compile

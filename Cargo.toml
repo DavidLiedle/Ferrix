@@ -1,13 +1,18 @@
 [package]
 name = "ferrix"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
+rust-version = "1.70"
 authors = ["David Liedle", "Claude <noreply@anthropic.com>"]
 description = "A modern terminal multiplexer built with Rust, inspired by tmux and GNU Screen"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/davidliedle/Ferrix"
+homepage = "https://github.com/davidliedle/Ferrix"
+documentation = "https://docs.rs/ferrix"
+readme = "README.md"
 keywords = ["terminal", "multiplexer", "tmux", "screen", "tui"]
 categories = ["command-line-utilities"]
+exclude = [".github/", "docs/internal/", "*.md", "!README.md"]
 
 [dependencies]
 # Async runtime

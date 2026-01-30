@@ -162,7 +162,7 @@ impl PressureMonitor {
 
     /// Get memory statistics, using cache if available and recent
     fn get_memory_stats(&self) -> (u64, u64) {
-        let mut cache = self.cached_system.lock().unwrap();
+        let mut cache = self.cached_system.lock().expect("mutex not poisoned");
         let now = Instant::now();
 
         // Check if we have a cached system and it's still fresh (< 2 seconds old)

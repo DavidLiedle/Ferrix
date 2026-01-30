@@ -104,8 +104,6 @@ pub async fn handle_status(socket_path: PathBuf, session: Option<String>) -> Res
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_autosave_handlers_exist() {
         // Verify all handlers compile

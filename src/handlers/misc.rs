@@ -47,8 +47,6 @@ pub async fn handle_send_keys(socket_path: PathBuf, target: String, keys: Vec<St
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_misc_handlers_exist() {
         // Verify all handlers compile

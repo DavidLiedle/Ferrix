@@ -202,7 +202,7 @@ where
     );
 
     RetryResult::Failed {
-        last_error: last_error.unwrap(),
+        last_error: last_error.expect("loop executed at least once"),
         attempts: policy.max_retries + 1,
     }
 }
@@ -277,7 +277,7 @@ where
     };
 
     RetryResult::Failed {
-        last_error: last_error.unwrap(),
+        last_error: last_error.expect("loop executed at least once"),
         attempts,
     }
 }

@@ -108,8 +108,8 @@ impl CrashAnalyzer {
             .into_iter()
             .filter(|(_, reports)| reports.len() > 1) // Only patterns with multiple occurrences
             .map(|(location, reports)| {
-                let first_seen = reports.iter().map(|r| r.metadata.timestamp).min().unwrap();
-                let last_seen = reports.iter().map(|r| r.metadata.timestamp).max().unwrap();
+                let first_seen = reports.iter().map(|r| r.metadata.timestamp).min().expect("filtered for len > 1");
+                let last_seen = reports.iter().map(|r| r.metadata.timestamp).max().expect("filtered for len > 1");
 
                 CrashPattern {
                     id: format!("location-{}", md5::compute(location.as_bytes()).0.iter().take(8).map(|b| format!("{:02x}", b)).collect::<String>()),
@@ -137,8 +137,8 @@ impl CrashAnalyzer {
             .into_iter()
             .filter(|(_, reports)| reports.len() > 1)
             .map(|(message, reports)| {
-                let first_seen = reports.iter().map(|r| r.metadata.timestamp).min().unwrap();
-                let last_seen = reports.iter().map(|r| r.metadata.timestamp).max().unwrap();
+                let first_seen = reports.iter().map(|r| r.metadata.timestamp).min().expect("filtered for len > 1");
+                let last_seen = reports.iter().map(|r| r.metadata.timestamp).max().expect("filtered for len > 1");
 
                 CrashPattern {
                     id: format!("message-{}", md5::compute(message.as_bytes()).0.iter().take(8).map(|b| format!("{:02x}", b)).collect::<String>()),
@@ -170,8 +170,8 @@ impl CrashAnalyzer {
             .collect();
 
         if memory_crashes.len() > 1 {
-            let first_seen = memory_crashes.iter().map(|r| r.metadata.timestamp).min().unwrap();
-            let last_seen = memory_crashes.iter().map(|r| r.metadata.timestamp).max().unwrap();
+            let first_seen = memory_crashes.iter().map(|r| r.metadata.timestamp).min().expect("len > 1 checked");
+            let last_seen = memory_crashes.iter().map(|r| r.metadata.timestamp).max().expect("len > 1 checked");
 
             vec![CrashPattern {
                 id: "memory-related".to_string(),
@@ -204,8 +204,8 @@ impl CrashAnalyzer {
             .collect();
 
         if pty_crashes.len() > 1 {
-            let first_seen = pty_crashes.iter().map(|r| r.metadata.timestamp).min().unwrap();
-            let last_seen = pty_crashes.iter().map(|r| r.metadata.timestamp).max().unwrap();
+            let first_seen = pty_crashes.iter().map(|r| r.metadata.timestamp).min().expect("len > 1 checked");
+            let last_seen = pty_crashes.iter().map(|r| r.metadata.timestamp).max().expect("len > 1 checked");
 
             vec![CrashPattern {
                 id: "pty-related".to_string(),
@@ -238,8 +238,8 @@ impl CrashAnalyzer {
             .collect();
 
         if protocol_crashes.len() > 1 {
-            let first_seen = protocol_crashes.iter().map(|r| r.metadata.timestamp).min().unwrap();
-            let last_seen = protocol_crashes.iter().map(|r| r.metadata.timestamp).max().unwrap();
+            let first_seen = protocol_crashes.iter().map(|r| r.metadata.timestamp).min().expect("len > 1 checked");
+            let last_seen = protocol_crashes.iter().map(|r| r.metadata.timestamp).max().expect("len > 1 checked");
 
             vec![CrashPattern {
                 id: "protocol-related".to_string(),

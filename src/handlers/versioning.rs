@@ -307,8 +307,6 @@ pub async fn handle_log(socket_path: PathBuf, limit: usize, _verbose: bool) -> R
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_versioning_handlers_exist() {
         // Verify all handlers compile

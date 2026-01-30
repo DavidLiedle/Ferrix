@@ -15,6 +15,12 @@
 ╚═══════════════════════════════════════════╝
 ```
 
+[![CI](https://github.com/davidliedle/Ferrix/actions/workflows/ci.yml/badge.svg)](https://github.com/davidliedle/Ferrix/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/ferrix.svg)](https://crates.io/crates/ferrix)
+[![Documentation](https://docs.rs/ferrix/badge.svg)](https://docs.rs/ferrix)
+[![License](https://img.shields.io/crates/l/ferrix.svg)](https://github.com/davidliedle/Ferrix#license)
+[![MSRV](https://img.shields.io/badge/MSRV-1.70-blue.svg)](https://blog.rust-lang.org/2023/06/01/Rust-1.70.0.html)
+
 **A modern take on terminal multiplexing inspired by [GNU Screen and Tmux](https://github.com/cloudstreet-dev/GNU-Screen-vs-Tmux)**
 
 </div>
