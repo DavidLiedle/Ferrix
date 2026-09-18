@@ -36,7 +36,7 @@ pub enum Commands {
         #[arg(long, help = "TLS private key file for secure connections")]
         tls_key: Option<String>,
 
-        #[arg(long, default_value = "0.0.0.0", help = "Bind address for remote connections")]
+        #[arg(long, default_value = "127.0.0.1", help = "Bind address for remote connections (use 0.0.0.0 to listen on all interfaces)")]
         bind: String,
     },
 
@@ -801,6 +801,20 @@ mod tests {
                 assert_eq!(new_name, "new-window-name");
             }
             _ => panic!("Expected RenameWindow command"),
+        }
+    }
+
+    #[test]
+    fn test_cli_remote_binds_loopback_by_default() {
+        let args = vec!["ferrix", "server", "--remote"];
+        let cli = Cli::try_parse_from(args).unwrap();
+
+        match cli.command {
+            Some(Commands::Server { remote, bind, .. }) => {
+                assert!(remote);
+                assert_eq!(bind, "127.0.0.1");
+            }
+            _ => panic!("Expected Server command"),
         }
     }
 }
