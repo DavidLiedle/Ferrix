@@ -99,9 +99,12 @@ async fn async_main(cli: Cli) -> Result<()> {
                         .map_err(|e| ferrix::error::FerrixError::Other(format!("Failed to create auth handler: {}", e)))?
                 );
 
-                // Ensure default admin user exists for testing
-                auth_handler.ensure_default_admin().await
-                    .map_err(|e| ferrix::error::FerrixError::Other(format!("Failed to ensure default admin: {}", e)))?;
+                // Remote access is a shell: never start it without operator-chosen credentials.
+                if !auth_handler.has_users().await {
+                    return Err(ferrix::error::FerrixError::Other(
+                        "Remote access requires at least one user. Add one with `ferrix user-management add <username>` and try again.".to_string()
+                    ));
+                }
 
                 let mut remote_server = RemoteServer::new(bind_addr, server.clone(), auth_handler);
 
