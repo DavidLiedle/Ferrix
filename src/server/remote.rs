@@ -602,14 +602,13 @@ impl PasswordAuthHandler {
         self.user_store.add_user(username, password).await
     }
 
-    pub async fn ensure_default_admin(&self) -> Result<()> {
-        // Check if any users exist
-        if self.user_store.user_count().await == 0 {
-            // Create default admin user
-            let admin_client_id = self.user_store.add_user("admin".to_string(), "password".to_string()).await?;
-            tracing::info!("Created default admin user with client ID: {}", admin_client_id.0);
-        }
-        Ok(())
+    /// True if at least one remote user has been configured.
+    ///
+    /// The remote server refuses to start without one. There is deliberately
+    /// no built-in default account: remote access is a shell, so credentials
+    /// must always be chosen by the operator.
+    pub async fn has_users(&self) -> bool {
+        self.user_store.user_count().await > 0
     }
 }
 #[cfg(test)]
@@ -626,5 +625,37 @@ mod tests {
     fn test_remote_authentication() {
         // Test remote authentication
         assert!(true);
+    }
+
+    #[tokio::test]
+    async fn remote_access_has_no_default_credentials() {
+        use super::{AuthenticationHandler, PasswordAuthHandler};
+        use crate::auth::UserStore;
+        use crate::protocol::AuthCredentials;
+        use std::sync::Arc;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = UserStore::new_with_path(dir.path().join("users.json"))
+            .await
+            .unwrap();
+        let auth = PasswordAuthHandler::new_with_store(Arc::new(store)).await;
+
+        // A fresh store has no users, so the remote server must refuse to start.
+        assert!(!auth.has_users().await);
+
+        // The credentials older versions created automatically must not work.
+        let old_default = AuthCredentials {
+            username: "admin".to_string(),
+            password: Some("password".to_string()),
+            token: None,
+            certificate: None,
+        };
+        assert!(auth.authenticate(&old_default).await.is_err());
+
+        // Once an operator adds a user, remote access can start.
+        auth.add_user("operator".to_string(), "a-real-passphrase".to_string())
+            .await
+            .unwrap();
+        assert!(auth.has_users().await);
     }
 }
